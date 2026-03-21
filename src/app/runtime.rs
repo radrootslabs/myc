@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::config::MycConfig;
 use crate::error::MycError;
-use crate::transport::{MycNostrTransport, MycTransportSnapshot};
+use crate::transport::{MycNip46Service, MycNostrTransport, MycTransportSnapshot};
 use radroots_identity::{RadrootsIdentity, RadrootsIdentityPublic};
 use radroots_nostr_signer::prelude::{RadrootsNostrFileSignerStore, RadrootsNostrSignerManager};
 
@@ -74,27 +74,31 @@ impl MycRuntime {
     }
 
     pub fn signer_identity(&self) -> &RadrootsIdentity {
-        &self.signer.signer_identity
+        self.signer.signer_identity()
     }
 
     pub fn signer_public_identity(&self) -> RadrootsIdentityPublic {
-        self.signer.signer_identity.to_public()
+        self.signer.signer_public_identity()
     }
 
     pub fn user_identity(&self) -> &RadrootsIdentity {
-        &self.signer.user_identity
+        self.signer.user_identity()
     }
 
     pub fn user_public_identity(&self) -> RadrootsIdentityPublic {
-        self.signer.user_identity.to_public()
+        self.signer.user_public_identity()
     }
 
     pub fn signer_manager(&self) -> &RadrootsNostrSignerManager {
-        &self.signer.manager
+        self.signer.signer_manager()
     }
 
     pub fn transport(&self) -> Option<&MycNostrTransport> {
         self.transport.as_ref()
+    }
+
+    pub(crate) fn signer_context(&self) -> MycSignerContext {
+        self.signer.clone()
     }
 
     pub fn snapshot(&self) -> MycStartupSnapshot {
@@ -138,6 +142,10 @@ impl MycRuntime {
             transport_connect_timeout_secs = snapshot.transport.connect_timeout_secs,
             "myc runtime bootstrapped"
         );
+        if let Some(transport) = self.transport.clone() {
+            let service = MycNip46Service::new(self.signer_context(), transport);
+            return service.run().await;
+        }
         Ok(())
     }
 
@@ -168,6 +176,26 @@ impl MycRuntimePaths {
 }
 
 impl MycSignerContext {
+    pub fn signer_identity(&self) -> &RadrootsIdentity {
+        &self.signer_identity
+    }
+
+    pub fn signer_public_identity(&self) -> RadrootsIdentityPublic {
+        self.signer_identity.to_public()
+    }
+
+    pub fn user_identity(&self) -> &RadrootsIdentity {
+        &self.user_identity
+    }
+
+    pub fn user_public_identity(&self) -> RadrootsIdentityPublic {
+        self.user_identity.to_public()
+    }
+
+    pub fn signer_manager(&self) -> &RadrootsNostrSignerManager {
+        &self.manager
+    }
+
     fn bootstrap(paths: &MycRuntimePaths) -> Result<Self, MycError> {
         let signer_identity = RadrootsIdentity::load_from_path_auto(&paths.signer_identity_path)?;
         let user_identity = RadrootsIdentity::load_from_path_auto(&paths.user_identity_path)?;

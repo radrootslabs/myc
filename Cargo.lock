@@ -917,10 +917,13 @@ dependencies = [
 name = "myc"
 version = "0.1.0"
 dependencies = [
+ "nostr",
  "radroots-identity",
  "radroots-nostr",
+ "radroots-nostr-connect",
  "radroots-nostr-signer",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

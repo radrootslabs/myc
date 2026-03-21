@@ -14,12 +14,15 @@ resolver = "2"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
 
 [dependencies]
+nostr = { version = "0.44.2", features = ["nip04", "nip44"] }
 radroots-identity = { path = "../lib/crates/identity" }
 radroots-nostr = { path = "../lib/crates/nostr", features = ["client"] }
+radroots-nostr-connect = { path = "../lib/crates/nostr-connect" }
 radroots-nostr-signer = { path = "../lib/crates/nostr-signer" }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 thiserror = "2.0"
-tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "sync"] }
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

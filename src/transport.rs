@@ -1,8 +1,14 @@
+pub mod nip46;
+
+use std::time::Duration;
+
 use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{RadrootsNostrClient, RadrootsNostrRelayUrl};
 
 use crate::config::MycTransportConfig;
 use crate::error::MycError;
+
+pub use nip46::{MycNip46Handler, MycNip46Service};
 
 #[derive(Clone)]
 pub struct MycNostrTransport {
@@ -44,6 +50,17 @@ impl MycNostrTransport {
 
     pub fn connect_timeout_secs(&self) -> u64 {
         self.connect_timeout_secs
+    }
+
+    pub async fn connect(&self) -> Result<(), MycError> {
+        for relay in &self.relays {
+            let _ = self.client.add_relay(relay.as_str()).await?;
+        }
+        self.client.connect().await;
+        self.client
+            .wait_for_connection(Duration::from_secs(self.connect_timeout_secs))
+            .await;
+        Ok(())
     }
 
     pub fn snapshot(&self) -> MycTransportSnapshot {

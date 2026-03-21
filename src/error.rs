@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
 use radroots_identity::IdentityError;
+use radroots_nostr::prelude::RadrootsNostrError;
+use radroots_nostr_connect::prelude::RadrootsNostrConnectError;
 use radroots_nostr_signer::prelude::RadrootsNostrSignerError;
 use thiserror::Error;
 
@@ -37,7 +39,17 @@ pub enum MycError {
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error(transparent)]
+    Nostr(#[from] RadrootsNostrError),
+    #[error(transparent)]
+    NostrConnect(#[from] RadrootsNostrConnectError),
+    #[error(transparent)]
     SignerState(#[from] RadrootsNostrSignerError),
+    #[error("NIP-46 decrypt failed: {0}")]
+    Nip46Decrypt(String),
+    #[error("NIP-46 encrypt failed: {0}")]
+    Nip46Encrypt(String),
+    #[error("NIP-46 listener notifications closed")]
+    Nip46ListenerClosed,
     #[error(
         "configured signer identity `{configured_identity_id}` at {identity_path} does not match persisted signer identity `{persisted_identity_id}` in {state_path}"
     )]
