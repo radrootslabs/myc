@@ -6,8 +6,7 @@ use radroots_nostr::prelude::{
     RadrootsNostrTag, RadrootsNostrTimestamp, radroots_nostr_filter_tag, radroots_nostr_kind,
 };
 use radroots_nostr_connect::prelude::{
-    RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectMethod, RadrootsNostrConnectPermission,
-    RadrootsNostrConnectPermissions, RadrootsNostrConnectRequest,
+    RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectPermissions, RadrootsNostrConnectRequest,
     RadrootsNostrConnectRequestMessage, RadrootsNostrConnectResponse,
 };
 use radroots_nostr_signer::prelude::{
@@ -97,6 +96,9 @@ impl MycNip46Handler {
             RadrootsNostrConnectRequest::Connect { secret, .. } => {
                 self.handle_connect_request(client_public_key, request_message.request, secret)
             }
+            RadrootsNostrConnectRequest::SignEvent(unsigned_event) => {
+                self.handle_sign_event_request(client_public_key, request_message, unsigned_event)
+            }
             RadrootsNostrConnectRequest::GetPublicKey
             | RadrootsNostrConnectRequest::Ping
             | RadrootsNostrConnectRequest::SwitchRelays => {
@@ -148,24 +150,9 @@ impl MycNip46Handler {
         client_public_key: RadrootsNostrPublicKey,
         request_message: RadrootsNostrConnectRequestMessage,
     ) -> Result<RadrootsNostrConnectResponse, MycError> {
-        let connection = match self
-            .signer
-            .signer_manager()
-            .lookup_session(&client_public_key, None)?
-        {
-            RadrootsNostrSignerSessionLookup::Connection(connection) => connection,
-            RadrootsNostrSignerSessionLookup::None => {
-                return Ok(RadrootsNostrConnectResponse::Error {
-                    result: None,
-                    error: "unauthorized".to_owned(),
-                });
-            }
-            RadrootsNostrSignerSessionLookup::Ambiguous(_) => {
-                return Ok(RadrootsNostrConnectResponse::Error {
-                    result: None,
-                    error: "ambiguous client sessions".to_owned(),
-                });
-            }
+        let connection = match self.lookup_connection(client_public_key)? {
+            Ok(connection) => connection,
+            Err(response) => return Ok(response),
         };
 
         let evaluation = self
@@ -186,6 +173,87 @@ impl MycNip46Handler {
             RadrootsNostrSignerRequestAction::Allowed { response_hint, .. } => {
                 response_from_hint(&evaluation.connection, response_hint)
             }
+        }
+    }
+
+    fn handle_sign_event_request(
+        &self,
+        client_public_key: RadrootsNostrPublicKey,
+        request_message: RadrootsNostrConnectRequestMessage,
+        unsigned_event: nostr::UnsignedEvent,
+    ) -> Result<RadrootsNostrConnectResponse, MycError> {
+        let connection = match self.lookup_connection(client_public_key)? {
+            Ok(connection) => connection,
+            Err(response) => return Ok(response),
+        };
+
+        let evaluation = self
+            .signer
+            .signer_manager()
+            .evaluate_request(&connection.connection_id, request_message)?;
+
+        match evaluation.action {
+            RadrootsNostrSignerRequestAction::Denied { reason } => {
+                Ok(RadrootsNostrConnectResponse::Error {
+                    result: None,
+                    error: reason,
+                })
+            }
+            RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => Ok(
+                RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
+            ),
+            RadrootsNostrSignerRequestAction::Allowed { .. } => {
+                self.sign_event_response(unsigned_event)
+            }
+        }
+    }
+
+    fn lookup_connection(
+        &self,
+        client_public_key: RadrootsNostrPublicKey,
+    ) -> Result<Result<RadrootsNostrSignerConnectionRecord, RadrootsNostrConnectResponse>, MycError>
+    {
+        Ok(
+            match self
+                .signer
+                .signer_manager()
+                .lookup_session(&client_public_key, None)?
+            {
+                RadrootsNostrSignerSessionLookup::Connection(connection) => Ok(connection),
+                RadrootsNostrSignerSessionLookup::None => {
+                    Err(RadrootsNostrConnectResponse::Error {
+                        result: None,
+                        error: "unauthorized".to_owned(),
+                    })
+                }
+                RadrootsNostrSignerSessionLookup::Ambiguous(_) => {
+                    Err(RadrootsNostrConnectResponse::Error {
+                        result: None,
+                        error: "ambiguous client sessions".to_owned(),
+                    })
+                }
+            },
+        )
+    }
+
+    fn sign_event_response(
+        &self,
+        unsigned_event: nostr::UnsignedEvent,
+    ) -> Result<RadrootsNostrConnectResponse, MycError> {
+        let user_public_key = self.signer.user_identity().public_key();
+        if unsigned_event.pubkey != user_public_key {
+            return Ok(RadrootsNostrConnectResponse::Error {
+                result: None,
+                error: "sign_event pubkey does not match the managed user identity".to_owned(),
+            });
+        }
+
+        match unsigned_event.sign_with_keys(self.signer.user_identity().keys()) {
+            Ok(event) => Ok(RadrootsNostrConnectResponse::SignedEvent(event)),
+            Err(error) => Ok(RadrootsNostrConnectResponse::Error {
+                result: None,
+                error: format!("failed to sign event: {error}"),
+            }),
         }
     }
 }
@@ -270,11 +338,6 @@ fn grant_permissions_for_new_connection(
     requested_permissions: RadrootsNostrConnectPermissions,
 ) -> RadrootsNostrConnectPermissions {
     let mut granted = requested_permissions.into_vec();
-    let switch_relays =
-        RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::SwitchRelays);
-    if !granted.contains(&switch_relays) {
-        granted.push(switch_relays);
-    }
     granted.sort();
     granted.dedup();
     granted.into()
@@ -307,7 +370,7 @@ fn response_from_hint(
 mod tests {
     use nostr::nips::nip44;
     use nostr::nips::nip44::Version;
-    use nostr::{EventBuilder, Keys, PublicKey, SecretKey};
+    use nostr::{EventBuilder, Keys, PublicKey, SecretKey, Timestamp, UnsignedEvent};
     use radroots_nostr::prelude::{RadrootsNostrTag, radroots_nostr_kind};
     use radroots_nostr_connect::prelude::{
         RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectMethod,
@@ -315,6 +378,7 @@ mod tests {
         RadrootsNostrConnectRequestMessage, RadrootsNostrConnectResponse,
         RadrootsNostrConnectResponseEnvelope,
     };
+    use serde_json::json;
 
     use crate::app::MycRuntime;
     use crate::config::MycConfig;
@@ -391,6 +455,24 @@ mod tests {
         )])
         .sign_with_keys(&client_keys)
         .expect("sign request")
+    }
+
+    fn sign_event_permission(kind: u16) -> RadrootsNostrConnectPermission {
+        RadrootsNostrConnectPermission::with_parameter(
+            RadrootsNostrConnectMethod::SignEvent,
+            format!("kind:{kind}"),
+        )
+    }
+
+    fn unsigned_event(pubkey: PublicKey, kind: u16, content: &str) -> UnsignedEvent {
+        serde_json::from_value(json!({
+            "pubkey": pubkey.to_hex(),
+            "created_at": Timestamp::from(1).as_secs(),
+            "kind": kind,
+            "tags": [],
+            "content": content
+        }))
+        .expect("unsigned event")
     }
 
     #[test]
@@ -472,7 +554,10 @@ mod tests {
                     RadrootsNostrConnectRequest::Connect {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: None,
-                        requested_permissions: Default::default(),
+                        requested_permissions: vec![RadrootsNostrConnectPermission::new(
+                            RadrootsNostrConnectMethod::SwitchRelays,
+                        )]
+                        .into(),
                     },
                 ),
             )
@@ -521,7 +606,79 @@ mod tests {
     }
 
     #[test]
-    fn new_connections_auto_grant_switch_relays() {
+    fn new_connections_preserve_requested_permissions_without_expansion() {
+        let runtime = runtime();
+        let handler = handler(&runtime);
+        handler
+            .handle_request(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: None,
+                        requested_permissions: vec![sign_event_permission(1)].into(),
+                    },
+                ),
+            )
+            .expect("connect");
+
+        let connection = runtime
+            .signer_manager()
+            .list_connections()
+            .expect("connections")
+            .into_iter()
+            .next()
+            .expect("connection");
+        assert_eq!(
+            connection.granted_permissions().as_slice(),
+            &[sign_event_permission(1)]
+        );
+    }
+
+    #[test]
+    fn sign_event_returns_signed_event_for_managed_user_key() {
+        let runtime = runtime();
+        let handler = handler(&runtime);
+        handler
+            .handle_request(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: None,
+                        requested_permissions: vec![sign_event_permission(1)].into(),
+                    },
+                ),
+            )
+            .expect("connect");
+
+        let response = handler
+            .handle_request(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-sign",
+                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                        runtime.user_identity().public_key(),
+                        1,
+                        "hello world",
+                    )),
+                ),
+            )
+            .expect("sign event");
+
+        let RadrootsNostrConnectResponse::SignedEvent(event) = response else {
+            panic!("unexpected sign_event response");
+        };
+        assert_eq!(event.pubkey, runtime.user_identity().public_key());
+        assert_eq!(event.kind.as_u16(), 1);
+        assert_eq!(event.content, "hello world");
+        assert!(event.verify_signature());
+    }
+
+    #[test]
+    fn sign_event_is_denied_without_permission() {
         let runtime = runtime();
         let handler = handler(&runtime);
         handler
@@ -538,15 +695,67 @@ mod tests {
             )
             .expect("connect");
 
-        let connection = runtime
-            .signer_manager()
-            .list_connections()
-            .expect("connections")
-            .into_iter()
-            .next()
-            .expect("connection");
-        assert!(connection.granted_permissions().as_slice().contains(
-            &RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::SwitchRelays,)
-        ));
+        let response = handler
+            .handle_request(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-sign",
+                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                        runtime.user_identity().public_key(),
+                        1,
+                        "hello world",
+                    )),
+                ),
+            )
+            .expect("sign event");
+
+        assert_eq!(
+            response,
+            RadrootsNostrConnectResponse::Error {
+                result: None,
+                error: "unauthorized sign_event".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn sign_event_rejects_pubkey_mismatch() {
+        let runtime = runtime();
+        let handler = handler(&runtime);
+        handler
+            .handle_request(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: None,
+                        requested_permissions: vec![sign_event_permission(1)].into(),
+                    },
+                ),
+            )
+            .expect("connect");
+
+        let response = handler
+            .handle_request(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-sign",
+                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                        client_keys().public_key(),
+                        1,
+                        "hello world",
+                    )),
+                ),
+            )
+            .expect("sign event");
+
+        assert_eq!(
+            response,
+            RadrootsNostrConnectResponse::Error {
+                result: None,
+                error: "sign_event pubkey does not match the managed user identity".to_owned(),
+            }
+        );
     }
 }
