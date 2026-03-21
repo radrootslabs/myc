@@ -1,3 +1,4 @@
+use nostr::nips::nip04;
 use nostr::nips::nip44;
 use nostr::nips::nip44::Version;
 use radroots_nostr::prelude::{
@@ -98,6 +99,12 @@ impl MycNip46Handler {
             }
             RadrootsNostrConnectRequest::SignEvent(unsigned_event) => {
                 self.handle_sign_event_request(client_public_key, request_message, unsigned_event)
+            }
+            RadrootsNostrConnectRequest::Nip04Encrypt { .. }
+            | RadrootsNostrConnectRequest::Nip04Decrypt { .. }
+            | RadrootsNostrConnectRequest::Nip44Encrypt { .. }
+            | RadrootsNostrConnectRequest::Nip44Decrypt { .. } => {
+                self.handle_crypto_request(client_public_key, request_message)
             }
             RadrootsNostrConnectRequest::GetPublicKey
             | RadrootsNostrConnectRequest::Ping
@@ -208,6 +215,36 @@ impl MycNip46Handler {
         }
     }
 
+    fn handle_crypto_request(
+        &self,
+        client_public_key: RadrootsNostrPublicKey,
+        request_message: RadrootsNostrConnectRequestMessage,
+    ) -> Result<RadrootsNostrConnectResponse, MycError> {
+        let request = request_message.request.clone();
+        let connection = match self.lookup_connection(client_public_key)? {
+            Ok(connection) => connection,
+            Err(response) => return Ok(response),
+        };
+
+        let evaluation = self
+            .signer
+            .signer_manager()
+            .evaluate_request(&connection.connection_id, request_message)?;
+
+        match evaluation.action {
+            RadrootsNostrSignerRequestAction::Denied { reason } => {
+                Ok(RadrootsNostrConnectResponse::Error {
+                    result: None,
+                    error: reason,
+                })
+            }
+            RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => Ok(
+                RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
+            ),
+            RadrootsNostrSignerRequestAction::Allowed { .. } => self.crypto_response(request),
+        }
+    }
+
     fn lookup_connection(
         &self,
         client_public_key: RadrootsNostrPublicKey,
@@ -255,6 +292,59 @@ impl MycNip46Handler {
                 error: format!("failed to sign event: {error}"),
             }),
         }
+    }
+
+    fn crypto_response(
+        &self,
+        request: RadrootsNostrConnectRequest,
+    ) -> Result<RadrootsNostrConnectResponse, MycError> {
+        let user_secret_key = self.signer.user_identity().keys().secret_key();
+        Ok(match request {
+            RadrootsNostrConnectRequest::Nip04Encrypt {
+                public_key,
+                plaintext,
+            } => match nip04::encrypt(user_secret_key, &public_key, plaintext) {
+                Ok(ciphertext) => RadrootsNostrConnectResponse::Nip04Encrypt(ciphertext),
+                Err(error) => RadrootsNostrConnectResponse::Error {
+                    result: None,
+                    error: format!("nip04 encrypt failed: {error}"),
+                },
+            },
+            RadrootsNostrConnectRequest::Nip04Decrypt {
+                public_key,
+                ciphertext,
+            } => match nip04::decrypt(user_secret_key, &public_key, ciphertext) {
+                Ok(plaintext) => RadrootsNostrConnectResponse::Nip04Decrypt(plaintext),
+                Err(error) => RadrootsNostrConnectResponse::Error {
+                    result: None,
+                    error: format!("nip04 decrypt failed: {error}"),
+                },
+            },
+            RadrootsNostrConnectRequest::Nip44Encrypt {
+                public_key,
+                plaintext,
+            } => match nip44::encrypt(user_secret_key, &public_key, plaintext, Version::V2) {
+                Ok(ciphertext) => RadrootsNostrConnectResponse::Nip44Encrypt(ciphertext),
+                Err(error) => RadrootsNostrConnectResponse::Error {
+                    result: None,
+                    error: format!("nip44 encrypt failed: {error}"),
+                },
+            },
+            RadrootsNostrConnectRequest::Nip44Decrypt {
+                public_key,
+                ciphertext,
+            } => match nip44::decrypt(user_secret_key, &public_key, ciphertext) {
+                Ok(plaintext) => RadrootsNostrConnectResponse::Nip44Decrypt(plaintext),
+                Err(error) => RadrootsNostrConnectResponse::Error {
+                    result: None,
+                    error: format!("nip44 decrypt failed: {error}"),
+                },
+            },
+            other => RadrootsNostrConnectResponse::Error {
+                result: None,
+                error: format!("request `{}` is not a crypto method", other.method()),
+            },
+        })
     }
 }
 
@@ -368,6 +458,7 @@ fn response_from_hint(
 
 #[cfg(test)]
 mod tests {
+    use nostr::nips::nip04;
     use nostr::nips::nip44;
     use nostr::nips::nip44::Version;
     use nostr::{EventBuilder, Keys, PublicKey, SecretKey, Timestamp, UnsignedEvent};
@@ -473,6 +564,26 @@ mod tests {
             "content": content
         }))
         .expect("unsigned event")
+    }
+
+    fn connect_with_permissions(
+        handler: &MycNip46Handler,
+        runtime: &MycRuntime,
+        requested_permissions: Vec<RadrootsNostrConnectPermission>,
+    ) {
+        handler
+            .handle_request(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: None,
+                        requested_permissions: requested_permissions.into(),
+                    },
+                ),
+            )
+            .expect("connect");
     }
 
     #[test]
@@ -640,19 +751,7 @@ mod tests {
     fn sign_event_returns_signed_event_for_managed_user_key() {
         let runtime = runtime();
         let handler = handler(&runtime);
-        handler
-            .handle_request(
-                client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
-                    "req-connect",
-                    RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
-                        secret: None,
-                        requested_permissions: vec![sign_event_permission(1)].into(),
-                    },
-                ),
-            )
-            .expect("connect");
+        connect_with_permissions(&handler, &runtime, vec![sign_event_permission(1)]);
 
         let response = handler
             .handle_request(
@@ -681,19 +780,7 @@ mod tests {
     fn sign_event_is_denied_without_permission() {
         let runtime = runtime();
         let handler = handler(&runtime);
-        handler
-            .handle_request(
-                client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
-                    "req-connect",
-                    RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
-                        secret: None,
-                        requested_permissions: Default::default(),
-                    },
-                ),
-            )
-            .expect("connect");
+        connect_with_permissions(&handler, &runtime, Vec::new());
 
         let response = handler
             .handle_request(
@@ -722,19 +809,7 @@ mod tests {
     fn sign_event_rejects_pubkey_mismatch() {
         let runtime = runtime();
         let handler = handler(&runtime);
-        handler
-            .handle_request(
-                client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
-                    "req-connect",
-                    RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
-                        secret: None,
-                        requested_permissions: vec![sign_event_permission(1)].into(),
-                    },
-                ),
-            )
-            .expect("connect");
+        connect_with_permissions(&handler, &runtime, vec![sign_event_permission(1)]);
 
         let response = handler
             .handle_request(
@@ -755,6 +830,165 @@ mod tests {
             RadrootsNostrConnectResponse::Error {
                 result: None,
                 error: "sign_event pubkey does not match the managed user identity".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn nip04_encrypt_and_decrypt_roundtrip_on_managed_user_identity() {
+        let runtime = runtime();
+        let handler = handler(&runtime);
+        connect_with_permissions(
+            &handler,
+            &runtime,
+            vec![
+                RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip04Encrypt),
+                RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip04Decrypt),
+            ],
+        );
+
+        let encrypt_response = handler
+            .handle_request(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-nip04-encrypt",
+                    RadrootsNostrConnectRequest::Nip04Encrypt {
+                        public_key: client_keys().public_key(),
+                        plaintext: "hello from myc".to_owned(),
+                    },
+                ),
+            )
+            .expect("nip04 encrypt");
+        let RadrootsNostrConnectResponse::Nip04Encrypt(ciphertext) = encrypt_response else {
+            panic!("unexpected nip04 encrypt response");
+        };
+        assert_eq!(
+            nip04::decrypt(
+                client_keys().secret_key(),
+                &runtime.user_identity().public_key(),
+                ciphertext.clone(),
+            )
+            .expect("client decrypt"),
+            "hello from myc"
+        );
+
+        let client_ciphertext = nip04::encrypt(
+            client_keys().secret_key(),
+            &runtime.user_identity().public_key(),
+            "hello to myc",
+        )
+        .expect("client encrypt");
+        let decrypt_response = handler
+            .handle_request(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-nip04-decrypt",
+                    RadrootsNostrConnectRequest::Nip04Decrypt {
+                        public_key: client_keys().public_key(),
+                        ciphertext: client_ciphertext,
+                    },
+                ),
+            )
+            .expect("nip04 decrypt");
+        assert_eq!(
+            decrypt_response,
+            RadrootsNostrConnectResponse::Nip04Decrypt("hello to myc".to_owned())
+        );
+    }
+
+    #[test]
+    fn nip44_encrypt_and_decrypt_roundtrip_on_managed_user_identity() {
+        let runtime = runtime();
+        let handler = handler(&runtime);
+        connect_with_permissions(
+            &handler,
+            &runtime,
+            vec![
+                RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip44Encrypt),
+                RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip44Decrypt),
+            ],
+        );
+
+        let encrypt_response = handler
+            .handle_request(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-nip44-encrypt",
+                    RadrootsNostrConnectRequest::Nip44Encrypt {
+                        public_key: client_keys().public_key(),
+                        plaintext: "hello from myc".to_owned(),
+                    },
+                ),
+            )
+            .expect("nip44 encrypt");
+        let RadrootsNostrConnectResponse::Nip44Encrypt(ciphertext) = encrypt_response else {
+            panic!("unexpected nip44 encrypt response");
+        };
+        assert_eq!(
+            nip44::decrypt(
+                client_keys().secret_key(),
+                &runtime.user_identity().public_key(),
+                ciphertext.clone(),
+            )
+            .expect("client decrypt"),
+            "hello from myc"
+        );
+
+        let client_ciphertext = nip44::encrypt(
+            client_keys().secret_key(),
+            &runtime.user_identity().public_key(),
+            "hello to myc",
+            Version::V2,
+        )
+        .expect("client encrypt");
+        let decrypt_response = handler
+            .handle_request(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-nip44-decrypt",
+                    RadrootsNostrConnectRequest::Nip44Decrypt {
+                        public_key: client_keys().public_key(),
+                        ciphertext: client_ciphertext,
+                    },
+                ),
+            )
+            .expect("nip44 decrypt");
+        assert_eq!(
+            decrypt_response,
+            RadrootsNostrConnectResponse::Nip44Decrypt("hello to myc".to_owned())
+        );
+    }
+
+    #[test]
+    fn nip04_decrypt_is_denied_without_matching_permission() {
+        let runtime = runtime();
+        let handler = handler(&runtime);
+        connect_with_permissions(
+            &handler,
+            &runtime,
+            vec![RadrootsNostrConnectPermission::new(
+                RadrootsNostrConnectMethod::Nip04Encrypt,
+            )],
+        );
+
+        let response = handler
+            .handle_request(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-nip04-decrypt",
+                    RadrootsNostrConnectRequest::Nip04Decrypt {
+                        public_key: client_keys().public_key(),
+                        ciphertext: "invalid".to_owned(),
+                    },
+                ),
+            )
+            .expect("nip04 decrypt");
+
+        assert_eq!(
+            response,
+            RadrootsNostrConnectResponse::Error {
+                result: None,
+                error: "unauthorized nip04_decrypt".to_owned(),
             }
         );
     }
