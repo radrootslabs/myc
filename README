@@ -1,0 +1,14 @@
+# mycorrhiza
+
+This is the README for `myc` which provides a Nostr remote signer for
+standalone and application-embedded clients.
+
+## Copyright
+
+Except as otherwise noted, all files in the `myc` distribution are
+
+    Copyright (c) 2026 Tyson Lupul
+
+## License
+
+This repository is licensed under AGPL-3.0-or-later. See LICENSE.
