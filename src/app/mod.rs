@@ -40,13 +40,11 @@ mod tests {
 
     use super::MycApp;
 
-    fn write_test_identity(path: &std::path::Path) {
-        RadrootsIdentity::from_secret_key_str(
-            "1111111111111111111111111111111111111111111111111111111111111111",
-        )
-        .expect("identity from secret")
-        .save_json(path)
-        .expect("write identity");
+    fn write_test_identity(path: &std::path::Path, secret_key: &str) {
+        RadrootsIdentity::from_secret_key_str(secret_key)
+            .expect("identity from secret")
+            .save_json(path)
+            .expect("write identity");
     }
 
     #[test]
@@ -55,7 +53,15 @@ mod tests {
         let mut config = MycConfig::default();
         config.paths.state_dir = PathBuf::from(temp.path()).join("state");
         config.paths.signer_identity_path = temp.path().join("identity.json");
-        write_test_identity(&config.paths.signer_identity_path);
+        config.paths.user_identity_path = temp.path().join("user.json");
+        write_test_identity(
+            &config.paths.signer_identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_test_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
 
         let app = MycApp::bootstrap(config).expect("bootstrap");
         let snapshot = app.snapshot();
@@ -63,8 +69,11 @@ mod tests {
         assert!(snapshot.state_dir.ends_with("state"));
         assert!(snapshot.audit_dir.ends_with("audit"));
         assert!(snapshot.signer_identity_path.ends_with("identity.json"));
+        assert!(snapshot.user_identity_path.ends_with("user.json"));
         assert!(snapshot.signer_state_path.ends_with("signer-state.json"));
         assert!(!snapshot.signer_identity_id.is_empty());
         assert!(!snapshot.signer_public_key_hex.is_empty());
+        assert!(!snapshot.user_identity_id.is_empty());
+        assert!(!snapshot.user_public_key_hex.is_empty());
     }
 }

@@ -34,6 +34,7 @@ pub struct MycLoggingConfig {
 pub struct MycPathsConfig {
     pub state_dir: PathBuf,
     pub signer_identity_path: PathBuf,
+    pub user_identity_path: PathBuf,
 }
 
 impl Default for MycConfig {
@@ -67,6 +68,7 @@ impl Default for MycPathsConfig {
         Self {
             state_dir: PathBuf::from("var"),
             signer_identity_path: PathBuf::from(DEFAULT_IDENTITY_PATH),
+            user_identity_path: PathBuf::from(DEFAULT_IDENTITY_PATH),
         }
     }
 }
@@ -132,6 +134,12 @@ impl MycConfig {
             ));
         }
 
+        if self.paths.user_identity_path.as_os_str().is_empty() {
+            return Err(MycError::InvalidConfig(
+                "paths.user_identity_path must not be empty".to_owned(),
+            ));
+        }
+
         Ok(())
     }
 
@@ -159,6 +167,10 @@ mod tests {
             config.paths.signer_identity_path,
             PathBuf::from(DEFAULT_IDENTITY_PATH)
         );
+        assert_eq!(
+            config.paths.user_identity_path,
+            PathBuf::from(DEFAULT_IDENTITY_PATH)
+        );
     }
 
     #[test]
@@ -174,6 +186,7 @@ mod tests {
                 [paths]
                 state_dir = "/tmp/myc"
                 signer_identity_path = "/tmp/myc-identity.json"
+                user_identity_path = "/tmp/myc-user.json"
             "#,
         )
         .expect("config");
@@ -184,6 +197,10 @@ mod tests {
         assert_eq!(
             config.paths.signer_identity_path,
             PathBuf::from("/tmp/myc-identity.json")
+        );
+        assert_eq!(
+            config.paths.user_identity_path,
+            PathBuf::from("/tmp/myc-user.json")
         );
     }
 

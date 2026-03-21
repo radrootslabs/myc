@@ -12,6 +12,7 @@ pub struct MycRuntimePaths {
     pub state_dir: PathBuf,
     pub audit_dir: PathBuf,
     pub signer_identity_path: PathBuf,
+    pub user_identity_path: PathBuf,
     pub signer_state_path: PathBuf,
 }
 
@@ -22,14 +23,18 @@ pub struct MycStartupSnapshot {
     pub state_dir: PathBuf,
     pub audit_dir: PathBuf,
     pub signer_identity_path: PathBuf,
+    pub user_identity_path: PathBuf,
     pub signer_state_path: PathBuf,
     pub signer_identity_id: String,
     pub signer_public_key_hex: String,
+    pub user_identity_id: String,
+    pub user_public_key_hex: String,
 }
 
 #[derive(Clone)]
 pub struct MycSignerContext {
-    identity: RadrootsIdentity,
+    signer_identity: RadrootsIdentity,
+    user_identity: RadrootsIdentity,
     manager: RadrootsNostrSignerManager,
 }
 
@@ -64,11 +69,19 @@ impl MycRuntime {
     }
 
     pub fn signer_identity(&self) -> &RadrootsIdentity {
-        &self.signer.identity
+        &self.signer.signer_identity
     }
 
     pub fn signer_public_identity(&self) -> RadrootsIdentityPublic {
-        self.signer.identity.to_public()
+        self.signer.signer_identity.to_public()
+    }
+
+    pub fn user_identity(&self) -> &RadrootsIdentity {
+        &self.signer.user_identity
+    }
+
+    pub fn user_public_identity(&self) -> RadrootsIdentityPublic {
+        self.signer.user_identity.to_public()
     }
 
     pub fn signer_manager(&self) -> &RadrootsNostrSignerManager {
@@ -76,16 +89,20 @@ impl MycRuntime {
     }
 
     pub fn snapshot(&self) -> MycStartupSnapshot {
-        let signer_public = self.signer.identity.to_public();
+        let signer_public = self.signer.signer_identity.to_public();
+        let user_public = self.signer.user_identity.to_public();
         MycStartupSnapshot {
             instance_name: self.config.service.instance_name.clone(),
             log_filter: self.config.logging.filter.clone(),
             state_dir: self.paths.state_dir.clone(),
             audit_dir: self.paths.audit_dir.clone(),
             signer_identity_path: self.paths.signer_identity_path.clone(),
+            user_identity_path: self.paths.user_identity_path.clone(),
             signer_state_path: self.paths.signer_state_path.clone(),
             signer_identity_id: signer_public.id.into_string(),
             signer_public_key_hex: signer_public.public_key_hex,
+            user_identity_id: user_public.id.into_string(),
+            user_public_key_hex: user_public.public_key_hex,
         }
     }
 
@@ -96,9 +113,12 @@ impl MycRuntime {
             state_dir = %snapshot.state_dir.display(),
             audit_dir = %snapshot.audit_dir.display(),
             signer_identity_path = %snapshot.signer_identity_path.display(),
+            user_identity_path = %snapshot.user_identity_path.display(),
             signer_state_path = %snapshot.signer_state_path.display(),
             signer_identity_id = %snapshot.signer_identity_id,
             signer_public_key_hex = %snapshot.signer_public_key_hex,
+            user_identity_id = %snapshot.user_identity_id,
+            user_public_key_hex = %snapshot.user_public_key_hex,
             "myc runtime bootstrapped"
         );
         Ok(())
@@ -122,6 +142,7 @@ impl MycRuntimePaths {
         let state_dir = config.paths.state_dir.clone();
         Self {
             signer_identity_path: config.paths.signer_identity_path.clone(),
+            user_identity_path: config.paths.user_identity_path.clone(),
             signer_state_path: state_dir.join("signer-state.json"),
             audit_dir: state_dir.join("audit"),
             state_dir,
@@ -131,11 +152,12 @@ impl MycRuntimePaths {
 
 impl MycSignerContext {
     fn bootstrap(paths: &MycRuntimePaths) -> Result<Self, MycError> {
-        let identity = RadrootsIdentity::load_from_path_auto(&paths.signer_identity_path)?;
+        let signer_identity = RadrootsIdentity::load_from_path_auto(&paths.signer_identity_path)?;
+        let user_identity = RadrootsIdentity::load_from_path_auto(&paths.user_identity_path)?;
         let manager = RadrootsNostrSignerManager::new(Arc::new(
             RadrootsNostrFileSignerStore::new(&paths.signer_state_path),
         ))?;
-        let configured_public = identity.to_public();
+        let configured_public = signer_identity.to_public();
 
         match manager.signer_identity()? {
             Some(existing) if existing.id != configured_public.id => {
@@ -150,7 +172,11 @@ impl MycSignerContext {
             None => manager.set_signer_identity(configured_public.clone())?,
         }
 
-        Ok(Self { identity, manager })
+        Ok(Self {
+            signer_identity,
+            user_identity,
+            manager,
+        })
     }
 }
 
@@ -169,13 +195,11 @@ mod tests {
 
     use super::MycRuntime;
 
-    fn write_test_identity(path: &std::path::Path) {
-        RadrootsIdentity::from_secret_key_str(
-            "1111111111111111111111111111111111111111111111111111111111111111",
-        )
-        .expect("identity from secret")
-        .save_json(path)
-        .expect("write identity");
+    fn write_test_identity(path: &std::path::Path, secret_key: &str) {
+        RadrootsIdentity::from_secret_key_str(secret_key)
+            .expect("identity from secret")
+            .save_json(path)
+            .expect("write identity");
     }
 
     #[test]
@@ -184,7 +208,15 @@ mod tests {
         let mut config = MycConfig::default();
         config.paths.state_dir = PathBuf::from(temp.path()).join("state");
         config.paths.signer_identity_path = temp.path().join("identity.json");
-        write_test_identity(&config.paths.signer_identity_path);
+        config.paths.user_identity_path = temp.path().join("user.json");
+        write_test_identity(
+            &config.paths.signer_identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_test_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
 
         let runtime = MycRuntime::bootstrap(config).expect("runtime");
         assert!(runtime.paths().state_dir.is_dir());
@@ -192,6 +224,10 @@ mod tests {
         assert_eq!(
             runtime.paths().signer_identity_path,
             temp.path().join("identity.json")
+        );
+        assert_eq!(
+            runtime.paths().user_identity_path,
+            temp.path().join("user.json")
         );
         assert!(
             runtime
@@ -209,6 +245,10 @@ mod tests {
                 .id
                 .to_string(),
             runtime.snapshot().signer_identity_id
+        );
+        assert_eq!(
+            runtime.user_identity().public_key_hex(),
+            runtime.snapshot().user_public_key_hex
         );
     }
 
@@ -228,7 +268,15 @@ mod tests {
     fn bootstrap_rejects_mismatched_persisted_signer_identity() {
         let temp = tempfile::tempdir().expect("tempdir");
         let identity_path = temp.path().join("identity.json");
-        write_test_identity(&identity_path);
+        let user_path = temp.path().join("user.json");
+        write_test_identity(
+            &identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_test_identity(
+            &user_path,
+            "3333333333333333333333333333333333333333333333333333333333333333",
+        );
 
         let store_identity = RadrootsIdentity::from_secret_key_str(
             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -245,11 +293,40 @@ mod tests {
         let mut config = MycConfig::default();
         config.paths.state_dir = temp.path().join("state");
         config.paths.signer_identity_path = identity_path;
+        config.paths.user_identity_path = user_path;
 
         let err = match MycRuntime::bootstrap(config) {
             Ok(_) => panic!("expected identity mismatch"),
             Err(err) => err,
         };
         assert!(matches!(err, MycError::SignerIdentityMismatch { .. }));
+    }
+
+    #[test]
+    fn bootstrap_keeps_signer_and_user_identities_distinct() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut config = MycConfig::default();
+        config.paths.state_dir = temp.path().join("state");
+        config.paths.signer_identity_path = temp.path().join("signer.json");
+        config.paths.user_identity_path = temp.path().join("user.json");
+        write_test_identity(
+            &config.paths.signer_identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_test_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
+
+        let runtime = MycRuntime::bootstrap(config).expect("runtime");
+
+        assert_ne!(
+            runtime.signer_public_identity().public_key_hex,
+            runtime.user_public_identity().public_key_hex
+        );
+        assert_ne!(
+            runtime.snapshot().signer_identity_id,
+            runtime.snapshot().user_identity_id
+        );
     }
 }
