@@ -1,13 +1,17 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::config::MycConfig;
 use crate::error::MycError;
+use radroots_identity::{RadrootsIdentity, RadrootsIdentityPublic};
+use radroots_nostr_signer::prelude::{RadrootsNostrFileSignerStore, RadrootsNostrSignerManager};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MycRuntimePaths {
     pub state_dir: PathBuf,
     pub audit_dir: PathBuf,
+    pub signer_identity_path: PathBuf,
     pub signer_state_path: PathBuf,
 }
 
@@ -17,24 +21,37 @@ pub struct MycStartupSnapshot {
     pub log_filter: String,
     pub state_dir: PathBuf,
     pub audit_dir: PathBuf,
+    pub signer_identity_path: PathBuf,
     pub signer_state_path: PathBuf,
+    pub signer_identity_id: String,
+    pub signer_public_key_hex: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
+pub struct MycSignerContext {
+    identity: RadrootsIdentity,
+    manager: RadrootsNostrSignerManager,
+}
+
+#[derive(Clone)]
 pub struct MycRuntime {
     config: MycConfig,
     paths: MycRuntimePaths,
+    signer: MycSignerContext,
 }
 
 impl MycRuntime {
     pub fn bootstrap(config: MycConfig) -> Result<Self, MycError> {
         config.validate()?;
 
+        let paths = MycRuntimePaths::from_config(&config);
+        Self::prepare_filesystem_for(&paths)?;
+        let signer = MycSignerContext::bootstrap(&paths)?;
         let runtime = Self {
-            paths: MycRuntimePaths::from_config(&config),
+            paths,
             config,
+            signer,
         };
-        runtime.prepare_filesystem()?;
         Ok(runtime)
     }
 
@@ -46,13 +63,29 @@ impl MycRuntime {
         &self.config
     }
 
+    pub fn signer_identity(&self) -> &RadrootsIdentity {
+        &self.signer.identity
+    }
+
+    pub fn signer_public_identity(&self) -> RadrootsIdentityPublic {
+        self.signer.identity.to_public()
+    }
+
+    pub fn signer_manager(&self) -> &RadrootsNostrSignerManager {
+        &self.signer.manager
+    }
+
     pub fn snapshot(&self) -> MycStartupSnapshot {
+        let signer_public = self.signer.identity.to_public();
         MycStartupSnapshot {
             instance_name: self.config.service.instance_name.clone(),
             log_filter: self.config.logging.filter.clone(),
             state_dir: self.paths.state_dir.clone(),
             audit_dir: self.paths.audit_dir.clone(),
+            signer_identity_path: self.paths.signer_identity_path.clone(),
             signer_state_path: self.paths.signer_state_path.clone(),
+            signer_identity_id: signer_public.id.into_string(),
+            signer_public_key_hex: signer_public.public_key_hex,
         }
     }
 
@@ -62,19 +95,22 @@ impl MycRuntime {
             instance_name = %snapshot.instance_name,
             state_dir = %snapshot.state_dir.display(),
             audit_dir = %snapshot.audit_dir.display(),
+            signer_identity_path = %snapshot.signer_identity_path.display(),
             signer_state_path = %snapshot.signer_state_path.display(),
+            signer_identity_id = %snapshot.signer_identity_id,
+            signer_public_key_hex = %snapshot.signer_public_key_hex,
             "myc runtime bootstrapped"
         );
         Ok(())
     }
 
-    fn prepare_filesystem(&self) -> Result<(), MycError> {
-        fs::create_dir_all(&self.paths.state_dir).map_err(|source| MycError::CreateDir {
-            path: self.paths.state_dir.clone(),
+    fn prepare_filesystem_for(paths: &MycRuntimePaths) -> Result<(), MycError> {
+        fs::create_dir_all(&paths.state_dir).map_err(|source| MycError::CreateDir {
+            path: paths.state_dir.clone(),
             source,
         })?;
-        fs::create_dir_all(&self.paths.audit_dir).map_err(|source| MycError::CreateDir {
-            path: self.paths.audit_dir.clone(),
+        fs::create_dir_all(&paths.audit_dir).map_err(|source| MycError::CreateDir {
+            path: paths.audit_dir.clone(),
             source,
         })?;
         Ok(())
@@ -85,6 +121,7 @@ impl MycRuntimePaths {
     fn from_config(config: &MycConfig) -> Self {
         let state_dir = config.paths.state_dir.clone();
         Self {
+            signer_identity_path: config.paths.signer_identity_path.clone(),
             signer_state_path: state_dir.join("signer-state.json"),
             audit_dir: state_dir.join("audit"),
             state_dir,
@@ -92,28 +129,86 @@ impl MycRuntimePaths {
     }
 }
 
+impl MycSignerContext {
+    fn bootstrap(paths: &MycRuntimePaths) -> Result<Self, MycError> {
+        let identity = RadrootsIdentity::load_from_path_auto(&paths.signer_identity_path)?;
+        let manager = RadrootsNostrSignerManager::new(Arc::new(
+            RadrootsNostrFileSignerStore::new(&paths.signer_state_path),
+        ))?;
+        let configured_public = identity.to_public();
+
+        match manager.signer_identity()? {
+            Some(existing) if existing.id != configured_public.id => {
+                return Err(MycError::SignerIdentityMismatch {
+                    identity_path: paths.signer_identity_path.clone(),
+                    state_path: paths.signer_state_path.clone(),
+                    configured_identity_id: configured_public.id.to_string(),
+                    persisted_identity_id: existing.id.to_string(),
+                });
+            }
+            Some(_) => manager.set_signer_identity(configured_public.clone())?,
+            None => manager.set_signer_identity(configured_public.clone())?,
+        }
+
+        Ok(Self { identity, manager })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use radroots_identity::RadrootsIdentity;
+    use radroots_nostr_signer::prelude::{
+        RadrootsNostrFileSignerStore, RadrootsNostrSignerManager,
+    };
 
     use crate::config::MycConfig;
+    use crate::error::MycError;
 
     use super::MycRuntime;
+
+    fn write_test_identity(path: &std::path::Path) {
+        RadrootsIdentity::from_secret_key_str(
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        )
+        .expect("identity from secret")
+        .save_json(path)
+        .expect("write identity");
+    }
 
     #[test]
     fn bootstrap_creates_runtime_directories() {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut config = MycConfig::default();
         config.paths.state_dir = PathBuf::from(temp.path()).join("state");
+        config.paths.signer_identity_path = temp.path().join("identity.json");
+        write_test_identity(&config.paths.signer_identity_path);
 
         let runtime = MycRuntime::bootstrap(config).expect("runtime");
         assert!(runtime.paths().state_dir.is_dir());
         assert!(runtime.paths().audit_dir.is_dir());
+        assert_eq!(
+            runtime.paths().signer_identity_path,
+            temp.path().join("identity.json")
+        );
         assert!(
             runtime
                 .paths()
                 .signer_state_path
                 .ends_with("signer-state.json")
+        );
+        assert!(runtime.paths().signer_state_path.is_file());
+        assert_eq!(
+            runtime
+                .signer_manager()
+                .signer_identity()
+                .expect("signer identity")
+                .expect("configured signer")
+                .id
+                .to_string(),
+            runtime.snapshot().signer_identity_id
         );
     }
 
@@ -122,7 +217,39 @@ mod tests {
         let mut config = MycConfig::default();
         config.service.instance_name.clear();
 
-        let err = MycRuntime::bootstrap(config).expect_err("invalid config");
+        let err = match MycRuntime::bootstrap(config) {
+            Ok(_) => panic!("expected invalid config error"),
+            Err(err) => err,
+        };
         assert!(err.to_string().contains("service.instance_name"));
+    }
+
+    #[test]
+    fn bootstrap_rejects_mismatched_persisted_signer_identity() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let identity_path = temp.path().join("identity.json");
+        write_test_identity(&identity_path);
+
+        let store_identity = RadrootsIdentity::from_secret_key_str(
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        )
+        .expect("second identity");
+        let store = Arc::new(RadrootsNostrFileSignerStore::new(
+            temp.path().join("state").join("signer-state.json"),
+        ));
+        let manager = RadrootsNostrSignerManager::new(store).expect("manager");
+        manager
+            .set_signer_identity(store_identity.to_public())
+            .expect("persist signer");
+
+        let mut config = MycConfig::default();
+        config.paths.state_dir = temp.path().join("state");
+        config.paths.signer_identity_path = identity_path;
+
+        let err = match MycRuntime::bootstrap(config) {
+            Ok(_) => panic!("expected identity mismatch"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, MycError::SignerIdentityMismatch { .. }));
     }
 }

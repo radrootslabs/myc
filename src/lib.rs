@@ -5,7 +5,7 @@ pub mod config;
 pub mod error;
 pub mod logging;
 
-pub use app::{MycApp, MycRuntime, MycRuntimePaths, MycStartupSnapshot};
+pub use app::{MycApp, MycRuntime, MycRuntimePaths, MycSignerContext, MycStartupSnapshot};
 pub use config::{
     DEFAULT_CONFIG_PATH, MycConfig, MycLoggingConfig, MycPathsConfig, MycServiceConfig,
 };

@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use radroots_identity::DEFAULT_IDENTITY_PATH;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
@@ -32,6 +33,7 @@ pub struct MycLoggingConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct MycPathsConfig {
     pub state_dir: PathBuf,
+    pub signer_identity_path: PathBuf,
 }
 
 impl Default for MycConfig {
@@ -64,6 +66,7 @@ impl Default for MycPathsConfig {
     fn default() -> Self {
         Self {
             state_dir: PathBuf::from("var"),
+            signer_identity_path: PathBuf::from(DEFAULT_IDENTITY_PATH),
         }
     }
 }
@@ -123,6 +126,12 @@ impl MycConfig {
             ));
         }
 
+        if self.paths.signer_identity_path.as_os_str().is_empty() {
+            return Err(MycError::InvalidConfig(
+                "paths.signer_identity_path must not be empty".to_owned(),
+            ));
+        }
+
         Ok(())
     }
 
@@ -146,6 +155,10 @@ mod tests {
         assert_eq!(config.service.instance_name, "myc");
         assert_eq!(config.logging.filter, "info,myc=info");
         assert_eq!(config.paths.state_dir, PathBuf::from("var"));
+        assert_eq!(
+            config.paths.signer_identity_path,
+            PathBuf::from(DEFAULT_IDENTITY_PATH)
+        );
     }
 
     #[test]
@@ -160,6 +173,7 @@ mod tests {
 
                 [paths]
                 state_dir = "/tmp/myc"
+                signer_identity_path = "/tmp/myc-identity.json"
             "#,
         )
         .expect("config");
@@ -167,6 +181,10 @@ mod tests {
         assert_eq!(config.service.instance_name, "myc-dev");
         assert_eq!(config.logging.filter, "debug,myc=trace");
         assert_eq!(config.paths.state_dir, PathBuf::from("/tmp/myc"));
+        assert_eq!(
+            config.paths.signer_identity_path,
+            PathBuf::from("/tmp/myc-identity.json")
+        );
     }
 
     #[test]

@@ -3,9 +3,9 @@ pub mod runtime;
 use crate::config::MycConfig;
 use crate::error::MycError;
 
-pub use runtime::{MycRuntime, MycRuntimePaths, MycStartupSnapshot};
+pub use runtime::{MycRuntime, MycRuntimePaths, MycSignerContext, MycStartupSnapshot};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MycApp {
     runtime: MycRuntime,
 }
@@ -34,21 +34,37 @@ impl MycApp {
 mod tests {
     use std::path::PathBuf;
 
+    use radroots_identity::RadrootsIdentity;
+
     use crate::config::MycConfig;
 
     use super::MycApp;
+
+    fn write_test_identity(path: &std::path::Path) {
+        RadrootsIdentity::from_secret_key_str(
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        )
+        .expect("identity from secret")
+        .save_json(path)
+        .expect("write identity");
+    }
 
     #[test]
     fn app_bootstrap_preserves_runtime_snapshot() {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut config = MycConfig::default();
         config.paths.state_dir = PathBuf::from(temp.path()).join("state");
+        config.paths.signer_identity_path = temp.path().join("identity.json");
+        write_test_identity(&config.paths.signer_identity_path);
 
         let app = MycApp::bootstrap(config).expect("bootstrap");
         let snapshot = app.snapshot();
 
         assert!(snapshot.state_dir.ends_with("state"));
         assert!(snapshot.audit_dir.ends_with("audit"));
+        assert!(snapshot.signer_identity_path.ends_with("identity.json"));
         assert!(snapshot.signer_state_path.ends_with("signer-state.json"));
+        assert!(!snapshot.signer_identity_id.is_empty());
+        assert!(!snapshot.signer_public_key_hex.is_empty());
     }
 }
