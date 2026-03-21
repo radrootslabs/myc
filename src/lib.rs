@@ -4,15 +4,18 @@ pub mod app;
 pub mod config;
 pub mod error;
 pub mod logging;
+pub mod transport;
 
 pub use app::{MycApp, MycRuntime, MycRuntimePaths, MycSignerContext, MycStartupSnapshot};
 pub use config::{
     DEFAULT_CONFIG_PATH, MycConfig, MycLoggingConfig, MycPathsConfig, MycServiceConfig,
+    MycTransportConfig,
 };
 pub use error::MycError;
+pub use transport::{MycNostrTransport, MycTransportSnapshot};
 
-pub fn run() -> Result<(), MycError> {
+pub async fn run() -> Result<(), MycError> {
     let config = MycConfig::load_from_default_path_if_exists()?;
     logging::init_logging(&config.logging)?;
-    MycApp::bootstrap(config)?.run()
+    MycApp::bootstrap(config)?.run().await
 }

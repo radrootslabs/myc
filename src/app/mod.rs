@@ -25,8 +25,8 @@ impl MycApp {
         self.runtime.snapshot()
     }
 
-    pub fn run(self) -> Result<(), MycError> {
-        self.runtime.run()
+    pub async fn run(self) -> Result<(), MycError> {
+        self.runtime.run().await
     }
 }
 
@@ -75,5 +75,6 @@ mod tests {
         assert!(!snapshot.signer_public_key_hex.is_empty());
         assert!(!snapshot.user_identity_id.is_empty());
         assert!(!snapshot.user_public_key_hex.is_empty());
+        assert!(!snapshot.transport.enabled);
     }
 }

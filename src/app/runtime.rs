@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::config::MycConfig;
 use crate::error::MycError;
+use crate::transport::{MycNostrTransport, MycTransportSnapshot};
 use radroots_identity::{RadrootsIdentity, RadrootsIdentityPublic};
 use radroots_nostr_signer::prelude::{RadrootsNostrFileSignerStore, RadrootsNostrSignerManager};
 
@@ -29,6 +30,7 @@ pub struct MycStartupSnapshot {
     pub signer_public_key_hex: String,
     pub user_identity_id: String,
     pub user_public_key_hex: String,
+    pub transport: MycTransportSnapshot,
 }
 
 #[derive(Clone)]
@@ -43,6 +45,7 @@ pub struct MycRuntime {
     config: MycConfig,
     paths: MycRuntimePaths,
     signer: MycSignerContext,
+    transport: Option<MycNostrTransport>,
 }
 
 impl MycRuntime {
@@ -52,10 +55,12 @@ impl MycRuntime {
         let paths = MycRuntimePaths::from_config(&config);
         Self::prepare_filesystem_for(&paths)?;
         let signer = MycSignerContext::bootstrap(&paths)?;
+        let transport = MycNostrTransport::bootstrap(&config.transport, &signer.signer_identity)?;
         let runtime = Self {
             paths,
             config,
             signer,
+            transport,
         };
         Ok(runtime)
     }
@@ -88,6 +93,10 @@ impl MycRuntime {
         &self.signer.manager
     }
 
+    pub fn transport(&self) -> Option<&MycNostrTransport> {
+        self.transport.as_ref()
+    }
+
     pub fn snapshot(&self) -> MycStartupSnapshot {
         let signer_public = self.signer.signer_identity.to_public();
         let user_public = self.signer.user_identity.to_public();
@@ -103,10 +112,15 @@ impl MycRuntime {
             signer_public_key_hex: signer_public.public_key_hex,
             user_identity_id: user_public.id.into_string(),
             user_public_key_hex: user_public.public_key_hex,
+            transport: self
+                .transport
+                .as_ref()
+                .map(MycNostrTransport::snapshot)
+                .unwrap_or_else(MycTransportSnapshot::disabled),
         }
     }
 
-    pub fn run(self) -> Result<(), MycError> {
+    pub async fn run(self) -> Result<(), MycError> {
         let snapshot = self.snapshot();
         tracing::info!(
             instance_name = %snapshot.instance_name,
@@ -119,6 +133,9 @@ impl MycRuntime {
             signer_public_key_hex = %snapshot.signer_public_key_hex,
             user_identity_id = %snapshot.user_identity_id,
             user_public_key_hex = %snapshot.user_public_key_hex,
+            transport_enabled = snapshot.transport.enabled,
+            transport_relay_count = snapshot.transport.relay_count,
+            transport_connect_timeout_secs = snapshot.transport.connect_timeout_secs,
             "myc runtime bootstrapped"
         );
         Ok(())
@@ -250,6 +267,7 @@ mod tests {
             runtime.user_identity().public_key_hex(),
             runtime.snapshot().user_public_key_hex
         );
+        assert!(!runtime.snapshot().transport.enabled);
     }
 
     #[test]
@@ -328,5 +346,32 @@ mod tests {
             runtime.snapshot().signer_identity_id,
             runtime.snapshot().user_identity_id
         );
+    }
+
+    #[test]
+    fn bootstrap_prepares_transport_when_enabled() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut config = MycConfig::default();
+        config.paths.state_dir = temp.path().join("state");
+        config.paths.signer_identity_path = temp.path().join("signer.json");
+        config.paths.user_identity_path = temp.path().join("user.json");
+        config.transport.enabled = true;
+        config.transport.connect_timeout_secs = 15;
+        config.transport.relays = vec!["wss://relay.example.com".to_owned()];
+        write_test_identity(
+            &config.paths.signer_identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_test_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
+
+        let runtime = MycRuntime::bootstrap(config).expect("runtime");
+
+        assert!(runtime.transport().is_some());
+        assert!(runtime.snapshot().transport.enabled);
+        assert_eq!(runtime.snapshot().transport.relay_count, 1);
+        assert_eq!(runtime.snapshot().transport.connect_timeout_secs, 15);
     }
 }

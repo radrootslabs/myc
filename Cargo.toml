@@ -15,9 +15,11 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
 
 [dependencies]
 radroots-identity = { path = "../lib/crates/identity" }
+radroots-nostr = { path = "../lib/crates/nostr", features = ["client"] }
 radroots-nostr-signer = { path = "../lib/crates/nostr-signer" }
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
+tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

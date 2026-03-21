@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use radroots_identity::DEFAULT_IDENTITY_PATH;
+use radroots_nostr::prelude::RadrootsNostrRelayUrl;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
@@ -15,6 +16,7 @@ pub struct MycConfig {
     pub service: MycServiceConfig,
     pub logging: MycLoggingConfig,
     pub paths: MycPathsConfig,
+    pub transport: MycTransportConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,12 +39,21 @@ pub struct MycPathsConfig {
     pub user_identity_path: PathBuf,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MycTransportConfig {
+    pub enabled: bool,
+    pub connect_timeout_secs: u64,
+    pub relays: Vec<String>,
+}
+
 impl Default for MycConfig {
     fn default() -> Self {
         Self {
             service: MycServiceConfig::default(),
             logging: MycLoggingConfig::default(),
             paths: MycPathsConfig::default(),
+            transport: MycTransportConfig::default(),
         }
     }
 }
@@ -69,6 +80,16 @@ impl Default for MycPathsConfig {
             state_dir: PathBuf::from("var"),
             signer_identity_path: PathBuf::from(DEFAULT_IDENTITY_PATH),
             user_identity_path: PathBuf::from(DEFAULT_IDENTITY_PATH),
+        }
+    }
+}
+
+impl Default for MycTransportConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            connect_timeout_secs: 10,
+            relays: Vec::new(),
         }
     }
 }
@@ -140,6 +161,19 @@ impl MycConfig {
             ));
         }
 
+        if self.transport.connect_timeout_secs == 0 {
+            return Err(MycError::InvalidConfig(
+                "transport.connect_timeout_secs must be greater than zero".to_owned(),
+            ));
+        }
+
+        let parsed_relays = self.transport.parse_relays()?;
+        if self.transport.enabled && parsed_relays.is_empty() {
+            return Err(MycError::InvalidConfig(
+                "transport.relays must not be empty when transport.enabled is true".to_owned(),
+            ));
+        }
+
         Ok(())
     }
 
@@ -150,6 +184,21 @@ impl MycConfig {
         })?;
         config.validate()?;
         Ok(config)
+    }
+}
+
+impl MycTransportConfig {
+    pub fn parse_relays(&self) -> Result<Vec<RadrootsNostrRelayUrl>, MycError> {
+        self.relays
+            .iter()
+            .map(|value| {
+                RadrootsNostrRelayUrl::parse(value).map_err(|source| {
+                    MycError::InvalidConfig(format!(
+                        "transport.relays contains invalid relay url `{value}`: {source}"
+                    ))
+                })
+            })
+            .collect()
     }
 }
 
@@ -171,6 +220,9 @@ mod tests {
             config.paths.user_identity_path,
             PathBuf::from(DEFAULT_IDENTITY_PATH)
         );
+        assert!(!config.transport.enabled);
+        assert_eq!(config.transport.connect_timeout_secs, 10);
+        assert!(config.transport.relays.is_empty());
     }
 
     #[test]
@@ -187,6 +239,11 @@ mod tests {
                 state_dir = "/tmp/myc"
                 signer_identity_path = "/tmp/myc-identity.json"
                 user_identity_path = "/tmp/myc-user.json"
+
+                [transport]
+                enabled = true
+                connect_timeout_secs = 15
+                relays = ["wss://relay.example.com", "wss://relay2.example.com"]
             "#,
         )
         .expect("config");
@@ -201,6 +258,15 @@ mod tests {
         assert_eq!(
             config.paths.user_identity_path,
             PathBuf::from("/tmp/myc-user.json")
+        );
+        assert!(config.transport.enabled);
+        assert_eq!(config.transport.connect_timeout_secs, 15);
+        assert_eq!(
+            config.transport.relays,
+            vec![
+                "wss://relay.example.com".to_owned(),
+                "wss://relay2.example.com".to_owned()
+            ]
         );
     }
 
@@ -225,5 +291,14 @@ mod tests {
         .expect_err("unknown field");
 
         assert!(err.to_string().contains("config parse error"));
+    }
+
+    #[test]
+    fn validate_rejects_enabled_transport_without_relays() {
+        let mut config = MycConfig::default();
+        config.transport.enabled = true;
+
+        let err = config.validate().expect_err("missing relays");
+        assert!(err.to_string().contains("transport.relays"));
     }
 }
