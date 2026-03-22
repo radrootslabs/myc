@@ -77,6 +77,12 @@ pub enum MycError {
         "failed to fetch discovery state from all configured relays ({relay_count}): {details}"
     )]
     DiscoveryFetchUnavailable { relay_count: usize, details: String },
+    #[error("discovery refresh attempt {attempt_id} failed: {source}")]
+    DiscoveryRefreshFailed {
+        attempt_id: String,
+        #[source]
+        source: Box<MycError>,
+    },
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error(transparent)]
@@ -113,9 +119,27 @@ pub enum MycError {
 }
 
 impl MycError {
+    pub fn with_discovery_refresh_attempt_id(self, attempt_id: impl Into<String>) -> Self {
+        match self {
+            Self::DiscoveryRefreshFailed { .. } => self,
+            source => Self::DiscoveryRefreshFailed {
+                attempt_id: attempt_id.into(),
+                source: Box::new(source),
+            },
+        }
+    }
+
+    pub fn discovery_refresh_attempt_id(&self) -> Option<&str> {
+        match self {
+            Self::DiscoveryRefreshFailed { attempt_id, .. } => Some(attempt_id.as_str()),
+            _ => None,
+        }
+    }
+
     pub fn publish_rejection_details(&self) -> Option<&str> {
         match self {
             Self::PublishRejected { details, .. } => Some(details.as_str()),
+            Self::DiscoveryRefreshFailed { source, .. } => source.publish_rejection_details(),
             _ => None,
         }
     }
@@ -127,6 +151,7 @@ impl MycError {
                 acknowledged_relay_count,
                 ..
             } => Some((*relay_count, *acknowledged_relay_count)),
+            Self::DiscoveryRefreshFailed { source, .. } => source.publish_rejection_counts(),
             _ => None,
         }
     }
@@ -136,7 +161,36 @@ impl MycError {
             Self::PublishRejected {
                 rejected_relays, ..
             } => Some(rejected_relays.as_slice()),
+            Self::DiscoveryRefreshFailed { source, .. } => source.publish_rejected_relays(),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MycError;
+
+    #[test]
+    fn discovery_refresh_wrapper_preserves_attempt_id_and_publish_details() {
+        let wrapped = MycError::PublishRejected {
+            operation: "discovery refresh".to_owned(),
+            relay_count: 2,
+            acknowledged_relay_count: 0,
+            details: "relay-a: blocked".to_owned(),
+            rejected_relays: vec!["wss://relay-a.example.com".to_owned()],
+        }
+        .with_discovery_refresh_attempt_id("attempt-1");
+
+        assert_eq!(wrapped.discovery_refresh_attempt_id(), Some("attempt-1"));
+        assert_eq!(
+            wrapped.publish_rejection_details(),
+            Some("relay-a: blocked")
+        );
+        assert_eq!(wrapped.publish_rejection_counts(), Some((2, 0)));
+        assert_eq!(
+            wrapped.publish_rejected_relays(),
+            Some(["wss://relay-a.example.com".to_owned()].as_slice())
+        );
     }
 }

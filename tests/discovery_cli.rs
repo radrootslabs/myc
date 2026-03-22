@@ -381,6 +381,12 @@ fn run_myc(config_path: &Path, args: &[&str]) -> TestResult<Output> {
         .output()?)
 }
 
+fn extract_discovery_attempt_id(stderr: &str) -> Option<&str> {
+    stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("myc: discovery repair attempt id: "))
+}
+
 fn unavailable_relay_url() -> TestResult<String> {
     let listener = StdTcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;
@@ -686,6 +692,31 @@ async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
         "unexpected refresh stderr: {}",
         String::from_utf8_lossy(&refresh.stderr)
     );
+    let refresh_stderr = String::from_utf8_lossy(&refresh.stderr);
+    let attempt_id = extract_discovery_attempt_id(&refresh_stderr).expect("attempt id");
+    let attempt = run_myc(
+        &config_path,
+        &[
+            "audit",
+            "discovery-repair-attempt",
+            "--attempt-id",
+            attempt_id,
+        ],
+    )?;
+    assert!(
+        attempt.status.success(),
+        "discovery-repair-attempt failed: {}",
+        String::from_utf8_lossy(&attempt.stderr)
+    );
+    let attempt_output: Value = serde_json::from_slice(&attempt.stdout)?;
+    assert_eq!(
+        attempt_output["attempt_id"],
+        Value::String(attempt_id.to_owned())
+    );
+    assert_eq!(
+        attempt_output["refresh_outcome"],
+        Value::String("conflicted".to_owned())
+    );
 
     let forced_refresh = run_myc(&config_path, &["discovery", "refresh-nip89", "--force"])?;
     assert!(
@@ -797,6 +828,93 @@ async fn refresh_reports_partial_repair_and_audit_summary_through_the_cli() -> T
     assert_eq!(
         audit_summary_output["runtime_operation_by_kind"]["discovery_handler_repair"]["rejected"],
         Value::from(1_u64)
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn failed_refresh_publish_surfaces_attempt_id_and_exact_audit_lookup() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let temp = tempfile::tempdir()?;
+    let config_path = temp.path().join("config.toml");
+    let state_dir = temp.path().join("state");
+    let signer_identity_path = temp.path().join("signer.json");
+    let user_identity_path = temp.path().join("user.json");
+    let app_identity_path = temp.path().join("app.json");
+    let app_identity = RadrootsIdentity::from_secret_key_str(
+        "3333333333333333333333333333333333333333333333333333333333333333",
+    )?;
+
+    write_identity(
+        &signer_identity_path,
+        "1111111111111111111111111111111111111111111111111111111111111111",
+    );
+    write_identity(
+        &user_identity_path,
+        "2222222222222222222222222222222222222222222222222222222222222222",
+    );
+    app_identity.save_json(&app_identity_path)?;
+    write_config(
+        &config_path,
+        &state_dir,
+        &signer_identity_path,
+        &user_identity_path,
+        &app_identity_path,
+        &[relay.url()],
+    );
+
+    relay
+        .queue_publish_outcomes(app_identity.public_key(), &[false])
+        .await;
+
+    let refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
+    assert!(
+        !refresh.status.success(),
+        "refresh-nip89 unexpectedly succeeded: {}",
+        String::from_utf8_lossy(&refresh.stdout)
+    );
+    let refresh_stderr = String::from_utf8_lossy(&refresh.stderr);
+    assert!(
+        refresh_stderr.contains("Nostr publish failed"),
+        "unexpected refresh stderr: {refresh_stderr}"
+    );
+    let attempt_id = extract_discovery_attempt_id(&refresh_stderr).expect("attempt id");
+
+    let attempt = run_myc(
+        &config_path,
+        &[
+            "audit",
+            "discovery-repair-attempt",
+            "--attempt-id",
+            attempt_id,
+        ],
+    )?;
+    assert!(
+        attempt.status.success(),
+        "discovery-repair-attempt failed: {}",
+        String::from_utf8_lossy(&attempt.stderr)
+    );
+    let attempt_output: Value = serde_json::from_slice(&attempt.stdout)?;
+    assert_eq!(
+        attempt_output["attempt_id"],
+        Value::String(attempt_id.to_owned())
+    );
+    assert_eq!(
+        attempt_output["refresh_outcome"],
+        Value::String("rejected".to_owned())
+    );
+    assert_eq!(
+        attempt_output["aggregate_publish_outcome"],
+        Value::String("rejected".to_owned())
+    );
+    assert_eq!(
+        attempt_output["repair_summary"]["failed"],
+        Value::from(1_u64)
+    );
+    assert_eq!(
+        attempt_output["remaining_repair_relays"],
+        Value::Array(vec![Value::String(relay.url().to_owned())])
     );
 
     Ok(())
@@ -1188,6 +1306,31 @@ async fn refresh_requires_force_when_a_discovery_relay_is_unavailable_through_th
         String::from_utf8_lossy(&refresh.stderr).contains("unavailable"),
         "unexpected refresh stderr: {}",
         String::from_utf8_lossy(&refresh.stderr)
+    );
+    let refresh_stderr = String::from_utf8_lossy(&refresh.stderr);
+    let attempt_id = extract_discovery_attempt_id(&refresh_stderr).expect("attempt id");
+    let attempt = run_myc(
+        &config_path,
+        &[
+            "audit",
+            "discovery-repair-attempt",
+            "--attempt-id",
+            attempt_id,
+        ],
+    )?;
+    assert!(
+        attempt.status.success(),
+        "discovery-repair-attempt failed: {}",
+        String::from_utf8_lossy(&attempt.stderr)
+    );
+    let attempt_output: Value = serde_json::from_slice(&attempt.stdout)?;
+    assert_eq!(
+        attempt_output["attempt_id"],
+        Value::String(attempt_id.to_owned())
+    );
+    assert_eq!(
+        attempt_output["refresh_outcome"],
+        Value::String("unavailable".to_owned())
     );
 
     let forced_refresh = run_myc(&config_path, &["discovery", "refresh-nip89", "--force"])?;

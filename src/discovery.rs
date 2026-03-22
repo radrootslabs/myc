@@ -639,9 +639,12 @@ pub async fn refresh_nip89(
             return Err(MycError::DiscoveryFetchUnavailable {
                 relay_count,
                 details,
-            });
+            }
+            .with_discovery_refresh_attempt_id(attempt_id));
         }
-        Err(error) => return Err(error),
+        Err(error) => {
+            return Err(error.with_discovery_refresh_attempt_id(attempt_id));
+        }
     };
     let relay_states = build_relay_diffs(&local_handler, &fetched.relay_states);
     let relay_summary = summarize_relay_diffs(&relay_states);
@@ -681,10 +684,13 @@ pub async fn refresh_nip89(
             )
             .with_attempt_id(attempt_id.clone()),
         );
-        return Err(MycError::InvalidOperation(format!(
-            "one or more discovery relays were unavailable; rerun `discovery refresh-nip89 --force` to override: {}",
-            relay_summary.unavailable_relays.join(", ")
-        )));
+        return Err(
+            MycError::InvalidOperation(format!(
+                "one or more discovery relays were unavailable; rerun `discovery refresh-nip89 --force` to override: {}",
+                relay_summary.unavailable_relays.join(", ")
+            ))
+            .with_discovery_refresh_attempt_id(attempt_id),
+        );
     }
 
     if !relay_summary.conflicted_relays.is_empty() && !force {
@@ -701,13 +707,17 @@ pub async fn refresh_nip89(
             )
             .with_attempt_id(attempt_id.clone()),
         );
-        return Err(MycError::InvalidOperation(
-            "live discovery handler state is conflicted; rerun `discovery refresh-nip89 --force` to override"
-                .to_owned(),
-        ));
+        return Err(
+            MycError::InvalidOperation(
+                "live discovery handler state is conflicted; rerun `discovery refresh-nip89 --force` to override"
+                    .to_owned(),
+            )
+            .with_discovery_refresh_attempt_id(attempt_id),
+        );
     }
 
-    let refresh_relays = select_refresh_relays(&context, &relay_states, force)?;
+    let refresh_relays = select_refresh_relays(&context, &relay_states, force)
+        .map_err(|error| error.with_discovery_refresh_attempt_id(attempt_id.clone()))?;
 
     if refresh_relays.is_empty() {
         let repair_results = build_repair_results(&context, &relay_states, &[], None, None);
@@ -828,9 +838,9 @@ pub async fn refresh_nip89(
                         repair_summary.skipped
                     ),
                 )
-                .with_attempt_id(attempt_id),
+                .with_attempt_id(attempt_id.clone()),
             );
-            return Err(error);
+            return Err(error.with_discovery_refresh_attempt_id(attempt_id));
         }
     }
 }
