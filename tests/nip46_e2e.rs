@@ -5,8 +5,9 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use myc::control;
 use myc::{
-    MycConfig, MycConnectionApproval, MycOperationAuditKind, MycOperationAuditOutcome,
-    MycOperationAuditRecord, MycRuntime, publish_nip89_event,
+    MycConfig, MycConnectionApproval, MycDiscoveryLiveStatus, MycOperationAuditKind,
+    MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime, diff_live_nip89,
+    fetch_live_nip89, publish_nip89_event, refresh_nip89,
 };
 use nostr::filter::MatchEventOptions;
 use nostr::nips::nip44;
@@ -16,6 +17,10 @@ use nostr::{
     SecretKey, SubscriptionId, Tag, Timestamp,
 };
 use radroots_identity::RadrootsIdentity;
+use radroots_nostr::prelude::{
+    RadrootsNostrApplicationHandlerSpec, RadrootsNostrClient, RadrootsNostrMetadata,
+    radroots_nostr_build_application_handler_event,
+};
 use radroots_nostr_connect::prelude::{
     RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectClientMetadata,
     RadrootsNostrConnectClientUri, RadrootsNostrConnectRequest, RadrootsNostrConnectRequestMessage,
@@ -210,9 +215,18 @@ async fn handle_client_message(
             subscription_id,
             filters,
         } => {
-            let eose = RelayMessage::eose(subscription_id.as_ref().clone()).as_json();
-            let sender = {
+            let (sender, matching_events) = {
                 let mut state = state.lock().await;
+                let matching_events = state
+                    .published_events
+                    .iter()
+                    .filter(|event| {
+                        filters
+                            .iter()
+                            .any(|filter| filter.match_event(event, MatchEventOptions::new()))
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
                 state.subscriptions.push(RelaySubscription {
                     connection_id,
                     subscription_id: subscription_id.as_ref().clone(),
@@ -222,9 +236,15 @@ async fn handle_client_message(
                         .collect(),
                 });
                 notify.notify_waiters();
-                state.senders.get(&connection_id).cloned()
+                (state.senders.get(&connection_id).cloned(), matching_events)
             };
             if let Some(sender) = sender {
+                for event in matching_events {
+                    let message =
+                        RelayMessage::event(subscription_id.as_ref().clone(), event).as_json();
+                    let _ = sender.send(Message::Text(message.into()));
+                }
+                let eose = RelayMessage::eose(subscription_id.as_ref().clone()).as_json();
                 let _ = sender.send(Message::Text(eose.into()));
             }
         }
@@ -388,6 +408,27 @@ fn write_identity(path: &std::path::Path, secret_key: &str) {
 
 fn identity(secret_key: &str) -> RadrootsIdentity {
     RadrootsIdentity::from_secret_key_str(secret_key).expect("identity")
+}
+
+async fn publish_handler_event(
+    relay_url: &str,
+    identity: &RadrootsIdentity,
+    spec: &RadrootsNostrApplicationHandlerSpec,
+) -> TestResult<Event> {
+    let event = radroots_nostr_build_application_handler_event(spec)?
+        .sign_with_keys(identity.keys())
+        .map_err(|error| format!("failed to sign handler event: {error}"))?;
+    let client = RadrootsNostrClient::from_identity(identity);
+    let _ = client.add_relay(relay_url).await?;
+    client.connect().await;
+    client.wait_for_connection(Duration::from_secs(1)).await;
+    let output = client.send_event(&event).await?;
+    assert!(
+        !output.success.is_empty(),
+        "handler event publish did not succeed: {:?}",
+        output.failed
+    );
+    Ok(event)
 }
 
 fn connect_request_message(
@@ -1049,6 +1090,201 @@ async fn explicit_nip89_publish_retries_cleanly_after_rejection() -> TestResult<
             .relay_outcome_summary
             .contains("1/1 relays acknowledged publish")
     );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fetch_live_nip89_reports_missing_when_handler_is_unpublished() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime =
+        MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
+
+    let output = fetch_live_nip89(&test_runtime.runtime).await?;
+
+    assert_eq!(output.handler_identifier, "myc");
+    assert_eq!(output.publish_relays, vec![relay.url().to_owned()]);
+    assert!(output.live_event.is_none());
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn diff_live_nip89_reports_matched_after_publish() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime =
+        MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
+    let runtime = test_runtime.runtime;
+    let app_identity = RadrootsIdentity::load_from_path_auto(
+        runtime
+            .config()
+            .discovery
+            .app_identity_path
+            .as_ref()
+            .expect("app identity path"),
+    )?;
+
+    relay
+        .queue_publish_outcomes(app_identity.public_key(), &[true])
+        .await;
+    let published = publish_nip89_event(&runtime).await?;
+    relay
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+
+    let diff = diff_live_nip89(&runtime).await?;
+
+    assert_eq!(diff.status, MycDiscoveryLiveStatus::Matched);
+    assert!(diff.differing_fields.is_empty());
+    let live_event = diff.live_event.expect("live event");
+    assert_eq!(live_event.event_id_hex, published.event.id.to_hex());
+    assert_eq!(
+        live_event.handler.author_public_key_hex,
+        app_identity.public_key_hex()
+    );
+    assert_eq!(live_event.handler.kinds, vec![24_133]);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn refresh_nip89_publishes_when_live_handler_is_missing() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime =
+        MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
+    let runtime = test_runtime.runtime;
+    let app_identity = RadrootsIdentity::load_from_path_auto(
+        runtime
+            .config()
+            .discovery
+            .app_identity_path
+            .as_ref()
+            .expect("app identity path"),
+    )?;
+
+    relay
+        .queue_publish_outcomes(app_identity.public_key(), &[true])
+        .await;
+
+    let refreshed = refresh_nip89(&runtime, false).await?;
+
+    assert_eq!(refreshed.status, MycDiscoveryLiveStatus::Missing);
+    assert_eq!(refreshed.differing_fields, vec!["live_event".to_owned()]);
+    assert!(refreshed.live_event.is_none());
+    assert!(refreshed.published.is_some());
+
+    let audit = wait_for_operation_audit_count(&runtime, 2).await?;
+    assert_eq!(
+        audit[0].operation,
+        MycOperationAuditKind::DiscoveryHandlerCompare
+    );
+    assert_eq!(audit[0].outcome, MycOperationAuditOutcome::Missing);
+    assert_eq!(
+        audit[1].operation,
+        MycOperationAuditKind::DiscoveryHandlerPublish
+    );
+    assert_eq!(audit[1].outcome, MycOperationAuditOutcome::Succeeded);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn refresh_nip89_skips_when_live_handler_matches() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime =
+        MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
+    let runtime = test_runtime.runtime;
+    let app_identity = RadrootsIdentity::load_from_path_auto(
+        runtime
+            .config()
+            .discovery
+            .app_identity_path
+            .as_ref()
+            .expect("app identity path"),
+    )?;
+
+    relay
+        .queue_publish_outcomes(app_identity.public_key(), &[true])
+        .await;
+    publish_nip89_event(&runtime).await?;
+    relay
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+
+    let refreshed = refresh_nip89(&runtime, false).await?;
+
+    assert_eq!(refreshed.status, MycDiscoveryLiveStatus::Matched);
+    assert!(refreshed.differing_fields.is_empty());
+    assert!(refreshed.published.is_none());
+
+    let audit = wait_for_operation_audit_count(&runtime, 3).await?;
+    assert_eq!(
+        audit[1].operation,
+        MycOperationAuditKind::DiscoveryHandlerCompare
+    );
+    assert_eq!(audit[1].outcome, MycOperationAuditOutcome::Matched);
+    assert_eq!(
+        audit[2].operation,
+        MycOperationAuditKind::DiscoveryHandlerRefresh
+    );
+    assert_eq!(audit[2].outcome, MycOperationAuditOutcome::Skipped);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn refresh_nip89_republishes_when_live_handler_drifted() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime =
+        MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
+    let runtime = test_runtime.runtime;
+    let app_identity = RadrootsIdentity::load_from_path_auto(
+        runtime
+            .config()
+            .discovery
+            .app_identity_path
+            .as_ref()
+            .expect("app identity path"),
+    )?;
+
+    let mut drifted_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133]);
+    drifted_spec.identifier = Some("myc".to_owned());
+    drifted_spec.relays = vec!["wss://wrong.example.com".to_owned()];
+    drifted_spec.nostrconnect_url =
+        Some("https://wrong.example.com/connect?uri=nostrconnect%3A%2F%2Fstale".to_owned());
+    let mut metadata = RadrootsNostrMetadata::default();
+    metadata.name = Some("stale".to_owned());
+    drifted_spec.metadata = Some(metadata);
+    publish_handler_event(relay.url(), &app_identity, &drifted_spec).await?;
+    relay
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+
+    relay
+        .queue_publish_outcomes(app_identity.public_key(), &[true])
+        .await;
+    let refreshed = refresh_nip89(&runtime, false).await?;
+
+    assert_eq!(refreshed.status, MycDiscoveryLiveStatus::Drifted);
+    assert!(refreshed.published.is_some());
+    assert!(
+        refreshed
+            .differing_fields
+            .iter()
+            .any(|field| field == "relays" || field == "nostrconnect_url" || field == "metadata")
+    );
+
+    let audit = wait_for_operation_audit_count(&runtime, 2).await?;
+    assert_eq!(
+        audit[0].operation,
+        MycOperationAuditKind::DiscoveryHandlerCompare
+    );
+    assert_eq!(audit[0].outcome, MycOperationAuditOutcome::Drifted);
+    assert_eq!(
+        audit[1].operation,
+        MycOperationAuditKind::DiscoveryHandlerPublish
+    );
+    assert_eq!(audit[1].outcome, MycOperationAuditOutcome::Succeeded);
 
     Ok(())
 }
