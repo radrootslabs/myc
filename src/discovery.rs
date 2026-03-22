@@ -85,6 +85,7 @@ pub enum MycDiscoveryLiveStatus {
     Missing,
     Matched,
     Drifted,
+    Conflicted,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,19 +107,25 @@ pub struct MycLiveNip89Event {
     pub handler: MycNormalizedNip89Handler,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MycLiveNip89Group {
+    pub handler: MycNormalizedNip89Handler,
+    pub events: Vec<MycLiveNip89Event>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycFetchedLiveNip89Output {
     pub author_public_key_hex: String,
     pub publish_relays: Vec<String>,
     pub handler_identifier: String,
-    pub live_event: Option<MycLiveNip89Event>,
+    pub live_groups: Vec<MycLiveNip89Group>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycDiscoveryDiffOutput {
     pub status: MycDiscoveryLiveStatus,
     pub local_handler: MycNormalizedNip89Handler,
-    pub live_event: Option<MycLiveNip89Event>,
+    pub live_groups: Vec<MycLiveNip89Group>,
     pub differing_fields: Vec<String>,
 }
 
@@ -127,7 +134,7 @@ pub struct MycRefreshedNip89Output {
     pub status: MycDiscoveryLiveStatus,
     pub force: bool,
     pub differing_fields: Vec<String>,
-    pub live_event: Option<MycLiveNip89Event>,
+    pub live_groups: Vec<MycLiveNip89Group>,
     pub published: Option<MycPublishedNip89Output>,
 }
 
@@ -455,7 +462,7 @@ pub async fn publish_nip89_event(
 
 pub async fn fetch_live_nip89(runtime: &MycRuntime) -> Result<MycFetchedLiveNip89Output, MycError> {
     let context = MycDiscoveryContext::from_runtime(runtime)?;
-    let live_event = fetch_latest_live_nip89_event(&context).await?;
+    let live_groups = fetch_live_nip89_groups(&context).await?;
     Ok(MycFetchedLiveNip89Output {
         author_public_key_hex: context.app_identity().public_key_hex(),
         publish_relays: context
@@ -464,19 +471,19 @@ pub async fn fetch_live_nip89(runtime: &MycRuntime) -> Result<MycFetchedLiveNip8
             .map(ToString::to_string)
             .collect(),
         handler_identifier: context.handler_identifier().to_owned(),
-        live_event,
+        live_groups,
     })
 }
 
 pub async fn diff_live_nip89(runtime: &MycRuntime) -> Result<MycDiscoveryDiffOutput, MycError> {
     let context = MycDiscoveryContext::from_runtime(runtime)?;
     let local_handler = context.render_normalized_nip89_handler();
-    let live_event = fetch_latest_live_nip89_event(&context).await?;
-    let (status, differing_fields) = compare_live_handler(&local_handler, live_event.as_ref());
+    let live_groups = fetch_live_nip89_groups(&context).await?;
+    let (status, differing_fields) = compare_live_handler(&local_handler, &live_groups);
     Ok(MycDiscoveryDiffOutput {
         status,
         local_handler,
-        live_event,
+        live_groups,
         differing_fields,
     })
 }
@@ -487,11 +494,11 @@ pub async fn refresh_nip89(
 ) -> Result<MycRefreshedNip89Output, MycError> {
     let context = MycDiscoveryContext::from_runtime(runtime)?;
     let local_handler = context.render_normalized_nip89_handler();
-    let live_event = fetch_latest_live_nip89_event(&context).await?;
-    let (status, differing_fields) = compare_live_handler(&local_handler, live_event.as_ref());
+    let live_groups = fetch_live_nip89_groups(&context).await?;
+    let (status, differing_fields) = compare_live_handler(&local_handler, &live_groups);
     let relay_count = context.publish_relays().len();
-    let compare_request_id = live_event.as_ref().map(|event| event.event_id_hex.as_str());
-    let compare_summary = describe_compare_status(status, &differing_fields);
+    let compare_request_id = latest_live_event_id(&live_groups);
+    let compare_summary = describe_compare_status(status, &differing_fields, &live_groups);
 
     runtime.record_operation_audit(&MycOperationAuditRecord::new(
         MycOperationAuditKind::DiscoveryHandlerCompare,
@@ -502,6 +509,23 @@ pub async fn refresh_nip89(
         relay_count,
         compare_summary,
     ));
+
+    if status == MycDiscoveryLiveStatus::Conflicted && !force {
+        runtime.record_operation_audit(&MycOperationAuditRecord::new(
+            MycOperationAuditKind::DiscoveryHandlerRefresh,
+            MycOperationAuditOutcome::Conflicted,
+            None,
+            compare_request_id,
+            relay_count,
+            relay_count,
+            "live discovery handler state is conflicted; rerun refresh with --force to override"
+                .to_owned(),
+        ));
+        return Err(MycError::InvalidOperation(
+            "live discovery handler state is conflicted; rerun `discovery refresh-nip89 --force` to override"
+                .to_owned(),
+        ));
+    }
 
     if status == MycDiscoveryLiveStatus::Matched && !force {
         runtime.record_operation_audit(&MycOperationAuditRecord::new(
@@ -517,7 +541,7 @@ pub async fn refresh_nip89(
             status,
             force,
             differing_fields,
-            live_event,
+            live_groups,
             published: None,
         });
     }
@@ -527,7 +551,7 @@ pub async fn refresh_nip89(
         status,
         force,
         differing_fields,
-        live_event,
+        live_groups,
         published: Some(published),
     })
 }
@@ -554,9 +578,9 @@ pub fn verify_bundle(output_dir: impl AsRef<Path>) -> Result<MycDiscoveryBundleO
     Ok(bundle)
 }
 
-async fn fetch_latest_live_nip89_event(
+async fn fetch_live_nip89_groups(
     context: &MycDiscoveryContext,
-) -> Result<Option<MycLiveNip89Event>, MycError> {
+) -> Result<Vec<MycLiveNip89Group>, MycError> {
     let client = RadrootsNostrClient::from_identity(context.app_identity());
     for relay in context.publish_relays() {
         let _ = client.add_relay(relay.as_str()).await?;
@@ -581,45 +605,45 @@ async fn fetch_latest_live_nip89_event(
             .cmp(&right.created_at.as_secs())
             .then_with(|| left.id.to_hex().cmp(&right.id.to_hex()))
     });
-    let Some(event) = events.pop() else {
-        return Ok(None);
-    };
-
-    Ok(Some(MycLiveNip89Event {
-        event_id_hex: event.id.to_hex(),
-        created_at_unix: event.created_at.as_secs(),
-        handler: normalize_live_nip89_handler(&event)?,
-    }))
+    group_live_nip89_events(events)
 }
 
 fn compare_live_handler(
     local_handler: &MycNormalizedNip89Handler,
-    live_event: Option<&MycLiveNip89Event>,
+    live_groups: &[MycLiveNip89Group],
 ) -> (MycDiscoveryLiveStatus, Vec<String>) {
-    let Some(live_event) = live_event else {
+    if live_groups.is_empty() {
         return (
             MycDiscoveryLiveStatus::Missing,
-            vec!["live_event".to_owned()],
+            vec!["live_groups".to_owned()],
         );
-    };
+    }
+    if live_groups.len() > 1 {
+        return (
+            MycDiscoveryLiveStatus::Conflicted,
+            vec!["live_groups".to_owned()],
+        );
+    }
+
+    let live_group = &live_groups[0];
 
     let mut differing_fields = Vec::new();
-    if live_event.handler.author_public_key_hex != local_handler.author_public_key_hex {
+    if live_group.handler.author_public_key_hex != local_handler.author_public_key_hex {
         differing_fields.push("author_public_key_hex".to_owned());
     }
-    if live_event.handler.kinds != local_handler.kinds {
+    if live_group.handler.kinds != local_handler.kinds {
         differing_fields.push("kinds".to_owned());
     }
-    if live_event.handler.identifier != local_handler.identifier {
+    if live_group.handler.identifier != local_handler.identifier {
         differing_fields.push("identifier".to_owned());
     }
-    if live_event.handler.relays != local_handler.relays {
+    if live_group.handler.relays != local_handler.relays {
         differing_fields.push("relays".to_owned());
     }
-    if live_event.handler.nostrconnect_url != local_handler.nostrconnect_url {
+    if live_group.handler.nostrconnect_url != local_handler.nostrconnect_url {
         differing_fields.push("nostrconnect_url".to_owned());
     }
-    if live_event.handler.metadata != local_handler.metadata {
+    if live_group.handler.metadata != local_handler.metadata {
         differing_fields.push("metadata".to_owned());
     }
 
@@ -635,10 +659,15 @@ fn compare_status_to_audit_outcome(status: MycDiscoveryLiveStatus) -> MycOperati
         MycDiscoveryLiveStatus::Missing => MycOperationAuditOutcome::Missing,
         MycDiscoveryLiveStatus::Matched => MycOperationAuditOutcome::Matched,
         MycDiscoveryLiveStatus::Drifted => MycOperationAuditOutcome::Drifted,
+        MycDiscoveryLiveStatus::Conflicted => MycOperationAuditOutcome::Conflicted,
     }
 }
 
-fn describe_compare_status(status: MycDiscoveryLiveStatus, differing_fields: &[String]) -> String {
+fn describe_compare_status(
+    status: MycDiscoveryLiveStatus,
+    differing_fields: &[String],
+    live_groups: &[MycLiveNip89Group],
+) -> String {
     match status {
         MycDiscoveryLiveStatus::Missing => {
             "no live NIP-89 handler was found for the configured discovery identity".to_owned()
@@ -649,6 +678,14 @@ fn describe_compare_status(status: MycDiscoveryLiveStatus, differing_fields: &[S
         MycDiscoveryLiveStatus::Drifted => format!(
             "local discovery handler differs from live state in: {}",
             differing_fields.join(", ")
+        ),
+        MycDiscoveryLiveStatus::Conflicted => format!(
+            "found {} conflicting live NIP-89 handler states across {} events",
+            live_groups.len(),
+            live_groups
+                .iter()
+                .map(|group| group.events.len())
+                .sum::<usize>()
         ),
     }
 }
@@ -728,6 +765,66 @@ fn normalize_live_nip89_handler(
         nostrconnect_url,
         metadata: normalize_metadata(metadata),
     })
+}
+
+fn group_live_nip89_events(
+    events: Vec<RadrootsNostrEvent>,
+) -> Result<Vec<MycLiveNip89Group>, MycError> {
+    let mut groups = Vec::<MycLiveNip89Group>::new();
+    for event in events {
+        let live_event = MycLiveNip89Event {
+            event_id_hex: event.id.to_hex(),
+            created_at_unix: event.created_at.as_secs(),
+            handler: normalize_live_nip89_handler(&event)?,
+        };
+        if let Some(existing) = groups
+            .iter_mut()
+            .find(|group| group.handler == live_event.handler)
+        {
+            existing.events.push(live_event);
+        } else {
+            groups.push(MycLiveNip89Group {
+                handler: live_event.handler.clone(),
+                events: vec![live_event],
+            });
+        }
+    }
+
+    for group in &mut groups {
+        group.events.sort_by(|left, right| {
+            left.created_at_unix
+                .cmp(&right.created_at_unix)
+                .then_with(|| left.event_id_hex.cmp(&right.event_id_hex))
+        });
+    }
+
+    groups.sort_by(|left, right| {
+        latest_group_sort_key(right)
+            .cmp(&latest_group_sort_key(left))
+            .then_with(|| left.handler.identifier.cmp(&right.handler.identifier))
+            .then_with(|| {
+                left.handler
+                    .author_public_key_hex
+                    .cmp(&right.handler.author_public_key_hex)
+            })
+    });
+
+    Ok(groups)
+}
+
+fn latest_group_sort_key(group: &MycLiveNip89Group) -> (u64, &str) {
+    group
+        .events
+        .last()
+        .map(|event| (event.created_at_unix, event.event_id_hex.as_str()))
+        .unwrap_or((0, ""))
+}
+
+fn latest_live_event_id(live_groups: &[MycLiveNip89Group]) -> Option<&str> {
+    live_groups
+        .first()
+        .and_then(|group| group.events.last())
+        .map(|event| event.event_id_hex.as_str())
 }
 
 fn build_metadata(config: &MycDiscoveryMetadataConfig) -> Option<RadrootsNostrMetadata> {

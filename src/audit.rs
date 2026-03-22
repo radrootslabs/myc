@@ -34,6 +34,7 @@ pub enum MycOperationAuditOutcome {
     Missing,
     Matched,
     Drifted,
+    Conflicted,
     Skipped,
 }
 

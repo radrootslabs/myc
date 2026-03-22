@@ -310,7 +310,8 @@ fn emit_operation_audit_trace(record: &MycOperationAuditRecord) {
         ),
         crate::audit::MycOperationAuditOutcome::Rejected
         | crate::audit::MycOperationAuditOutcome::Restored
-        | crate::audit::MycOperationAuditOutcome::Drifted => tracing::warn!(
+        | crate::audit::MycOperationAuditOutcome::Drifted
+        | crate::audit::MycOperationAuditOutcome::Conflicted => tracing::warn!(
             operation = ?record.operation,
             outcome = ?record.outcome,
             connection_id = record.connection_id.as_deref().unwrap_or(""),

@@ -175,6 +175,7 @@ pub struct MycOperationOutcomeCounts {
     pub missing: usize,
     pub matched: usize,
     pub drifted: usize,
+    pub conflicted: usize,
     pub skipped: usize,
 }
 
@@ -498,6 +499,7 @@ fn increment_outcome_counts(
         MycOperationAuditOutcome::Missing => counts.missing += 1,
         MycOperationAuditOutcome::Matched => counts.matched += 1,
         MycOperationAuditOutcome::Drifted => counts.drifted += 1,
+        MycOperationAuditOutcome::Conflicted => counts.conflicted += 1,
         MycOperationAuditOutcome::Skipped => counts.skipped += 1,
     }
 }
