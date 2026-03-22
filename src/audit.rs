@@ -52,6 +52,8 @@ pub struct MycOperationAuditRecord {
     pub connection_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt_id: Option<String>,
     pub relay_count: usize,
     pub acknowledged_relay_count: usize,
     pub relay_outcome_summary: String,
@@ -80,6 +82,7 @@ impl MycOperationAuditRecord {
             relay_url: None,
             connection_id: connection_id.map(ToString::to_string),
             request_id: request_id.map(ToOwned::to_owned),
+            attempt_id: None,
             relay_count,
             acknowledged_relay_count,
             relay_outcome_summary: relay_outcome_summary.into(),
@@ -88,6 +91,11 @@ impl MycOperationAuditRecord {
 
     pub fn with_relay_url(mut self, relay_url: impl Into<String>) -> Self {
         self.relay_url = Some(relay_url.into());
+        self
+    }
+
+    pub fn with_attempt_id(mut self, attempt_id: impl Into<String>) -> Self {
+        self.attempt_id = Some(attempt_id.into());
         self
     }
 }
@@ -159,6 +167,43 @@ impl MycOperationAuditStore {
         self.list_matching(limit, |record| {
             record.connection_id.as_deref() == Some(connection_id.as_str())
         })
+    }
+
+    pub fn list_for_attempt_id(
+        &self,
+        attempt_id: &str,
+    ) -> Result<Vec<MycOperationAuditRecord>, MycError> {
+        self.list_for_attempt_id_with_limit(attempt_id, usize::MAX)
+    }
+
+    pub fn list_for_attempt_id_with_limit(
+        &self,
+        attempt_id: &str,
+        limit: usize,
+    ) -> Result<Vec<MycOperationAuditRecord>, MycError> {
+        self.list_matching(limit, |record| {
+            record.attempt_id.as_deref() == Some(attempt_id)
+        })
+    }
+
+    pub fn latest_attempt_id_for_operation(
+        &self,
+        operation: MycOperationAuditKind,
+    ) -> Result<Option<String>, MycError> {
+        for path in self.read_paths_newest_first()? {
+            let mut file_records = self.read_records_from_path(&path)?;
+            file_records.reverse();
+
+            for record in file_records {
+                if record.operation == operation {
+                    if let Some(attempt_id) = record.attempt_id {
+                        return Ok(Some(attempt_id));
+                    }
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     fn list_matching<F>(
@@ -391,15 +436,18 @@ mod tests {
             RadrootsNostrSignerConnectionId::parse("connection-1").expect("connection id");
 
         store
-            .append(&MycOperationAuditRecord::new(
-                MycOperationAuditKind::ConnectAcceptPublish,
-                MycOperationAuditOutcome::Rejected,
-                Some(&connection_id),
-                Some("request-1"),
-                2,
-                0,
-                "0/2 relays acknowledged publish; failures: relay-a: rejected",
-            ))
+            .append(
+                &MycOperationAuditRecord::new(
+                    MycOperationAuditKind::ConnectAcceptPublish,
+                    MycOperationAuditOutcome::Rejected,
+                    Some(&connection_id),
+                    Some("request-1"),
+                    2,
+                    0,
+                    "0/2 relays acknowledged publish; failures: relay-a: rejected",
+                )
+                .with_attempt_id("attempt-1"),
+            )
             .expect("append rejected record");
         store
             .append(&MycOperationAuditRecord::new(
@@ -422,6 +470,7 @@ mod tests {
         assert_eq!(records[0].outcome, MycOperationAuditOutcome::Rejected);
         assert_eq!(records[0].connection_id.as_deref(), Some("connection-1"));
         assert_eq!(records[0].request_id.as_deref(), Some("request-1"));
+        assert_eq!(records[0].attempt_id.as_deref(), Some("attempt-1"));
         assert_eq!(records[0].relay_count, 2);
         assert_eq!(records[0].acknowledged_relay_count, 0);
 
@@ -453,15 +502,18 @@ mod tests {
 
         for index in 0..6 {
             store
-                .append(&MycOperationAuditRecord::new(
-                    MycOperationAuditKind::ListenerResponsePublish,
-                    MycOperationAuditOutcome::Rejected,
-                    None,
-                    Some(&format!("request-{index}")),
-                    1,
-                    0,
-                    format!("failure-{index}"),
-                ))
+                .append(
+                    &MycOperationAuditRecord::new(
+                        MycOperationAuditKind::ListenerResponsePublish,
+                        MycOperationAuditOutcome::Rejected,
+                        None,
+                        Some(&format!("request-{index}")),
+                        1,
+                        0,
+                        format!("failure-{index}"),
+                    )
+                    .with_attempt_id(format!("attempt-{index}")),
+                )
                 .expect("append record");
         }
 
@@ -472,5 +524,71 @@ mod tests {
         assert!(temp.path().join("operations.1.jsonl").exists());
         assert!(temp.path().join("operations.2.jsonl").exists());
         assert!(!temp.path().join("operations.3.jsonl").exists());
+    }
+
+    #[test]
+    fn list_for_attempt_and_latest_attempt_id_work() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let store = MycOperationAuditStore::new(temp.path(), config());
+
+        store
+            .append(
+                &MycOperationAuditRecord::new(
+                    MycOperationAuditKind::DiscoveryHandlerRefresh,
+                    MycOperationAuditOutcome::Rejected,
+                    None,
+                    None,
+                    2,
+                    0,
+                    "first attempt rejected",
+                )
+                .with_attempt_id("attempt-1"),
+            )
+            .expect("append first attempt");
+        store
+            .append(
+                &MycOperationAuditRecord::new(
+                    MycOperationAuditKind::DiscoveryHandlerRepair,
+                    MycOperationAuditOutcome::Rejected,
+                    None,
+                    None,
+                    1,
+                    0,
+                    "relay-a rejected",
+                )
+                .with_attempt_id("attempt-1")
+                .with_relay_url("wss://relay-a.example.com"),
+            )
+            .expect("append first repair");
+        store
+            .append(
+                &MycOperationAuditRecord::new(
+                    MycOperationAuditKind::DiscoveryHandlerRefresh,
+                    MycOperationAuditOutcome::Succeeded,
+                    None,
+                    None,
+                    1,
+                    1,
+                    "second attempt succeeded",
+                )
+                .with_attempt_id("attempt-2"),
+            )
+            .expect("append second attempt");
+
+        let attempt_records = store
+            .list_for_attempt_id("attempt-1")
+            .expect("list attempt records");
+        assert_eq!(attempt_records.len(), 2);
+        assert!(
+            attempt_records
+                .iter()
+                .all(|record| record.attempt_id.as_deref() == Some("attempt-1"))
+        );
+        assert_eq!(
+            store
+                .latest_attempt_id_for_operation(MycOperationAuditKind::DiscoveryHandlerRefresh)
+                .expect("latest attempt"),
+            Some("attempt-2".to_owned())
+        );
     }
 }

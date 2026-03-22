@@ -11,6 +11,7 @@ use radroots_nostr::prelude::{
     radroots_nostr_filter_tag, radroots_nostr_metadata_has_fields, radroots_nostr_tag_first_value,
 };
 use radroots_nostr_connect::prelude::{RadrootsNostrConnectBunkerUri, RadrootsNostrConnectUri};
+use radroots_nostr_signer::prelude::RadrootsNostrSignerRequestId;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
@@ -202,6 +203,7 @@ pub struct MycDiscoveryDiffOutput {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycRefreshedNip89Output {
+    pub attempt_id: String,
     pub status: MycDiscoveryLiveStatus,
     pub force: bool,
     pub differing_fields: Vec<String>,
@@ -496,13 +498,14 @@ pub async fn publish_nip89_event(
     runtime: &MycRuntime,
 ) -> Result<MycPublishedNip89Output, MycError> {
     let context = MycDiscoveryContext::from_runtime(runtime)?;
-    publish_nip89_event_to_relays(runtime, &context, context.publish_relays()).await
+    publish_nip89_event_to_relays(runtime, &context, context.publish_relays(), None).await
 }
 
 async fn publish_nip89_event_to_relays(
     runtime: &MycRuntime,
     context: &MycDiscoveryContext,
     relays: &[RadrootsNostrRelayUrl],
+    attempt_id: Option<&str>,
 ) -> Result<MycPublishedNip89Output, MycError> {
     let event = context.build_signed_handler_event()?;
     let event_id = event.id.to_hex();
@@ -516,7 +519,7 @@ async fn publish_nip89_event_to_relays(
     {
         Ok(outcome) => outcome,
         Err(error) => {
-            runtime.record_operation_audit(&MycOperationAuditRecord::new(
+            let mut record = MycOperationAuditRecord::new(
                 MycOperationAuditKind::DiscoveryHandlerPublish,
                 MycOperationAuditOutcome::Rejected,
                 None,
@@ -533,12 +536,16 @@ async fn publish_nip89_event_to_relays(
                     .publish_rejection_details()
                     .map(ToOwned::to_owned)
                     .unwrap_or_else(|| error.to_string()),
-            ));
+            );
+            if let Some(attempt_id) = attempt_id {
+                record = record.with_attempt_id(attempt_id);
+            }
+            runtime.record_operation_audit(&record);
             return Err(error);
         }
     };
 
-    runtime.record_operation_audit(&MycOperationAuditRecord::new(
+    let mut record = MycOperationAuditRecord::new(
         MycOperationAuditKind::DiscoveryHandlerPublish,
         MycOperationAuditOutcome::Succeeded,
         None,
@@ -546,7 +553,11 @@ async fn publish_nip89_event_to_relays(
         publish_outcome.relay_count,
         publish_outcome.acknowledged_relay_count,
         publish_outcome.relay_outcome_summary.clone(),
-    ));
+    );
+    if let Some(attempt_id) = attempt_id {
+        record = record.with_attempt_id(attempt_id);
+    }
+    runtime.record_operation_audit(&record);
 
     Ok(MycPublishedNip89Output {
         author_public_key_hex: context.app_identity().public_key_hex(),
@@ -562,7 +573,7 @@ async fn publish_nip89_event_to_relays(
 
 pub async fn fetch_live_nip89(runtime: &MycRuntime) -> Result<MycFetchedLiveNip89Output, MycError> {
     let context = MycDiscoveryContext::from_runtime(runtime)?;
-    let fetched = fetch_live_nip89_state_for_runtime(runtime, &context).await?;
+    let fetched = fetch_live_nip89_state_for_runtime(runtime, &context, None).await?;
     Ok(MycFetchedLiveNip89Output {
         author_public_key_hex: context.app_identity().public_key_hex(),
         publish_relays: context
@@ -579,7 +590,7 @@ pub async fn fetch_live_nip89(runtime: &MycRuntime) -> Result<MycFetchedLiveNip8
 pub async fn diff_live_nip89(runtime: &MycRuntime) -> Result<MycDiscoveryDiffOutput, MycError> {
     let context = MycDiscoveryContext::from_runtime(runtime)?;
     let local_handler = context.render_normalized_nip89_handler();
-    let fetched = fetch_live_nip89_state_for_runtime(runtime, &context).await?;
+    let fetched = fetch_live_nip89_state_for_runtime(runtime, &context, None).await?;
     let relay_states = build_relay_diffs(&local_handler, &fetched.relay_states);
     let relay_summary = summarize_relay_diffs(&relay_states);
     let live_groups = fetched.live_groups;
@@ -599,8 +610,39 @@ pub async fn refresh_nip89(
     force: bool,
 ) -> Result<MycRefreshedNip89Output, MycError> {
     let context = MycDiscoveryContext::from_runtime(runtime)?;
+    let attempt_id = RadrootsNostrSignerRequestId::new_v7().into_string();
     let local_handler = context.render_normalized_nip89_handler();
-    let fetched = fetch_live_nip89_state_for_runtime(runtime, &context).await?;
+    let fetched = match fetch_live_nip89_state_for_runtime(
+        runtime,
+        &context,
+        Some(attempt_id.as_str()),
+    )
+    .await
+    {
+        Ok(fetched) => fetched,
+        Err(MycError::DiscoveryFetchUnavailable {
+            relay_count,
+            details,
+        }) => {
+            runtime.record_operation_audit(
+                &MycOperationAuditRecord::new(
+                    MycOperationAuditKind::DiscoveryHandlerRefresh,
+                    MycOperationAuditOutcome::Unavailable,
+                    None,
+                    None,
+                    relay_count,
+                    0,
+                    details.clone(),
+                )
+                .with_attempt_id(attempt_id.clone()),
+            );
+            return Err(MycError::DiscoveryFetchUnavailable {
+                relay_count,
+                details,
+            });
+        }
+        Err(error) => return Err(error),
+    };
     let relay_states = build_relay_diffs(&local_handler, &fetched.relay_states);
     let relay_summary = summarize_relay_diffs(&relay_states);
     let live_groups = fetched.live_groups;
@@ -610,29 +652,35 @@ pub async fn refresh_nip89(
     let compare_summary =
         describe_compare_status(status, &differing_fields, &live_groups, &relay_summary);
 
-    runtime.record_operation_audit(&MycOperationAuditRecord::new(
-        MycOperationAuditKind::DiscoveryHandlerCompare,
-        compare_status_to_audit_outcome(status),
-        None,
-        compare_request_id,
-        relay_count,
-        relay_count.saturating_sub(relay_summary.unavailable_relays.len()),
-        compare_summary,
-    ));
-
-    if !relay_summary.unavailable_relays.is_empty() && !force {
-        runtime.record_operation_audit(&MycOperationAuditRecord::new(
-            MycOperationAuditKind::DiscoveryHandlerRefresh,
-            MycOperationAuditOutcome::Unavailable,
+    runtime.record_operation_audit(
+        &MycOperationAuditRecord::new(
+            MycOperationAuditKind::DiscoveryHandlerCompare,
+            compare_status_to_audit_outcome(status),
             None,
             compare_request_id,
             relay_count,
             relay_count.saturating_sub(relay_summary.unavailable_relays.len()),
-            format!(
-                "discovery relays were unavailable; rerun refresh with --force to override: {}",
-                relay_summary.unavailable_relays.join(", ")
-            ),
-        ));
+            compare_summary,
+        )
+        .with_attempt_id(attempt_id.clone()),
+    );
+
+    if !relay_summary.unavailable_relays.is_empty() && !force {
+        runtime.record_operation_audit(
+            &MycOperationAuditRecord::new(
+                MycOperationAuditKind::DiscoveryHandlerRefresh,
+                MycOperationAuditOutcome::Unavailable,
+                None,
+                compare_request_id,
+                relay_count,
+                relay_count.saturating_sub(relay_summary.unavailable_relays.len()),
+                format!(
+                    "discovery relays were unavailable; rerun refresh with --force to override: {}",
+                    relay_summary.unavailable_relays.join(", ")
+                ),
+            )
+            .with_attempt_id(attempt_id.clone()),
+        );
         return Err(MycError::InvalidOperation(format!(
             "one or more discovery relays were unavailable; rerun `discovery refresh-nip89 --force` to override: {}",
             relay_summary.unavailable_relays.join(", ")
@@ -640,16 +688,19 @@ pub async fn refresh_nip89(
     }
 
     if !relay_summary.conflicted_relays.is_empty() && !force {
-        runtime.record_operation_audit(&MycOperationAuditRecord::new(
-            MycOperationAuditKind::DiscoveryHandlerRefresh,
-            MycOperationAuditOutcome::Conflicted,
-            None,
-            compare_request_id,
-            relay_count,
-            relay_count.saturating_sub(relay_summary.unavailable_relays.len()),
-            "live discovery handler state is conflicted; rerun refresh with --force to override"
-                .to_owned(),
-        ));
+        runtime.record_operation_audit(
+            &MycOperationAuditRecord::new(
+                MycOperationAuditKind::DiscoveryHandlerRefresh,
+                MycOperationAuditOutcome::Conflicted,
+                None,
+                compare_request_id,
+                relay_count,
+                relay_count.saturating_sub(relay_summary.unavailable_relays.len()),
+                "live discovery handler state is conflicted; rerun refresh with --force to override"
+                    .to_owned(),
+            )
+            .with_attempt_id(attempt_id.clone()),
+        );
         return Err(MycError::InvalidOperation(
             "live discovery handler state is conflicted; rerun `discovery refresh-nip89 --force` to override"
                 .to_owned(),
@@ -661,16 +712,26 @@ pub async fn refresh_nip89(
     if refresh_relays.is_empty() {
         let repair_results = build_repair_results(&context, &relay_states, &[], None, None);
         let repair_summary = summarize_repair_results(&repair_results);
-        runtime.record_operation_audit(&MycOperationAuditRecord::new(
-            MycOperationAuditKind::DiscoveryHandlerRefresh,
-            MycOperationAuditOutcome::Skipped,
-            None,
-            compare_request_id,
-            relay_count,
-            relay_count.saturating_sub(relay_summary.unavailable_relays.len()),
-            "local discovery handler already matches live state".to_owned(),
-        ));
+        record_refresh_repair_audit(
+            runtime,
+            compare_request_id.map(ToOwned::to_owned),
+            attempt_id.as_str(),
+            &repair_results,
+        );
+        runtime.record_operation_audit(
+            &MycOperationAuditRecord::new(
+                MycOperationAuditKind::DiscoveryHandlerRefresh,
+                MycOperationAuditOutcome::Skipped,
+                None,
+                compare_request_id,
+                relay_count,
+                relay_count.saturating_sub(relay_summary.unavailable_relays.len()),
+                "local discovery handler already matches live state".to_owned(),
+            )
+            .with_attempt_id(attempt_id.clone()),
+        );
         return Ok(MycRefreshedNip89Output {
+            attempt_id,
             status,
             force,
             differing_fields,
@@ -684,8 +745,16 @@ pub async fn refresh_nip89(
         });
     }
 
-    match publish_nip89_event_to_relays(runtime, &context, &refresh_relays).await {
+    match publish_nip89_event_to_relays(
+        runtime,
+        &context,
+        &refresh_relays,
+        Some(attempt_id.as_str()),
+    )
+    .await
+    {
         Ok(published) => {
+            let published_event_id = published.event.id.to_hex();
             let repair_results = build_repair_results(
                 &context,
                 &relay_states,
@@ -695,12 +764,32 @@ pub async fn refresh_nip89(
             );
             record_refresh_repair_audit(
                 runtime,
-                Some(published.event.id.to_hex()),
+                Some(published_event_id.clone()),
+                attempt_id.as_str(),
                 &repair_results,
             );
             let repair_summary = summarize_repair_results(&repair_results);
             let remaining_repair_relays = remaining_repair_relays(&repair_results);
+            runtime.record_operation_audit(
+                &MycOperationAuditRecord::new(
+                    MycOperationAuditKind::DiscoveryHandlerRefresh,
+                    MycOperationAuditOutcome::Succeeded,
+                    None,
+                    Some(published_event_id.as_str()),
+                    published.relay_count,
+                    published.acknowledged_relay_count,
+                    format!(
+                        "refresh completed with {} repaired, {} failed, {} unchanged, {} skipped",
+                        repair_summary.repaired,
+                        repair_summary.failed,
+                        repair_summary.unchanged,
+                        repair_summary.skipped
+                    ),
+                )
+                .with_attempt_id(attempt_id.clone()),
+            );
             return Ok(MycRefreshedNip89Output {
+                attempt_id,
                 status,
                 force,
                 differing_fields,
@@ -716,7 +805,31 @@ pub async fn refresh_nip89(
         Err(error) => {
             let repair_results =
                 build_repair_results(&context, &relay_states, &refresh_relays, None, Some(&error));
-            record_refresh_repair_audit(runtime, None, &repair_results);
+            let repair_summary = summarize_repair_results(&repair_results);
+            record_refresh_repair_audit(runtime, None, attempt_id.as_str(), &repair_results);
+            runtime.record_operation_audit(
+                &MycOperationAuditRecord::new(
+                    MycOperationAuditKind::DiscoveryHandlerRefresh,
+                    MycOperationAuditOutcome::Rejected,
+                    None,
+                    compare_request_id,
+                    relay_count,
+                    relay_states
+                        .iter()
+                        .filter(|relay_state| {
+                            relay_state.fetch_status == MycDiscoveryRelayFetchStatus::Available
+                        })
+                        .count(),
+                    format!(
+                        "refresh failed with {} repaired, {} failed, {} unchanged, {} skipped",
+                        repair_summary.repaired,
+                        repair_summary.failed,
+                        repair_summary.unchanged,
+                        repair_summary.skipped
+                    ),
+                )
+                .with_attempt_id(attempt_id),
+            );
             return Err(error);
         }
     }
@@ -876,15 +989,15 @@ fn summarize_repair_results(
 fn record_refresh_repair_audit(
     runtime: &MycRuntime,
     request_id: Option<String>,
+    attempt_id: &str,
     repair_results: &[MycDiscoveryRelayRepairResult],
 ) {
     for result in repair_results {
-        let Some((outcome, acknowledged_relay_count)) = (match result.outcome {
-            MycDiscoveryRepairOutcome::Repaired => Some((MycOperationAuditOutcome::Succeeded, 1)),
-            MycDiscoveryRepairOutcome::Failed => Some((MycOperationAuditOutcome::Rejected, 0)),
-            MycDiscoveryRepairOutcome::Unchanged | MycDiscoveryRepairOutcome::Skipped => None,
-        }) else {
-            continue;
+        let (outcome, acknowledged_relay_count) = match result.outcome {
+            MycDiscoveryRepairOutcome::Repaired => (MycOperationAuditOutcome::Succeeded, 1),
+            MycDiscoveryRepairOutcome::Failed => (MycOperationAuditOutcome::Rejected, 0),
+            MycDiscoveryRepairOutcome::Unchanged => (MycOperationAuditOutcome::Matched, 0),
+            MycDiscoveryRepairOutcome::Skipped => (MycOperationAuditOutcome::Skipped, 0),
         };
 
         runtime.record_operation_audit(
@@ -900,6 +1013,7 @@ fn record_refresh_repair_audit(
                     .clone()
                     .unwrap_or_else(|| result.relay_url.clone()),
             )
+            .with_attempt_id(attempt_id)
             .with_relay_url(result.relay_url.clone()),
         );
     }
@@ -908,6 +1022,7 @@ fn record_refresh_repair_audit(
 async fn fetch_live_nip89_state_for_runtime(
     runtime: &MycRuntime,
     context: &MycDiscoveryContext,
+    attempt_id: Option<&str>,
 ) -> Result<MycFetchedLiveNip89State, MycError> {
     match fetch_live_nip89_state(context).await {
         Ok(fetched) => {
@@ -919,7 +1034,7 @@ async fn fetch_live_nip89_state_for_runtime(
                 })
                 .collect::<Vec<_>>();
             if !unavailable_relays.is_empty() {
-                runtime.record_operation_audit(&MycOperationAuditRecord::new(
+                let mut record = MycOperationAuditRecord::new(
                     MycOperationAuditKind::DiscoveryHandlerFetch,
                     MycOperationAuditOutcome::Unavailable,
                     None,
@@ -927,7 +1042,11 @@ async fn fetch_live_nip89_state_for_runtime(
                     fetched.relay_states.len(),
                     fetched.relay_states.len() - unavailable_relays.len(),
                     summarize_unavailable_relays(&fetched.relay_states),
-                ));
+                );
+                if let Some(attempt_id) = attempt_id {
+                    record = record.with_attempt_id(attempt_id);
+                }
+                runtime.record_operation_audit(&record);
             }
             Ok(fetched)
         }
@@ -935,7 +1054,7 @@ async fn fetch_live_nip89_state_for_runtime(
             relay_count,
             details,
         }) => {
-            runtime.record_operation_audit(&MycOperationAuditRecord::new(
+            let mut record = MycOperationAuditRecord::new(
                 MycOperationAuditKind::DiscoveryHandlerFetch,
                 MycOperationAuditOutcome::Unavailable,
                 None,
@@ -943,7 +1062,11 @@ async fn fetch_live_nip89_state_for_runtime(
                 relay_count,
                 0,
                 details.clone(),
-            ));
+            );
+            if let Some(attempt_id) = attempt_id {
+                record = record.with_attempt_id(attempt_id);
+            }
+            runtime.record_operation_audit(&record);
             Err(MycError::DiscoveryFetchUnavailable {
                 relay_count,
                 details,

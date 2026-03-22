@@ -803,6 +803,186 @@ async fn refresh_reports_partial_repair_and_audit_summary_through_the_cli() -> T
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn discovery_repair_attempt_commands_correlate_multiple_refresh_runs() -> TestResult<()> {
+    let relay_a = TestRelay::spawn().await?;
+    let relay_b = TestRelay::spawn().await?;
+    let temp = tempfile::tempdir()?;
+    let config_path = temp.path().join("config.toml");
+    let state_dir = temp.path().join("state");
+    let signer_identity_path = temp.path().join("signer.json");
+    let user_identity_path = temp.path().join("user.json");
+    let app_identity_path = temp.path().join("app.json");
+    let app_identity = RadrootsIdentity::from_secret_key_str(
+        "3333333333333333333333333333333333333333333333333333333333333333",
+    )?;
+
+    write_identity(
+        &signer_identity_path,
+        "1111111111111111111111111111111111111111111111111111111111111111",
+    );
+    write_identity(
+        &user_identity_path,
+        "2222222222222222222222222222222222222222222222222222222222222222",
+    );
+    app_identity.save_json(&app_identity_path)?;
+    write_config(
+        &config_path,
+        &state_dir,
+        &signer_identity_path,
+        &user_identity_path,
+        &app_identity_path,
+        &[relay_a.url(), relay_b.url()],
+    );
+
+    relay_a
+        .queue_publish_outcomes(app_identity.public_key(), &[true])
+        .await;
+    relay_b
+        .queue_publish_outcomes(app_identity.public_key(), &[false, true])
+        .await;
+
+    let first_refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
+    assert!(
+        first_refresh.status.success(),
+        "first refresh-nip89 failed: {}",
+        String::from_utf8_lossy(&first_refresh.stderr)
+    );
+    let first_refresh_output: Value = serde_json::from_slice(&first_refresh.stdout)?;
+    let first_attempt_id = first_refresh_output["attempt_id"]
+        .as_str()
+        .expect("first attempt id")
+        .to_owned();
+    assert_eq!(first_refresh_output["repair_summary"]["repaired"], 1);
+    assert_eq!(first_refresh_output["repair_summary"]["failed"], 1);
+    assert_eq!(
+        first_refresh_output["remaining_repair_relays"],
+        Value::Array(vec![Value::String(relay_b.url().to_owned())])
+    );
+
+    relay_a
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+
+    let second_refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
+    assert!(
+        second_refresh.status.success(),
+        "second refresh-nip89 failed: {}",
+        String::from_utf8_lossy(&second_refresh.stderr)
+    );
+    let second_refresh_output: Value = serde_json::from_slice(&second_refresh.stdout)?;
+    let second_attempt_id = second_refresh_output["attempt_id"]
+        .as_str()
+        .expect("second attempt id")
+        .to_owned();
+    assert_ne!(first_attempt_id, second_attempt_id);
+    assert_eq!(second_refresh_output["repair_summary"]["repaired"], 1);
+    assert_eq!(second_refresh_output["repair_summary"]["failed"], 0);
+    assert_eq!(second_refresh_output["repair_summary"]["unchanged"], 1);
+    assert_eq!(
+        second_refresh_output["remaining_repair_relays"],
+        Value::Array(vec![])
+    );
+
+    let latest_attempt = run_myc(&config_path, &["audit", "latest-discovery-repair"])?;
+    assert!(
+        latest_attempt.status.success(),
+        "latest-discovery-repair failed: {}",
+        String::from_utf8_lossy(&latest_attempt.stderr)
+    );
+    let latest_attempt_output: Value = serde_json::from_slice(&latest_attempt.stdout)?;
+    assert_eq!(
+        latest_attempt_output["attempt_id"],
+        Value::String(second_attempt_id.clone())
+    );
+    assert_eq!(
+        latest_attempt_output["compare_outcome"],
+        Value::String("matched".to_owned())
+    );
+    assert_eq!(
+        latest_attempt_output["refresh_outcome"],
+        Value::String("succeeded".to_owned())
+    );
+    assert_eq!(latest_attempt_output["repair_summary"]["repaired"], 1);
+    assert_eq!(latest_attempt_output["repair_summary"]["failed"], 0);
+    assert_eq!(latest_attempt_output["repair_summary"]["unchanged"], 1);
+    assert_eq!(
+        latest_attempt_output["remaining_repair_relays"],
+        Value::Array(vec![])
+    );
+
+    let first_attempt_summary = run_myc(
+        &config_path,
+        &[
+            "audit",
+            "discovery-repair-attempt",
+            "--attempt-id",
+            first_attempt_id.as_str(),
+        ],
+    )?;
+    assert!(
+        first_attempt_summary.status.success(),
+        "discovery-repair-attempt summary failed: {}",
+        String::from_utf8_lossy(&first_attempt_summary.stderr)
+    );
+    let first_attempt_summary_output: Value =
+        serde_json::from_slice(&first_attempt_summary.stdout)?;
+    assert_eq!(
+        first_attempt_summary_output["attempt_id"],
+        Value::String(first_attempt_id.clone())
+    );
+    assert_eq!(
+        first_attempt_summary_output["refresh_outcome"],
+        Value::String("succeeded".to_owned())
+    );
+    assert_eq!(
+        first_attempt_summary_output["repair_summary"]["repaired"],
+        1
+    );
+    assert_eq!(first_attempt_summary_output["repair_summary"]["failed"], 1);
+    assert_eq!(
+        first_attempt_summary_output["failed_relays"],
+        Value::Array(vec![Value::String(relay_b.url().to_owned())])
+    );
+    assert_eq!(
+        first_attempt_summary_output["remaining_repair_relays"],
+        Value::Array(vec![Value::String(relay_b.url().to_owned())])
+    );
+
+    let first_attempt_records = run_myc(
+        &config_path,
+        &[
+            "audit",
+            "discovery-repair-attempt",
+            "--attempt-id",
+            first_attempt_id.as_str(),
+            "--view",
+            "records",
+        ],
+    )?;
+    assert!(
+        first_attempt_records.status.success(),
+        "discovery-repair-attempt records failed: {}",
+        String::from_utf8_lossy(&first_attempt_records.stderr)
+    );
+    let first_attempt_records_output: Value =
+        serde_json::from_slice(&first_attempt_records.stdout)?;
+    let record_attempt_ids = first_attempt_records_output["runtime_operation_audit"]
+        .as_array()
+        .expect("attempt records")
+        .iter()
+        .map(|record| record["attempt_id"].as_str().expect("record attempt id"))
+        .collect::<Vec<_>>();
+    assert!(!record_attempt_ids.is_empty());
+    assert!(
+        record_attempt_ids
+            .iter()
+            .all(|attempt_id| *attempt_id == first_attempt_id)
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn discovery_diff_surfaces_relay_provenance_through_the_cli() -> TestResult<()> {
     let relay_a = TestRelay::spawn().await?;
     let relay_b = TestRelay::spawn().await?;

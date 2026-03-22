@@ -14,8 +14,8 @@ use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperation
 use crate::config::{DEFAULT_CONFIG_PATH, MycConfig};
 use crate::control::{accept_client_uri, authorize_auth_challenge, parse_permission_values};
 use crate::discovery::{
-    MycDiscoveryContext, diff_live_nip89, fetch_live_nip89, publish_nip89_event, refresh_nip89,
-    verify_bundle,
+    MycDiscoveryContext, MycDiscoveryRepairSummary, diff_live_nip89, fetch_live_nip89,
+    publish_nip89_event, refresh_nip89, verify_bundle,
 };
 use crate::error::MycError;
 use crate::logging;
@@ -68,6 +68,8 @@ pub enum MycAuditCommand {
     List {
         #[arg(long)]
         connection_id: Option<String>,
+        #[arg(long)]
+        attempt_id: Option<String>,
         #[arg(long, value_enum, default_value_t = MycAuditScope::All)]
         scope: MycAuditScope,
         #[arg(long)]
@@ -76,10 +78,22 @@ pub enum MycAuditCommand {
     Summary {
         #[arg(long)]
         connection_id: Option<String>,
+        #[arg(long)]
+        attempt_id: Option<String>,
         #[arg(long, value_enum, default_value_t = MycAuditScope::All)]
         scope: MycAuditScope,
         #[arg(long)]
         limit: Option<usize>,
+    },
+    LatestDiscoveryRepair {
+        #[arg(long, value_enum, default_value_t = MycDiscoveryRepairAttemptView::Summary)]
+        view: MycDiscoveryRepairAttemptView,
+    },
+    DiscoveryRepairAttempt {
+        #[arg(long)]
+        attempt_id: String,
+        #[arg(long, value_enum, default_value_t = MycDiscoveryRepairAttemptView::Summary)]
+        view: MycDiscoveryRepairAttemptView,
     },
 }
 
@@ -88,6 +102,12 @@ pub enum MycAuditScope {
     All,
     Request,
     Operation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum MycDiscoveryRepairAttemptView {
+    Summary,
+    Records,
 }
 
 #[derive(Debug, Subcommand)]
@@ -195,6 +215,42 @@ pub struct MycAuditSummaryOutput {
     pub runtime_replay_restore_count: usize,
 }
 
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct MycDiscoveryRepairAttemptRecordsOutput {
+    pub attempt_id: String,
+    pub runtime_operation_audit: Vec<MycOperationAuditRecord>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct MycDiscoveryRepairAttemptSummaryOutput {
+    pub attempt_id: String,
+    pub record_count: usize,
+    pub started_at_unix: u64,
+    pub finished_at_unix: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compare_outcome: Option<MycOperationAuditOutcome>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_outcome: Option<MycOperationAuditOutcome>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aggregate_publish_outcome: Option<MycOperationAuditOutcome>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aggregate_publish_relay_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aggregate_publish_acknowledged_relay_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aggregate_publish_relay_outcome_summary: Option<String>,
+    pub repair_summary: MycDiscoveryRepairSummary,
+    pub failed_relays: Vec<String>,
+    pub remaining_repair_relays: Vec<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum MycDiscoveryRepairAttemptOutput {
+    Summary(MycDiscoveryRepairAttemptSummaryOutput),
+    Records(MycDiscoveryRepairAttemptRecordsOutput),
+}
+
 pub async fn run_from_env() -> Result<(), MycError> {
     let cli = MycCli::parse();
     let config = load_config(cli.config.as_deref())?;
@@ -243,6 +299,7 @@ pub async fn run_from_env() -> Result<(), MycError> {
             match command {
                 MycAuditCommand::List {
                     connection_id,
+                    attempt_id,
                     scope,
                     limit,
                 } => {
@@ -250,6 +307,7 @@ pub async fn run_from_env() -> Result<(), MycError> {
                         &runtime,
                         &manager,
                         connection_id.as_deref(),
+                        attempt_id.as_deref(),
                         scope,
                         limit,
                     )?;
@@ -257,6 +315,7 @@ pub async fn run_from_env() -> Result<(), MycError> {
                 }
                 MycAuditCommand::Summary {
                     connection_id,
+                    attempt_id,
                     scope,
                     limit,
                 } => {
@@ -264,9 +323,19 @@ pub async fn run_from_env() -> Result<(), MycError> {
                         &runtime,
                         &manager,
                         connection_id.as_deref(),
+                        attempt_id.as_deref(),
                         scope,
                         limit,
                     )?;
+                    print_json(&output)
+                }
+                MycAuditCommand::LatestDiscoveryRepair { view } => {
+                    let output = load_latest_discovery_repair_attempt_output(&runtime, view)?;
+                    print_json(&output)
+                }
+                MycAuditCommand::DiscoveryRepairAttempt { attempt_id, view } => {
+                    let output =
+                        load_discovery_repair_attempt_output(&runtime, attempt_id.as_str(), view)?;
                     print_json(&output)
                 }
             }
@@ -391,9 +460,21 @@ fn load_audit_output(
     runtime: &MycRuntime,
     manager: &radroots_nostr_signer::prelude::RadrootsNostrSignerManager,
     connection_id: Option<&str>,
+    attempt_id: Option<&str>,
     scope: MycAuditScope,
     limit: Option<usize>,
 ) -> Result<MycAuditListOutput, MycError> {
+    if connection_id.is_some() && attempt_id.is_some() {
+        return Err(MycError::InvalidOperation(
+            "audit commands cannot filter by both connection_id and attempt_id".to_owned(),
+        ));
+    }
+    if attempt_id.is_some() && scope == MycAuditScope::Request {
+        return Err(MycError::InvalidOperation(
+            "audit attempt lookup only supports operation or all scope".to_owned(),
+        ));
+    }
+
     let limit = audit_read_limit(runtime, limit);
     let connection_id = connection_id.map(parse_connection_id).transpose()?;
     let signer_request_audit = match (scope, connection_id.as_ref()) {
@@ -417,12 +498,15 @@ fn load_audit_output(
             .rev()
             .collect(),
     };
-    let runtime_operation_audit = match (scope, connection_id.as_ref()) {
-        (MycAuditScope::Request, _) => Vec::new(),
-        (_, Some(connection_id)) => runtime
+    let runtime_operation_audit = match (scope, connection_id.as_ref(), attempt_id) {
+        (MycAuditScope::Request, _, _) => Vec::new(),
+        (_, Some(connection_id), _) => runtime
             .operation_audit_store()
             .list_for_connection_with_limit(connection_id, limit)?,
-        (_, None) => runtime.operation_audit_store().list_with_limit(limit)?,
+        (_, None, Some(attempt_id)) => runtime
+            .operation_audit_store()
+            .list_for_attempt_id_with_limit(attempt_id, limit)?,
+        (_, None, None) => runtime.operation_audit_store().list_with_limit(limit)?,
     };
 
     Ok(MycAuditListOutput {
@@ -435,11 +519,19 @@ fn summarize_audit_output(
     runtime: &MycRuntime,
     manager: &radroots_nostr_signer::prelude::RadrootsNostrSignerManager,
     connection_id: Option<&str>,
+    attempt_id: Option<&str>,
     scope: MycAuditScope,
     limit: Option<usize>,
 ) -> Result<MycAuditSummaryOutput, MycError> {
     let record_limit = audit_read_limit(runtime, limit);
-    let audit = load_audit_output(runtime, manager, connection_id, scope, Some(record_limit))?;
+    let audit = load_audit_output(
+        runtime,
+        manager,
+        connection_id,
+        attempt_id,
+        scope,
+        Some(record_limit),
+    )?;
     let mut signer_request_decisions = MycAuditDecisionCounts::default();
     for record in &audit.signer_request_audit {
         match record.decision {
@@ -506,6 +598,46 @@ fn summarize_audit_output(
     })
 }
 
+fn load_latest_discovery_repair_attempt_output(
+    runtime: &MycRuntime,
+    view: MycDiscoveryRepairAttemptView,
+) -> Result<MycDiscoveryRepairAttemptOutput, MycError> {
+    let attempt_id = runtime
+        .operation_audit_store()
+        .latest_attempt_id_for_operation(MycOperationAuditKind::DiscoveryHandlerRefresh)?
+        .ok_or_else(|| {
+            MycError::InvalidOperation("no discovery repair attempts have been recorded".to_owned())
+        })?;
+    load_discovery_repair_attempt_output(runtime, attempt_id.as_str(), view)
+}
+
+fn load_discovery_repair_attempt_output(
+    runtime: &MycRuntime,
+    attempt_id: &str,
+    view: MycDiscoveryRepairAttemptView,
+) -> Result<MycDiscoveryRepairAttemptOutput, MycError> {
+    let records = runtime
+        .operation_audit_store()
+        .list_for_attempt_id(attempt_id)?;
+    if records.is_empty() {
+        return Err(MycError::InvalidOperation(format!(
+            "discovery repair attempt `{attempt_id}` was not found"
+        )));
+    }
+
+    match view {
+        MycDiscoveryRepairAttemptView::Summary => Ok(MycDiscoveryRepairAttemptOutput::Summary(
+            MycDiscoveryRepairAttemptSummaryOutput::from_records(attempt_id, &records)?,
+        )),
+        MycDiscoveryRepairAttemptView::Records => Ok(MycDiscoveryRepairAttemptOutput::Records(
+            MycDiscoveryRepairAttemptRecordsOutput {
+                attempt_id: attempt_id.to_owned(),
+                runtime_operation_audit: records,
+            },
+        )),
+    }
+}
+
 fn audit_read_limit(runtime: &MycRuntime, limit: Option<usize>) -> usize {
     limit.unwrap_or(runtime.operation_audit_store().config().default_read_limit)
 }
@@ -549,6 +681,75 @@ fn is_aggregate_publish_operation(kind: MycOperationAuditKind) -> bool {
             | MycOperationAuditKind::AuthReplayPublish
             | MycOperationAuditKind::DiscoveryHandlerPublish
     )
+}
+
+impl MycDiscoveryRepairAttemptSummaryOutput {
+    fn from_records(
+        attempt_id: &str,
+        records: &[MycOperationAuditRecord],
+    ) -> Result<Self, MycError> {
+        let Some(first_record) = records.first() else {
+            return Err(MycError::InvalidOperation(format!(
+                "discovery repair attempt `{attempt_id}` had no records"
+            )));
+        };
+        let finished_at_unix = records
+            .last()
+            .map(|record| record.recorded_at_unix)
+            .unwrap_or(first_record.recorded_at_unix);
+        let compare_outcome = records.iter().find_map(|record| {
+            (record.operation == MycOperationAuditKind::DiscoveryHandlerCompare)
+                .then_some(record.outcome)
+        });
+        let refresh_outcome = records.iter().rev().find_map(|record| {
+            (record.operation == MycOperationAuditKind::DiscoveryHandlerRefresh)
+                .then_some(record.outcome)
+        });
+        let publish_record = records
+            .iter()
+            .rev()
+            .find(|record| record.operation == MycOperationAuditKind::DiscoveryHandlerPublish);
+
+        let mut repair_summary = MycDiscoveryRepairSummary::default();
+        let mut failed_relays = Vec::new();
+        for record in records
+            .iter()
+            .filter(|record| record.operation == MycOperationAuditKind::DiscoveryHandlerRepair)
+        {
+            match record.outcome {
+                MycOperationAuditOutcome::Succeeded => repair_summary.repaired += 1,
+                MycOperationAuditOutcome::Rejected => {
+                    repair_summary.failed += 1;
+                    if let Some(relay_url) = record.relay_url.clone() {
+                        failed_relays.push(relay_url);
+                    }
+                }
+                MycOperationAuditOutcome::Matched => repair_summary.unchanged += 1,
+                MycOperationAuditOutcome::Skipped => repair_summary.skipped += 1,
+                _ => {}
+            }
+        }
+        failed_relays.sort();
+        failed_relays.dedup();
+
+        Ok(Self {
+            attempt_id: attempt_id.to_owned(),
+            record_count: records.len(),
+            started_at_unix: first_record.recorded_at_unix,
+            finished_at_unix,
+            compare_outcome,
+            refresh_outcome,
+            aggregate_publish_outcome: publish_record.map(|record| record.outcome),
+            aggregate_publish_relay_count: publish_record.map(|record| record.relay_count),
+            aggregate_publish_acknowledged_relay_count: publish_record
+                .map(|record| record.acknowledged_relay_count),
+            aggregate_publish_relay_outcome_summary: publish_record
+                .map(|record| record.relay_outcome_summary.clone()),
+            repair_summary,
+            failed_relays: failed_relays.clone(),
+            remaining_repair_relays: failed_relays,
+        })
+    }
 }
 
 fn print_json<T>(value: &T) -> Result<(), MycError>
@@ -633,6 +834,7 @@ mod tests {
             &runtime,
             &manager,
             Some(connection.connection_id.as_str()),
+            None,
             MycAuditScope::All,
             None,
         )
@@ -720,6 +922,7 @@ mod tests {
             &runtime,
             &manager,
             Some(connection.connection_id.as_str()),
+            None,
             MycAuditScope::All,
             None,
         )
@@ -815,6 +1018,7 @@ mod tests {
             &runtime,
             &manager,
             Some(connection.connection_id.as_str()),
+            None,
             MycAuditScope::Operation,
             Some(10),
         )

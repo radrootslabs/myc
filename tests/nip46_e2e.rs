@@ -1550,7 +1550,7 @@ async fn refresh_nip89_skips_when_live_handler_matches() -> TestResult<()> {
         MycDiscoveryRepairOutcome::Unchanged
     );
 
-    let audit = wait_for_operation_audit_count(&runtime, 3).await?;
+    let audit = wait_for_operation_audit_count(&runtime, 4).await?;
     assert_eq!(
         audit[1].operation,
         MycOperationAuditKind::DiscoveryHandlerCompare
@@ -1558,9 +1558,14 @@ async fn refresh_nip89_skips_when_live_handler_matches() -> TestResult<()> {
     assert_eq!(audit[1].outcome, MycOperationAuditOutcome::Matched);
     assert_eq!(
         audit[2].operation,
+        MycOperationAuditKind::DiscoveryHandlerRepair
+    );
+    assert_eq!(audit[2].outcome, MycOperationAuditOutcome::Matched);
+    assert_eq!(
+        audit[3].operation,
         MycOperationAuditKind::DiscoveryHandlerRefresh
     );
-    assert_eq!(audit[2].outcome, MycOperationAuditOutcome::Skipped);
+    assert_eq!(audit[3].outcome, MycOperationAuditOutcome::Skipped);
 
     Ok(())
 }
