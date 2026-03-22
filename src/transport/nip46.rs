@@ -127,10 +127,8 @@ impl MycNip46Handler {
         request: RadrootsNostrConnectRequest,
         secret: Option<String>,
     ) -> Result<RadrootsNostrConnectResponse, MycError> {
-        let evaluation = self
-            .signer
-            .signer_manager()
-            .evaluate_connect_request(client_public_key, request)?;
+        let manager = self.signer.load_signer_manager()?;
+        let evaluation = manager.evaluate_connect_request(client_public_key, request)?;
 
         match evaluation {
             RadrootsNostrSignerConnectEvaluation::ExistingConnection(_) => {
@@ -139,14 +137,19 @@ impl MycNip46Handler {
             RadrootsNostrSignerConnectEvaluation::RegistrationRequired(proposal) => {
                 let draft = proposal
                     .into_connection_draft(self.signer.user_public_identity())
-                    .with_relays(self.relays.clone());
-                let connection = self.signer.signer_manager().register_connection(draft)?;
-                let granted_permissions =
-                    grant_permissions_for_new_connection(connection.requested_permissions.clone());
-                let _ = self
-                    .signer
-                    .signer_manager()
-                    .set_granted_permissions(&connection.connection_id, granted_permissions)?;
+                    .with_relays(self.relays.clone())
+                    .with_approval_requirement(self.signer.connection_approval_requirement());
+                let connection = manager.register_connection(draft)?;
+                if self.signer.connection_approval_requirement()
+                    == radroots_nostr_signer::prelude::RadrootsNostrSignerApprovalRequirement::NotRequired
+                {
+                    let granted_permissions =
+                        grant_permissions_for_new_connection(connection.requested_permissions.clone());
+                    let _ = manager.set_granted_permissions(
+                        &connection.connection_id,
+                        granted_permissions,
+                    )?;
+                }
                 Ok(connect_response(secret))
             }
         }
@@ -162,10 +165,8 @@ impl MycNip46Handler {
             Err(response) => return Ok(response),
         };
 
-        let evaluation = self
-            .signer
-            .signer_manager()
-            .evaluate_request(&connection.connection_id, request_message)?;
+        let manager = self.signer.load_signer_manager()?;
+        let evaluation = manager.evaluate_request(&connection.connection_id, request_message)?;
 
         match evaluation.action {
             RadrootsNostrSignerRequestAction::Denied { reason } => {
@@ -194,10 +195,8 @@ impl MycNip46Handler {
             Err(response) => return Ok(response),
         };
 
-        let evaluation = self
-            .signer
-            .signer_manager()
-            .evaluate_request(&connection.connection_id, request_message)?;
+        let manager = self.signer.load_signer_manager()?;
+        let evaluation = manager.evaluate_request(&connection.connection_id, request_message)?;
 
         match evaluation.action {
             RadrootsNostrSignerRequestAction::Denied { reason } => {
@@ -226,10 +225,8 @@ impl MycNip46Handler {
             Err(response) => return Ok(response),
         };
 
-        let evaluation = self
-            .signer
-            .signer_manager()
-            .evaluate_request(&connection.connection_id, request_message)?;
+        let manager = self.signer.load_signer_manager()?;
+        let evaluation = manager.evaluate_request(&connection.connection_id, request_message)?;
 
         match evaluation.action {
             RadrootsNostrSignerRequestAction::Denied { reason } => {
@@ -253,7 +250,7 @@ impl MycNip46Handler {
         Ok(
             match self
                 .signer
-                .signer_manager()
+                .load_signer_manager()?
                 .lookup_session(&client_public_key, None)?
             {
                 RadrootsNostrSignerSessionLookup::Connection(connection) => Ok(connection),
@@ -472,7 +469,7 @@ mod tests {
     use serde_json::json;
 
     use crate::app::MycRuntime;
-    use crate::config::MycConfig;
+    use crate::config::{MycConfig, MycConnectionApproval};
 
     use super::MycNip46Handler;
 
@@ -484,11 +481,33 @@ mod tests {
     }
 
     fn runtime() -> MycRuntime {
-        let temp = tempfile::tempdir().expect("tempdir");
+        let temp = tempfile::tempdir().expect("tempdir").keep();
         let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
-        config.paths.signer_identity_path = temp.path().join("signer.json");
-        config.paths.user_identity_path = temp.path().join("user.json");
+        config.paths.state_dir = temp.join("state");
+        config.paths.signer_identity_path = temp.join("signer.json");
+        config.paths.user_identity_path = temp.join("user.json");
+        config.policy.connection_approval = MycConnectionApproval::NotRequired;
+        config.transport.enabled = true;
+        config.transport.connect_timeout_secs = 15;
+        config.transport.relays = vec!["wss://relay.example.com".to_owned()];
+        write_identity(
+            &config.paths.signer_identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
+        MycRuntime::bootstrap(config).expect("runtime")
+    }
+
+    fn runtime_with_explicit_approval() -> MycRuntime {
+        let temp = tempfile::tempdir().expect("tempdir").keep();
+        let mut config = MycConfig::default();
+        config.paths.state_dir = temp.join("state");
+        config.paths.signer_identity_path = temp.join("signer.json");
+        config.paths.user_identity_path = temp.join("user.json");
+        config.policy.connection_approval = MycConnectionApproval::ExplicitUser;
         config.transport.enabled = true;
         config.transport.connect_timeout_secs = 15;
         config.transport.relays = vec!["wss://relay.example.com".to_owned()];
@@ -643,6 +662,7 @@ mod tests {
         );
         let connections = runtime
             .signer_manager()
+            .expect("manager")
             .list_connections()
             .expect("connections");
         assert_eq!(connections.len(), 1);
@@ -651,6 +671,45 @@ mod tests {
             runtime.user_public_identity().id.to_string()
         );
         assert_eq!(connections[0].relays.len(), 1);
+    }
+
+    #[test]
+    fn connect_preserves_pending_status_when_explicit_approval_is_required() {
+        let runtime = runtime_with_explicit_approval();
+        let handler = handler(&runtime);
+
+        let response = handler
+            .handle_request(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: None,
+                        requested_permissions: vec![sign_event_permission(1)].into(),
+                    },
+                ),
+            )
+            .expect("connect response");
+
+        assert_eq!(response, RadrootsNostrConnectResponse::ConnectAcknowledged);
+        let connection = runtime
+            .signer_manager()
+            .expect("manager")
+            .list_connections()
+            .expect("connections")
+            .into_iter()
+            .next()
+            .expect("connection");
+        assert_eq!(
+            connection.status,
+            radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionStatus::Pending
+        );
+        assert_eq!(
+            connection.approval_state,
+            radroots_nostr_signer::prelude::RadrootsNostrSignerApprovalState::Pending
+        );
+        assert!(connection.granted_permissions().as_slice().is_empty());
     }
 
     #[test]
@@ -736,6 +795,7 @@ mod tests {
 
         let connection = runtime
             .signer_manager()
+            .expect("manager")
             .list_connections()
             .expect("connections")
             .into_iter()

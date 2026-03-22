@@ -1,12 +1,15 @@
 use std::fs;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
 
 use crate::config::MycConfig;
 use crate::error::MycError;
 use crate::transport::{MycNip46Service, MycNostrTransport, MycTransportSnapshot};
 use radroots_identity::{RadrootsIdentity, RadrootsIdentityPublic};
-use radroots_nostr_signer::prelude::{RadrootsNostrFileSignerStore, RadrootsNostrSignerManager};
+use radroots_nostr_signer::prelude::{
+    RadrootsNostrFileSignerStore, RadrootsNostrSignerApprovalRequirement,
+    RadrootsNostrSignerManager,
+};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MycRuntimePaths {
@@ -37,7 +40,8 @@ pub struct MycStartupSnapshot {
 pub struct MycSignerContext {
     signer_identity: RadrootsIdentity,
     user_identity: RadrootsIdentity,
-    manager: RadrootsNostrSignerManager,
+    signer_state_path: PathBuf,
+    connection_approval_requirement: RadrootsNostrSignerApprovalRequirement,
 }
 
 #[derive(Clone)]
@@ -54,7 +58,13 @@ impl MycRuntime {
 
         let paths = MycRuntimePaths::from_config(&config);
         Self::prepare_filesystem_for(&paths)?;
-        let signer = MycSignerContext::bootstrap(&paths)?;
+        let signer = MycSignerContext::bootstrap(
+            &paths,
+            config
+                .policy
+                .connection_approval
+                .into_signer_approval_requirement(),
+        )?;
         let transport = MycNostrTransport::bootstrap(&config.transport, &signer.signer_identity)?;
         let runtime = Self {
             paths,
@@ -89,8 +99,8 @@ impl MycRuntime {
         self.signer.user_public_identity()
     }
 
-    pub fn signer_manager(&self) -> &RadrootsNostrSignerManager {
-        self.signer.signer_manager()
+    pub fn signer_manager(&self) -> Result<RadrootsNostrSignerManager, MycError> {
+        self.signer.load_signer_manager()
     }
 
     pub fn transport(&self) -> Option<&MycNostrTransport> {
@@ -192,16 +202,21 @@ impl MycSignerContext {
         self.user_identity.to_public()
     }
 
-    pub fn signer_manager(&self) -> &RadrootsNostrSignerManager {
-        &self.manager
+    pub fn load_signer_manager(&self) -> Result<RadrootsNostrSignerManager, MycError> {
+        Self::load_signer_manager_from_path(&self.signer_state_path)
     }
 
-    fn bootstrap(paths: &MycRuntimePaths) -> Result<Self, MycError> {
+    pub fn connection_approval_requirement(&self) -> RadrootsNostrSignerApprovalRequirement {
+        self.connection_approval_requirement
+    }
+
+    fn bootstrap(
+        paths: &MycRuntimePaths,
+        connection_approval_requirement: RadrootsNostrSignerApprovalRequirement,
+    ) -> Result<Self, MycError> {
         let signer_identity = RadrootsIdentity::load_from_path_auto(&paths.signer_identity_path)?;
         let user_identity = RadrootsIdentity::load_from_path_auto(&paths.user_identity_path)?;
-        let manager = RadrootsNostrSignerManager::new(Arc::new(
-            RadrootsNostrFileSignerStore::new(&paths.signer_state_path),
-        ))?;
+        let manager = Self::load_signer_manager_from_path(&paths.signer_state_path)?;
         let configured_public = signer_identity.to_public();
 
         match manager.signer_identity()? {
@@ -220,8 +235,15 @@ impl MycSignerContext {
         Ok(Self {
             signer_identity,
             user_identity,
-            manager,
+            signer_state_path: paths.signer_state_path.clone(),
+            connection_approval_requirement,
         })
+    }
+
+    fn load_signer_manager_from_path(path: &Path) -> Result<RadrootsNostrSignerManager, MycError> {
+        Ok(RadrootsNostrSignerManager::new(Arc::new(
+            RadrootsNostrFileSignerStore::new(path),
+        ))?)
     }
 }
 
@@ -284,6 +306,7 @@ mod tests {
         assert_eq!(
             runtime
                 .signer_manager()
+                .expect("manager")
                 .signer_identity()
                 .expect("signer identity")
                 .expect("configured signer")

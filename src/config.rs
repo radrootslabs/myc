@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use radroots_identity::DEFAULT_IDENTITY_PATH;
 use radroots_nostr::prelude::RadrootsNostrRelayUrl;
+use radroots_nostr_signer::prelude::RadrootsNostrSignerApprovalRequirement;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
@@ -16,6 +17,7 @@ pub struct MycConfig {
     pub service: MycServiceConfig,
     pub logging: MycLoggingConfig,
     pub paths: MycPathsConfig,
+    pub policy: MycPolicyConfig,
     pub transport: MycTransportConfig,
 }
 
@@ -47,12 +49,26 @@ pub struct MycTransportConfig {
     pub relays: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MycConnectionApproval {
+    NotRequired,
+    ExplicitUser,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MycPolicyConfig {
+    pub connection_approval: MycConnectionApproval,
+}
+
 impl Default for MycConfig {
     fn default() -> Self {
         Self {
             service: MycServiceConfig::default(),
             logging: MycLoggingConfig::default(),
             paths: MycPathsConfig::default(),
+            policy: MycPolicyConfig::default(),
             transport: MycTransportConfig::default(),
         }
     }
@@ -90,6 +106,23 @@ impl Default for MycTransportConfig {
             enabled: false,
             connect_timeout_secs: 10,
             relays: Vec::new(),
+        }
+    }
+}
+
+impl Default for MycPolicyConfig {
+    fn default() -> Self {
+        Self {
+            connection_approval: MycConnectionApproval::ExplicitUser,
+        }
+    }
+}
+
+impl MycConnectionApproval {
+    pub fn into_signer_approval_requirement(self) -> RadrootsNostrSignerApprovalRequirement {
+        match self {
+            Self::NotRequired => RadrootsNostrSignerApprovalRequirement::NotRequired,
+            Self::ExplicitUser => RadrootsNostrSignerApprovalRequirement::ExplicitUser,
         }
     }
 }
@@ -220,6 +253,10 @@ mod tests {
             config.paths.user_identity_path,
             PathBuf::from(DEFAULT_IDENTITY_PATH)
         );
+        assert_eq!(
+            config.policy.connection_approval,
+            MycConnectionApproval::ExplicitUser
+        );
         assert!(!config.transport.enabled);
         assert_eq!(config.transport.connect_timeout_secs, 10);
         assert!(config.transport.relays.is_empty());
@@ -240,6 +277,9 @@ mod tests {
                 signer_identity_path = "/tmp/myc-identity.json"
                 user_identity_path = "/tmp/myc-user.json"
 
+                [policy]
+                connection_approval = "not_required"
+
                 [transport]
                 enabled = true
                 connect_timeout_secs = 15
@@ -258,6 +298,10 @@ mod tests {
         assert_eq!(
             config.paths.user_identity_path,
             PathBuf::from("/tmp/myc-user.json")
+        );
+        assert_eq!(
+            config.policy.connection_approval,
+            MycConnectionApproval::NotRequired
         );
         assert!(config.transport.enabled);
         assert_eq!(config.transport.connect_timeout_secs, 15);

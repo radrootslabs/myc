@@ -3,7 +3,9 @@ pub mod nip46;
 use std::time::Duration;
 
 use radroots_identity::RadrootsIdentity;
-use radroots_nostr::prelude::{RadrootsNostrClient, RadrootsNostrRelayUrl};
+use radroots_nostr::prelude::{
+    RadrootsNostrClient, RadrootsNostrEventBuilder, RadrootsNostrRelayUrl,
+};
 
 use crate::config::MycTransportConfig;
 use crate::error::MycError;
@@ -60,6 +62,30 @@ impl MycNostrTransport {
         self.client
             .wait_for_connection(Duration::from_secs(self.connect_timeout_secs))
             .await;
+        Ok(())
+    }
+
+    pub async fn publish_once(
+        signer_identity: &RadrootsIdentity,
+        relays: &[RadrootsNostrRelayUrl],
+        connect_timeout_secs: u64,
+        event: RadrootsNostrEventBuilder,
+    ) -> Result<(), MycError> {
+        if relays.is_empty() {
+            return Err(MycError::InvalidOperation(
+                "cannot publish without at least one relay".to_owned(),
+            ));
+        }
+
+        let client = RadrootsNostrClient::from_identity(signer_identity);
+        for relay in relays {
+            let _ = client.add_relay(relay.as_str()).await?;
+        }
+        client.connect().await;
+        client
+            .wait_for_connection(Duration::from_secs(connect_timeout_secs))
+            .await;
+        let _ = client.send_event_builder(event).await?;
         Ok(())
     }
 

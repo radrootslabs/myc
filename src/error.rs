@@ -22,6 +22,8 @@ pub enum MycError {
     },
     #[error("invalid config: {0}")]
     InvalidConfig(String),
+    #[error("invalid operation: {0}")]
+    InvalidOperation(String),
     #[error("invalid log filter `{filter}`: {source}")]
     InvalidLogFilter {
         filter: String,
@@ -44,6 +46,8 @@ pub enum MycError {
     NostrConnect(#[from] RadrootsNostrConnectError),
     #[error(transparent)]
     SignerState(#[from] RadrootsNostrSignerError),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
     #[error("NIP-46 decrypt failed: {0}")]
     Nip46Decrypt(String),
     #[error("NIP-46 encrypt failed: {0}")]
