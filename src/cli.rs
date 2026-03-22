@@ -13,6 +13,7 @@ use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
 use crate::config::{DEFAULT_CONFIG_PATH, MycConfig};
 use crate::control::{accept_client_uri, authorize_auth_challenge, parse_permission_values};
+use crate::discovery::{MycDiscoveryContext, publish_nip89_event};
 use crate::error::MycError;
 use crate::logging;
 
@@ -44,6 +45,10 @@ pub enum MycCommand {
     Connect {
         #[command(subcommand)]
         command: MycConnectCommand,
+    },
+    Discovery {
+        #[command(subcommand)]
+        command: MycDiscoveryCommand,
     },
 }
 
@@ -102,6 +107,18 @@ pub enum MycConnectCommand {
         #[arg(long)]
         uri: String,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum MycDiscoveryCommand {
+    RenderNip05 {
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        stdout: bool,
+    },
+    RenderNip89,
+    PublishNip89,
 }
 
 #[derive(Debug, Args)]
@@ -250,6 +267,43 @@ pub async fn run_from_env() -> Result<(), MycError> {
                 MycConnectCommand::Accept { uri } => {
                     let accepted = accept_client_uri(&runtime, &uri).await?;
                     print_json(&accepted)
+                }
+            }
+        }
+        MycCommand::Discovery { command } => {
+            let runtime = MycRuntime::bootstrap(config)?;
+            match command {
+                MycDiscoveryCommand::RenderNip05 { out, stdout } => {
+                    if stdout && out.is_some() {
+                        return Err(MycError::InvalidOperation(
+                            "discovery render-nip05 cannot use --stdout and --out together"
+                                .to_owned(),
+                        ));
+                    }
+                    let context = MycDiscoveryContext::from_runtime(&runtime)?;
+                    if stdout || (out.is_none() && context.nip05_output_path().is_none()) {
+                        println!("{}", context.render_nip05_json_pretty()?);
+                        Ok(())
+                    } else {
+                        let output = context.write_nip05_document(
+                            out.as_deref().or(context.nip05_output_path()).ok_or_else(|| {
+                                MycError::InvalidOperation(
+                                    "discovery render-nip05 requires --out or discovery.nip05_output_path"
+                                        .to_owned(),
+                                )
+                            })?,
+                        )?;
+                        print_json(&output)
+                    }
+                }
+                MycDiscoveryCommand::RenderNip89 => {
+                    let output =
+                        MycDiscoveryContext::from_runtime(&runtime)?.render_nip89_output()?;
+                    print_json(&output)
+                }
+                MycDiscoveryCommand::PublishNip89 => {
+                    let output = publish_nip89_event(&runtime).await?;
+                    print_json(&output)
                 }
             }
         }
@@ -407,6 +461,7 @@ fn operation_kind_label(kind: MycOperationAuditKind) -> String {
         MycOperationAuditKind::ConnectAcceptPublish => "connect_accept_publish".to_owned(),
         MycOperationAuditKind::AuthReplayPublish => "auth_replay_publish".to_owned(),
         MycOperationAuditKind::AuthReplayRestore => "auth_replay_restore".to_owned(),
+        MycOperationAuditKind::DiscoveryHandlerPublish => "discovery_handler_publish".to_owned(),
     }
 }
 

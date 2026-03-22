@@ -6,7 +6,7 @@ use futures_util::{SinkExt, StreamExt};
 use myc::control;
 use myc::{
     MycConfig, MycConnectionApproval, MycOperationAuditKind, MycOperationAuditOutcome,
-    MycOperationAuditRecord, MycRuntime,
+    MycOperationAuditRecord, MycRuntime, publish_nip89_event,
 };
 use nostr::filter::MatchEventOptions;
 use nostr::nips::nip44;
@@ -332,6 +332,44 @@ impl MycTestRuntime {
         write_identity(
             &config.paths.user_identity_path,
             "2222222222222222222222222222222222222222222222222222222222222222",
+        );
+
+        Self {
+            runtime: MycRuntime::bootstrap(config).expect("runtime"),
+            _temp: temp,
+        }
+    }
+
+    fn new_with_discovery(relay_url: &str, approval: MycConnectionApproval) -> Self {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut config = MycConfig::default();
+        config.paths.state_dir = temp.path().join("state");
+        config.paths.signer_identity_path = temp.path().join("signer.json");
+        config.paths.user_identity_path = temp.path().join("user.json");
+        config.policy.connection_approval = approval;
+        config.transport.connect_timeout_secs = 1;
+        config.discovery.enabled = true;
+        config.discovery.domain = Some("signer.example.com".to_owned());
+        config.discovery.public_relays = vec![relay_url.to_owned()];
+        config.discovery.publish_relays = vec![relay_url.to_owned()];
+        config.discovery.nostrconnect_url_template =
+            Some("https://signer.example.com/connect?uri=<nostrconnect>".to_owned());
+        config.discovery.app_identity_path = Some(temp.path().join("app.json"));
+        write_identity(
+            &config.paths.signer_identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
+        write_identity(
+            config
+                .discovery
+                .app_identity_path
+                .as_ref()
+                .expect("app identity path"),
+            "6666666666666666666666666666666666666666666666666666666666666666",
         );
 
         Self {
@@ -866,6 +904,73 @@ async fn auth_replay_restores_pending_request_until_publish_succeeds() -> TestRe
     assert_eq!(operation_audit[2].acknowledged_relay_count, 1);
     assert!(
         operation_audit[2]
+            .relay_outcome_summary
+            .contains("1/1 relays acknowledged publish")
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn explicit_nip89_publish_uses_app_identity_and_records_audit() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime =
+        MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
+    let runtime = test_runtime.runtime;
+    let app_identity = RadrootsIdentity::load_from_path_auto(
+        runtime
+            .config()
+            .discovery
+            .app_identity_path
+            .as_ref()
+            .expect("app identity path"),
+    )?;
+
+    relay
+        .queue_publish_outcomes(app_identity.public_key(), &[true])
+        .await;
+
+    let published = publish_nip89_event(&runtime).await?;
+    let published_event_id = published.event.id.to_hex();
+    let published_events = relay
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+    let event = &published_events[0];
+    let event_json = event.as_json();
+
+    assert_eq!(
+        published.author_public_key_hex,
+        app_identity.public_key_hex()
+    );
+    assert_eq!(
+        published.signer_public_key_hex,
+        runtime.signer_identity().public_key_hex()
+    );
+    assert_eq!(event.kind.as_u16(), 31_990);
+    assert!(event_json.contains("\"24133\""));
+    assert!(event_json.contains("\"relay\""));
+    assert!(event_json.contains("\"nostrconnect_url\""));
+    assert_eq!(published.relay_count, 1);
+    assert_eq!(published.acknowledged_relay_count, 1);
+
+    let operation_audit = wait_for_operation_audit_count(&runtime, 1).await?;
+    assert_eq!(
+        operation_audit[0].operation,
+        MycOperationAuditKind::DiscoveryHandlerPublish
+    );
+    assert_eq!(
+        operation_audit[0].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
+    assert!(operation_audit[0].connection_id.is_none());
+    assert_eq!(
+        operation_audit[0].request_id.as_deref(),
+        Some(published_event_id.as_str())
+    );
+    assert_eq!(operation_audit[0].relay_count, 1);
+    assert_eq!(operation_audit[0].acknowledged_relay_count, 1);
+    assert!(
+        operation_audit[0]
             .relay_outcome_summary
             .contains("1/1 relays acknowledged publish")
     );
