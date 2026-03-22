@@ -522,6 +522,7 @@ fn operation_kind_label(kind: MycOperationAuditKind) -> String {
         MycOperationAuditKind::DiscoveryHandlerPublish => "discovery_handler_publish".to_owned(),
         MycOperationAuditKind::DiscoveryHandlerCompare => "discovery_handler_compare".to_owned(),
         MycOperationAuditKind::DiscoveryHandlerRefresh => "discovery_handler_refresh".to_owned(),
+        MycOperationAuditKind::DiscoveryHandlerRepair => "discovery_handler_repair".to_owned(),
     }
 }
 

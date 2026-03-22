@@ -24,6 +24,7 @@ pub enum MycOperationAuditKind {
     DiscoveryHandlerPublish,
     DiscoveryHandlerCompare,
     DiscoveryHandlerRefresh,
+    DiscoveryHandlerRepair,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,6 +46,8 @@ pub struct MycOperationAuditRecord {
     pub recorded_at_unix: u64,
     pub operation: MycOperationAuditKind,
     pub outcome: MycOperationAuditOutcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -74,12 +77,18 @@ impl MycOperationAuditRecord {
             recorded_at_unix: now_unix_secs(),
             operation,
             outcome,
+            relay_url: None,
             connection_id: connection_id.map(ToString::to_string),
             request_id: request_id.map(ToOwned::to_owned),
             relay_count,
             acknowledged_relay_count,
             relay_outcome_summary: relay_outcome_summary.into(),
         }
+    }
+
+    pub fn with_relay_url(mut self, relay_url: impl Into<String>) -> Self {
+        self.relay_url = Some(relay_url.into());
+        self
     }
 }
 

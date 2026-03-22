@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -18,7 +18,7 @@ use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
 use crate::config::MycDiscoveryMetadataConfig;
 use crate::error::MycError;
-use crate::transport::MycNostrTransport;
+use crate::transport::{MycNostrTransport, MycRelayPublishResult};
 
 const NIP46_RPC_KIND: u32 = 24_133;
 const DISCOVERY_BUNDLE_VERSION: u32 = 1;
@@ -78,7 +78,25 @@ pub struct MycPublishedNip89Output {
     pub relay_count: usize,
     pub acknowledged_relay_count: usize,
     pub relay_outcome_summary: String,
+    pub relay_results: Vec<MycRelayPublishResult>,
     pub event: RadrootsNostrEvent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MycDiscoveryRepairOutcome {
+    Repaired,
+    Failed,
+    Unchanged,
+    Skipped,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycDiscoveryRelayRepairResult {
+    pub relay_url: String,
+    pub outcome: MycDiscoveryRepairOutcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -182,6 +200,8 @@ pub struct MycRefreshedNip89Output {
     pub live_groups: Vec<MycLiveNip89Group>,
     pub relay_states: Vec<MycDiscoveryRelayState>,
     pub relay_summary: MycDiscoveryRelaySummary,
+    pub repair_results: Vec<MycDiscoveryRelayRepairResult>,
+    pub remaining_repair_relays: Vec<String>,
     pub published: Option<MycPublishedNip89Output>,
 }
 
@@ -526,6 +546,7 @@ async fn publish_nip89_event_to_relays(
         relay_count: publish_outcome.relay_count,
         acknowledged_relay_count: publish_outcome.acknowledged_relay_count,
         relay_outcome_summary: publish_outcome.relay_outcome_summary,
+        relay_results: publish_outcome.relay_results,
         event,
     })
 }
@@ -629,6 +650,7 @@ pub async fn refresh_nip89(
     let refresh_relays = select_refresh_relays(&context, &relay_states, force)?;
 
     if refresh_relays.is_empty() {
+        let repair_results = build_repair_results(&context, &relay_states, &[], None, None);
         runtime.record_operation_audit(&MycOperationAuditRecord::new(
             MycOperationAuditKind::DiscoveryHandlerRefresh,
             MycOperationAuditOutcome::Skipped,
@@ -645,20 +667,46 @@ pub async fn refresh_nip89(
             live_groups,
             relay_states,
             relay_summary,
+            repair_results,
+            remaining_repair_relays: Vec::new(),
             published: None,
         });
     }
 
-    let published = publish_nip89_event_to_relays(runtime, &context, &refresh_relays).await?;
-    Ok(MycRefreshedNip89Output {
-        status,
-        force,
-        differing_fields,
-        live_groups,
-        relay_states,
-        relay_summary,
-        published: Some(published),
-    })
+    match publish_nip89_event_to_relays(runtime, &context, &refresh_relays).await {
+        Ok(published) => {
+            let repair_results = build_repair_results(
+                &context,
+                &relay_states,
+                &refresh_relays,
+                Some(published.relay_results.as_slice()),
+                None,
+            );
+            record_refresh_repair_audit(
+                runtime,
+                Some(published.event.id.to_hex()),
+                &repair_results,
+            );
+            let remaining_repair_relays = remaining_repair_relays(&repair_results);
+            return Ok(MycRefreshedNip89Output {
+                status,
+                force,
+                differing_fields,
+                live_groups,
+                relay_states,
+                relay_summary,
+                repair_results,
+                remaining_repair_relays,
+                published: Some(published),
+            });
+        }
+        Err(error) => {
+            let repair_results =
+                build_repair_results(&context, &relay_states, &refresh_relays, None, Some(&error));
+            record_refresh_repair_audit(runtime, None, &repair_results);
+            return Err(error);
+        }
+    }
 }
 
 fn select_refresh_relays(
@@ -700,6 +748,132 @@ fn select_refresh_relays(
         Ok(matched_relays)
     } else {
         Ok(repair_relays)
+    }
+}
+
+fn build_repair_results(
+    context: &MycDiscoveryContext,
+    relay_states: &[MycDiscoveryRelayState],
+    refresh_relays: &[RadrootsNostrRelayUrl],
+    publish_results: Option<&[MycRelayPublishResult]>,
+    publish_error: Option<&MycError>,
+) -> Vec<MycDiscoveryRelayRepairResult> {
+    let selected_relays = refresh_relays
+        .iter()
+        .map(ToString::to_string)
+        .collect::<BTreeSet<_>>();
+    let publish_results_by_relay = publish_results
+        .unwrap_or_default()
+        .iter()
+        .map(|result| (result.relay_url.clone(), result))
+        .collect::<BTreeMap<_, _>>();
+    let rejected_relays = publish_error
+        .and_then(MycError::publish_rejected_relays)
+        .unwrap_or_default()
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+
+    context
+        .publish_relays()
+        .iter()
+        .zip(relay_states.iter())
+        .map(|(relay, relay_state)| {
+            let relay_url = relay.to_string();
+            if selected_relays.contains(&relay_url) {
+                if let Some(result) = publish_results_by_relay.get(&relay_url) {
+                    return MycDiscoveryRelayRepairResult {
+                        relay_url,
+                        outcome: if result.acknowledged {
+                            MycDiscoveryRepairOutcome::Repaired
+                        } else {
+                            MycDiscoveryRepairOutcome::Failed
+                        },
+                        detail: result.detail.clone(),
+                    };
+                }
+
+                if rejected_relays.contains(&relay_url) {
+                    return MycDiscoveryRelayRepairResult {
+                        relay_url,
+                        outcome: MycDiscoveryRepairOutcome::Failed,
+                        detail: Some(
+                            publish_error
+                                .and_then(MycError::publish_rejection_details)
+                                .map(ToOwned::to_owned)
+                                .unwrap_or_else(|| "targeted refresh publish failed".to_owned()),
+                        ),
+                    };
+                }
+
+                return MycDiscoveryRelayRepairResult {
+                    relay_url,
+                    outcome: MycDiscoveryRepairOutcome::Failed,
+                    detail: Some("no relay publish result was reported".to_owned()),
+                };
+            }
+
+            if relay_state.fetch_status == MycDiscoveryRelayFetchStatus::Unavailable {
+                return MycDiscoveryRelayRepairResult {
+                    relay_url,
+                    outcome: MycDiscoveryRepairOutcome::Skipped,
+                    detail: relay_state.fetch_error.clone(),
+                };
+            }
+
+            match relay_state.live_status {
+                Some(MycDiscoveryLiveStatus::Matched) => MycDiscoveryRelayRepairResult {
+                    relay_url,
+                    outcome: MycDiscoveryRepairOutcome::Unchanged,
+                    detail: None,
+                },
+                _ => MycDiscoveryRelayRepairResult {
+                    relay_url,
+                    outcome: MycDiscoveryRepairOutcome::Skipped,
+                    detail: None,
+                },
+            }
+        })
+        .collect()
+}
+
+fn remaining_repair_relays(repair_results: &[MycDiscoveryRelayRepairResult]) -> Vec<String> {
+    repair_results
+        .iter()
+        .filter(|result| result.outcome == MycDiscoveryRepairOutcome::Failed)
+        .map(|result| result.relay_url.clone())
+        .collect()
+}
+
+fn record_refresh_repair_audit(
+    runtime: &MycRuntime,
+    request_id: Option<String>,
+    repair_results: &[MycDiscoveryRelayRepairResult],
+) {
+    for result in repair_results {
+        let Some((outcome, acknowledged_relay_count)) = (match result.outcome {
+            MycDiscoveryRepairOutcome::Repaired => Some((MycOperationAuditOutcome::Succeeded, 1)),
+            MycDiscoveryRepairOutcome::Failed => Some((MycOperationAuditOutcome::Rejected, 0)),
+            MycDiscoveryRepairOutcome::Unchanged | MycDiscoveryRepairOutcome::Skipped => None,
+        }) else {
+            continue;
+        };
+
+        runtime.record_operation_audit(
+            &MycOperationAuditRecord::new(
+                MycOperationAuditKind::DiscoveryHandlerRepair,
+                outcome,
+                None,
+                request_id.as_deref(),
+                1,
+                acknowledged_relay_count,
+                result
+                    .detail
+                    .clone()
+                    .unwrap_or_else(|| result.relay_url.clone()),
+            )
+            .with_relay_url(result.relay_url.clone()),
+        );
     }
 }
 

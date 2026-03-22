@@ -99,6 +99,7 @@ pub enum MycError {
         relay_count: usize,
         acknowledged_relay_count: usize,
         details: String,
+        rejected_relays: Vec<String>,
     },
     #[error(
         "configured signer identity `{configured_identity_id}` at {identity_path} does not match persisted signer identity `{persisted_identity_id}` in {state_path}"
@@ -126,6 +127,15 @@ impl MycError {
                 acknowledged_relay_count,
                 ..
             } => Some((*relay_count, *acknowledged_relay_count)),
+            _ => None,
+        }
+    }
+
+    pub fn publish_rejected_relays(&self) -> Option<&[String]> {
+        match self {
+            Self::PublishRejected {
+                rejected_relays, ..
+            } => Some(rejected_relays.as_slice()),
             _ => None,
         }
     }

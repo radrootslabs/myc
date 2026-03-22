@@ -1,5 +1,6 @@
 pub mod nip46;
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use radroots_identity::RadrootsIdentity;
@@ -7,6 +8,7 @@ use radroots_nostr::prelude::{
     RadrootsNostrClient, RadrootsNostrEvent, RadrootsNostrEventBuilder, RadrootsNostrOutput,
     RadrootsNostrRelayUrl,
 };
+use serde::Serialize;
 
 use crate::config::MycTransportConfig;
 use crate::error::MycError;
@@ -32,6 +34,15 @@ pub struct MycPublishOutcome {
     pub relay_count: usize,
     pub acknowledged_relay_count: usize,
     pub relay_outcome_summary: String,
+    pub relay_results: Vec<MycRelayPublishResult>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycRelayPublishResult {
+    pub relay_url: String,
+    pub acknowledged: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 impl MycNostrTransport {
@@ -94,7 +105,7 @@ impl MycNostrTransport {
             .wait_for_connection(Duration::from_secs(connect_timeout_secs))
             .await;
         let output = client.send_event_builder(event).await?;
-        ensure_publish_confirmed(output, "one-shot Nostr publish")
+        ensure_publish_confirmed(relays, output, "one-shot Nostr publish")
     }
 
     pub async fn publish_event_once(
@@ -118,7 +129,7 @@ impl MycNostrTransport {
             .wait_for_connection(Duration::from_secs(connect_timeout_secs))
             .await;
         let output = client.send_event(event).await?;
-        ensure_publish_confirmed(output, "one-shot Nostr publish")
+        ensure_publish_confirmed(relays, output, "one-shot Nostr publish")
     }
 
     pub fn snapshot(&self) -> MycTransportSnapshot {
@@ -131,21 +142,27 @@ impl MycNostrTransport {
 }
 
 pub(crate) fn ensure_publish_confirmed<T>(
+    relays: &[RadrootsNostrRelayUrl],
     output: RadrootsNostrOutput<T>,
     operation: &str,
 ) -> Result<MycPublishOutcome, MycError>
 where
     T: std::fmt::Debug,
 {
-    let relay_count = output.success.len() + output.failed.len();
-    let acknowledged_relay_count = output.success.len();
-    let relay_outcome_summary = summarize_publish_output(&output);
+    let relay_results = build_publish_relay_results(relays, &output);
+    let relay_count = relay_results.len();
+    let acknowledged_relay_count = relay_results
+        .iter()
+        .filter(|result| result.acknowledged)
+        .count();
+    let relay_outcome_summary = summarize_publish_results(&relay_results);
 
     if !output.success.is_empty() {
         return Ok(MycPublishOutcome {
             relay_count,
             acknowledged_relay_count,
             relay_outcome_summary,
+            relay_results,
         });
     }
 
@@ -154,30 +171,81 @@ where
         relay_count,
         acknowledged_relay_count,
         details: relay_outcome_summary,
+        rejected_relays: relay_results
+            .iter()
+            .filter(|result| !result.acknowledged)
+            .map(|result| result.relay_url.clone())
+            .collect(),
     })
 }
 
-fn summarize_publish_output<T>(output: &RadrootsNostrOutput<T>) -> String
+fn build_publish_relay_results<T>(
+    relays: &[RadrootsNostrRelayUrl],
+    output: &RadrootsNostrOutput<T>,
+) -> Vec<MycRelayPublishResult>
 where
     T: std::fmt::Debug,
 {
-    let relay_count = output.success.len() + output.failed.len();
-    let acknowledged_relay_count = output.success.len();
+    let acknowledged_relays = output
+        .success
+        .iter()
+        .map(ToString::to_string)
+        .collect::<BTreeSet<_>>();
+    let failed_relays = output
+        .failed
+        .iter()
+        .map(|(relay, error)| (relay.to_string(), error.to_string()))
+        .collect::<BTreeMap<_, _>>();
+
+    relays
+        .iter()
+        .map(|relay| {
+            let relay_url = relay.to_string();
+            if acknowledged_relays.contains(&relay_url) {
+                MycRelayPublishResult {
+                    relay_url,
+                    acknowledged: true,
+                    detail: None,
+                }
+            } else {
+                MycRelayPublishResult {
+                    relay_url: relay_url.clone(),
+                    acknowledged: false,
+                    detail: Some(
+                        failed_relays
+                            .get(&relay_url)
+                            .cloned()
+                            .unwrap_or_else(|| "no relay acknowledgement reported".to_owned()),
+                    ),
+                }
+            }
+        })
+        .collect()
+}
+
+fn summarize_publish_results(relay_results: &[MycRelayPublishResult]) -> String {
+    let relay_count = relay_results.len();
+    let acknowledged_relay_count = relay_results
+        .iter()
+        .filter(|result| result.acknowledged)
+        .count();
     if relay_count == 0 {
         return "no relay acknowledged the publish".to_owned();
     }
 
     let mut summary =
         format!("{acknowledged_relay_count}/{relay_count} relays acknowledged publish");
-    if !output.failed.is_empty() {
-        let failures = output
-            .failed
-            .iter()
-            .map(|(relay, error)| format!("{relay}: {error}"))
-            .collect::<Vec<_>>()
-            .join("; ");
+    let failures = relay_results
+        .iter()
+        .filter(|result| !result.acknowledged)
+        .map(|result| match result.detail.as_deref() {
+            Some(detail) => format!("{}: {detail}", result.relay_url),
+            None => result.relay_url.clone(),
+        })
+        .collect::<Vec<_>>();
+    if !failures.is_empty() {
         summary.push_str("; failures: ");
-        summary.push_str(&failures);
+        summary.push_str(&failures.join("; "));
     }
     summary
 }

@@ -7,9 +7,9 @@ use futures_util::{SinkExt, StreamExt};
 use myc::control;
 use myc::{
     MycConfig, MycConnectionApproval, MycDiscoveryContext, MycDiscoveryLiveStatus,
-    MycDiscoveryRelayFetchStatus, MycOperationAuditKind, MycOperationAuditOutcome,
-    MycOperationAuditRecord, MycRuntime, diff_live_nip89, fetch_live_nip89, publish_nip89_event,
-    refresh_nip89,
+    MycDiscoveryRelayFetchStatus, MycDiscoveryRepairOutcome, MycOperationAuditKind,
+    MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime, diff_live_nip89,
+    fetch_live_nip89, publish_nip89_event, refresh_nip89,
 };
 use nostr::filter::MatchEventOptions;
 use nostr::nips::nip44;
@@ -1391,8 +1391,14 @@ async fn refresh_nip89_publishes_when_live_handler_is_missing() -> TestResult<()
     assert_eq!(refreshed.differing_fields, vec!["live_groups".to_owned()]);
     assert!(refreshed.live_groups.is_empty());
     assert!(refreshed.published.is_some());
+    assert_eq!(refreshed.remaining_repair_relays, Vec::<String>::new());
+    assert_eq!(refreshed.repair_results.len(), 1);
+    assert_eq!(
+        refreshed.repair_results[0].outcome,
+        MycDiscoveryRepairOutcome::Repaired
+    );
 
-    let audit = wait_for_operation_audit_count(&runtime, 2).await?;
+    let audit = wait_for_operation_audit_count(&runtime, 3).await?;
     assert_eq!(
         audit[0].operation,
         MycOperationAuditKind::DiscoveryHandlerCompare
@@ -1403,6 +1409,11 @@ async fn refresh_nip89_publishes_when_live_handler_is_missing() -> TestResult<()
         MycOperationAuditKind::DiscoveryHandlerPublish
     );
     assert_eq!(audit[1].outcome, MycOperationAuditOutcome::Succeeded);
+    assert_eq!(
+        audit[2].operation,
+        MycOperationAuditKind::DiscoveryHandlerRepair
+    );
+    assert_eq!(audit[2].outcome, MycOperationAuditOutcome::Succeeded);
 
     Ok(())
 }
@@ -1444,6 +1455,26 @@ async fn refresh_nip89_repairs_missing_relays_without_republishing_matched_relay
     assert_eq!(published.publish_relays, vec![relay_b.url().to_owned()]);
     assert_eq!(published.relay_count, 1);
     assert_eq!(published.acknowledged_relay_count, 1);
+    assert_eq!(refreshed.remaining_repair_relays, Vec::<String>::new());
+    assert_eq!(refreshed.repair_results.len(), 2);
+    assert_eq!(
+        refreshed
+            .repair_results
+            .iter()
+            .find(|result| result.relay_url == relay_a.url())
+            .expect("matched relay repair result")
+            .outcome,
+        MycDiscoveryRepairOutcome::Unchanged
+    );
+    assert_eq!(
+        refreshed
+            .repair_results
+            .iter()
+            .find(|result| result.relay_url == relay_b.url())
+            .expect("repaired relay result")
+            .outcome,
+        MycDiscoveryRepairOutcome::Repaired
+    );
 
     relay_b
         .wait_for_published_events_by_author(app_identity.public_key(), 1)
@@ -1500,6 +1531,12 @@ async fn refresh_nip89_skips_when_live_handler_matches() -> TestResult<()> {
     assert!(refreshed.differing_fields.is_empty());
     assert_eq!(refreshed.live_groups.len(), 1);
     assert!(refreshed.published.is_none());
+    assert_eq!(refreshed.remaining_repair_relays, Vec::<String>::new());
+    assert_eq!(refreshed.repair_results.len(), 1);
+    assert_eq!(
+        refreshed.repair_results[0].outcome,
+        MycDiscoveryRepairOutcome::Unchanged
+    );
 
     let audit = wait_for_operation_audit_count(&runtime, 3).await?;
     assert_eq!(
@@ -1552,6 +1589,12 @@ async fn refresh_nip89_republishes_when_live_handler_drifted() -> TestResult<()>
     assert_eq!(refreshed.status, MycDiscoveryLiveStatus::Drifted);
     assert_eq!(refreshed.live_groups.len(), 1);
     assert!(refreshed.published.is_some());
+    assert_eq!(refreshed.remaining_repair_relays, Vec::<String>::new());
+    assert_eq!(refreshed.repair_results.len(), 1);
+    assert_eq!(
+        refreshed.repair_results[0].outcome,
+        MycDiscoveryRepairOutcome::Repaired
+    );
     assert!(
         refreshed
             .differing_fields
@@ -1559,7 +1602,7 @@ async fn refresh_nip89_republishes_when_live_handler_drifted() -> TestResult<()>
             .any(|field| field == "relays" || field == "nostrconnect_url" || field == "metadata")
     );
 
-    let audit = wait_for_operation_audit_count(&runtime, 2).await?;
+    let audit = wait_for_operation_audit_count(&runtime, 3).await?;
     assert_eq!(
         audit[0].operation,
         MycOperationAuditKind::DiscoveryHandlerCompare
@@ -1570,6 +1613,11 @@ async fn refresh_nip89_republishes_when_live_handler_drifted() -> TestResult<()>
         MycOperationAuditKind::DiscoveryHandlerPublish
     );
     assert_eq!(audit[1].outcome, MycOperationAuditOutcome::Succeeded);
+    assert_eq!(
+        audit[2].operation,
+        MycOperationAuditKind::DiscoveryHandlerRepair
+    );
+    assert_eq!(audit[2].outcome, MycOperationAuditOutcome::Succeeded);
 
     Ok(())
 }
@@ -1620,6 +1668,26 @@ async fn refresh_nip89_repairs_drifted_relays_without_force_when_other_relays_ma
     assert_eq!(published.publish_relays, vec![relay_b.url().to_owned()]);
     assert_eq!(published.relay_count, 1);
     assert_eq!(published.acknowledged_relay_count, 1);
+    assert_eq!(refreshed.remaining_repair_relays, Vec::<String>::new());
+    assert_eq!(refreshed.repair_results.len(), 2);
+    assert_eq!(
+        refreshed
+            .repair_results
+            .iter()
+            .find(|result| result.relay_url == relay_a.url())
+            .expect("matched relay result")
+            .outcome,
+        MycDiscoveryRepairOutcome::Unchanged
+    );
+    assert_eq!(
+        refreshed
+            .repair_results
+            .iter()
+            .find(|result| result.relay_url == relay_b.url())
+            .expect("repaired relay result")
+            .outcome,
+        MycDiscoveryRepairOutcome::Repaired
+    );
 
     relay_b
         .wait_for_published_events_by_author(app_identity.public_key(), 2)
@@ -1638,6 +1706,118 @@ async fn refresh_nip89_repairs_drifted_relays_without_force_when_other_relays_ma
             .len(),
         2
     );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn refresh_nip89_reports_remaining_relays_after_mixed_targeted_repair() -> TestResult<()> {
+    let relay_a = TestRelay::spawn().await?;
+    let relay_b = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new_with_discovery_relays(
+        &[relay_a.url(), relay_b.url()],
+        MycConnectionApproval::ExplicitUser,
+    );
+    let runtime = test_runtime.runtime;
+    let app_identity = RadrootsIdentity::load_from_path_auto(
+        runtime
+            .config()
+            .discovery
+            .app_identity_path
+            .as_ref()
+            .expect("app identity path"),
+    )?;
+
+    relay_a
+        .queue_publish_outcomes(app_identity.public_key(), &[true])
+        .await;
+    relay_b
+        .queue_publish_outcomes(app_identity.public_key(), &[false])
+        .await;
+
+    let refreshed = refresh_nip89(&runtime, false).await?;
+    let published = refreshed.published.expect("published output");
+
+    assert_eq!(refreshed.status, MycDiscoveryLiveStatus::Missing);
+    assert_eq!(
+        published.publish_relays,
+        vec![relay_a.url().to_owned(), relay_b.url().to_owned()]
+    );
+    assert_eq!(published.relay_count, 2);
+    assert_eq!(published.acknowledged_relay_count, 1);
+    assert_eq!(published.relay_results.len(), 2);
+    assert_eq!(refreshed.repair_results.len(), 2);
+    assert_eq!(
+        refreshed.remaining_repair_relays,
+        vec![relay_b.url().to_owned()]
+    );
+
+    let repaired = refreshed
+        .repair_results
+        .iter()
+        .find(|result| result.relay_url == relay_a.url())
+        .expect("repaired relay result");
+    assert_eq!(repaired.outcome, MycDiscoveryRepairOutcome::Repaired);
+
+    let failed = refreshed
+        .repair_results
+        .iter()
+        .find(|result| result.relay_url == relay_b.url())
+        .expect("failed relay result");
+    assert_eq!(failed.outcome, MycDiscoveryRepairOutcome::Failed);
+    assert!(
+        failed
+            .detail
+            .as_deref()
+            .unwrap_or_default()
+            .contains("blocked by test relay")
+    );
+
+    relay_a
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+    assert_eq!(
+        relay_b
+            .published_events_by_author(app_identity.public_key())
+            .await
+            .len(),
+        0
+    );
+
+    let diff = diff_live_nip89(&runtime).await?;
+    assert_eq!(diff.status, MycDiscoveryLiveStatus::Matched);
+    assert_eq!(
+        diff.relay_summary.matched_relays,
+        vec![relay_a.url().to_owned()]
+    );
+    assert_eq!(
+        diff.relay_summary.missing_relays,
+        vec![relay_b.url().to_owned()]
+    );
+
+    let audit = wait_for_operation_audit_count(&runtime, 4).await?;
+    assert_eq!(
+        audit[0].operation,
+        MycOperationAuditKind::DiscoveryHandlerCompare
+    );
+    assert_eq!(audit[0].outcome, MycOperationAuditOutcome::Missing);
+    assert_eq!(
+        audit[1].operation,
+        MycOperationAuditKind::DiscoveryHandlerPublish
+    );
+    assert_eq!(audit[1].outcome, MycOperationAuditOutcome::Succeeded);
+    assert_eq!(
+        audit[2].operation,
+        MycOperationAuditKind::DiscoveryHandlerRepair
+    );
+    assert_eq!(audit[2].outcome, MycOperationAuditOutcome::Succeeded);
+    assert_eq!(audit[2].relay_url.as_deref(), Some(relay_a.url()));
+    assert_eq!(
+        audit[3].operation,
+        MycOperationAuditKind::DiscoveryHandlerRepair
+    );
+    assert_eq!(audit[3].outcome, MycOperationAuditOutcome::Rejected);
+    assert_eq!(audit[3].relay_url.as_deref(), Some(relay_b.url()));
 
     Ok(())
 }

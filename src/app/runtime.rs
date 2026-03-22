@@ -238,6 +238,7 @@ impl MycSignerContext {
             tracing::error!(
                 operation = ?record.operation,
                 outcome = ?record.outcome,
+                relay_url = record.relay_url.as_deref().unwrap_or(""),
                 connection_id = record.connection_id.as_deref().unwrap_or(""),
                 request_id = record.request_id.as_deref().unwrap_or(""),
                 relay_count = record.relay_count,
@@ -301,6 +302,7 @@ fn emit_operation_audit_trace(record: &MycOperationAuditRecord) {
         | crate::audit::MycOperationAuditOutcome::Skipped => tracing::info!(
             operation = ?record.operation,
             outcome = ?record.outcome,
+            relay_url = record.relay_url.as_deref().unwrap_or(""),
             connection_id = record.connection_id.as_deref().unwrap_or(""),
             request_id = record.request_id.as_deref().unwrap_or(""),
             relay_count = record.relay_count,
@@ -315,6 +317,7 @@ fn emit_operation_audit_trace(record: &MycOperationAuditRecord) {
         | crate::audit::MycOperationAuditOutcome::Conflicted => tracing::warn!(
             operation = ?record.operation,
             outcome = ?record.outcome,
+            relay_url = record.relay_url.as_deref().unwrap_or(""),
             connection_id = record.connection_id.as_deref().unwrap_or(""),
             request_id = record.request_id.as_deref().unwrap_or(""),
             relay_count = record.relay_count,

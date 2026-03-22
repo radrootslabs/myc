@@ -518,8 +518,11 @@ impl MycNip46Service {
                     continue;
                 }
             };
-            if let Err(error) = ensure_publish_confirmed(publish_output, "NIP-46 response publish")
-            {
+            if let Err(error) = ensure_publish_confirmed(
+                self.transport.relays(),
+                publish_output,
+                "NIP-46 response publish",
+            ) {
                 self.handler
                     .signer
                     .record_operation_audit(&MycOperationAuditRecord::new(
