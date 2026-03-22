@@ -977,3 +977,78 @@ async fn explicit_nip89_publish_uses_app_identity_and_records_audit() -> TestRes
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn explicit_nip89_publish_retries_cleanly_after_rejection() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime =
+        MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
+    let runtime = test_runtime.runtime;
+    let app_identity = RadrootsIdentity::load_from_path_auto(
+        runtime
+            .config()
+            .discovery
+            .app_identity_path
+            .as_ref()
+            .expect("app identity path"),
+    )?;
+
+    relay
+        .queue_publish_outcomes(app_identity.public_key(), &[false, true])
+        .await;
+
+    let failed = publish_nip89_event(&runtime)
+        .await
+        .expect_err("first publish should fail");
+    assert!(failed.to_string().contains("Nostr publish failed"));
+    assert!(
+        relay
+            .published_events_by_author(app_identity.public_key())
+            .await
+            .is_empty()
+    );
+
+    let first_audit = wait_for_operation_audit_count(&runtime, 1).await?;
+    assert_eq!(
+        first_audit[0].operation,
+        MycOperationAuditKind::DiscoveryHandlerPublish
+    );
+    assert_eq!(first_audit[0].outcome, MycOperationAuditOutcome::Rejected);
+    assert!(first_audit[0].connection_id.is_none());
+    assert!(first_audit[0].request_id.is_some());
+    assert_eq!(first_audit[0].relay_count, 1);
+    assert_eq!(first_audit[0].acknowledged_relay_count, 0);
+    assert!(
+        first_audit[0]
+            .relay_outcome_summary
+            .contains("blocked by test relay")
+    );
+
+    let published = publish_nip89_event(&runtime).await?;
+    let published_events = relay
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+    assert_eq!(published_events.len(), 1);
+    assert_eq!(published.relay_count, 1);
+    assert_eq!(published.acknowledged_relay_count, 1);
+
+    let second_audit = wait_for_operation_audit_count(&runtime, 2).await?;
+    assert_eq!(
+        second_audit[1].operation,
+        MycOperationAuditKind::DiscoveryHandlerPublish
+    );
+    assert_eq!(second_audit[1].outcome, MycOperationAuditOutcome::Succeeded);
+    assert_eq!(
+        second_audit[1].request_id.as_deref(),
+        Some(published.event.id.to_hex().as_str())
+    );
+    assert_eq!(second_audit[1].relay_count, 1);
+    assert_eq!(second_audit[1].acknowledged_relay_count, 1);
+    assert!(
+        second_audit[1]
+            .relay_outcome_summary
+            .contains("1/1 relays acknowledged publish")
+    );
+
+    Ok(())
+}
