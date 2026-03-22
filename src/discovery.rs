@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{
@@ -8,7 +9,7 @@ use radroots_nostr::prelude::{
     RadrootsNostrRelayUrl, radroots_nostr_build_application_handler_event,
 };
 use radroots_nostr_connect::prelude::{RadrootsNostrConnectBunkerUri, RadrootsNostrConnectUri};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
@@ -36,13 +37,13 @@ pub struct MycDiscoveryContext {
     connect_timeout_secs: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MycNip05Document {
     pub names: BTreeMap<String, String>,
     pub nip46: MycNip05DocumentSection,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MycNip05DocumentSection {
     pub relays: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,7 +77,7 @@ pub struct MycPublishedNip89Output {
     pub event: RadrootsNostrEvent,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MycNip89HandlerDocument {
     pub kinds: Vec<u32>,
     pub identifier: String,
@@ -87,7 +88,7 @@ pub struct MycNip89HandlerDocument {
     pub metadata: Option<RadrootsNostrMetadata>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MycDiscoveryBundleManifest {
     pub version: u32,
     pub domain: String,
@@ -281,31 +282,20 @@ impl MycDiscoveryContext {
         output_dir: impl AsRef<Path>,
     ) -> Result<MycDiscoveryBundleOutput, MycError> {
         let output_dir = output_dir.as_ref().to_path_buf();
-        fs::create_dir_all(&output_dir).map_err(|source| MycError::DiscoveryIo {
-            path: output_dir.clone(),
-            source,
-        })?;
+        let staged_output_dir = prepare_staged_output_dir(&output_dir)?;
 
         let manifest = self.render_bundle_manifest();
         let nip05_document = self.render_nip05_document();
         let nip89_handler = self.render_nip89_handler_document();
-        let manifest_path = output_dir.join(DISCOVERY_BUNDLE_MANIFEST_FILE_NAME);
-        let nip05_path = output_dir.join(DISCOVERY_BUNDLE_NIP05_RELATIVE_PATH);
-        let nip89_handler_path = output_dir.join(DISCOVERY_BUNDLE_NIP89_FILE_NAME);
+        let manifest_path = staged_output_dir.join(DISCOVERY_BUNDLE_MANIFEST_FILE_NAME);
+        let nip05_path = staged_output_dir.join(DISCOVERY_BUNDLE_NIP05_RELATIVE_PATH);
+        let nip89_handler_path = staged_output_dir.join(DISCOVERY_BUNDLE_NIP89_FILE_NAME);
 
         write_pretty_json(&manifest_path, &manifest)?;
         write_pretty_json(&nip05_path, &nip05_document)?;
         write_pretty_json(&nip89_handler_path, &nip89_handler)?;
-
-        Ok(MycDiscoveryBundleOutput {
-            output_dir,
-            manifest_path,
-            nip05_path,
-            nip89_handler_path,
-            manifest,
-            nip05_document,
-            nip89_handler,
-        })
+        replace_directory_atomically(&staged_output_dir, &output_dir)?;
+        verify_bundle(&output_dir)
     }
 
     fn build_handler_spec(&self) -> RadrootsNostrApplicationHandlerSpec {
@@ -392,6 +382,28 @@ pub async fn publish_nip89_event(
     })
 }
 
+pub fn verify_bundle(output_dir: impl AsRef<Path>) -> Result<MycDiscoveryBundleOutput, MycError> {
+    let output_dir = output_dir.as_ref().to_path_buf();
+    let manifest_path = output_dir.join(DISCOVERY_BUNDLE_MANIFEST_FILE_NAME);
+    let manifest = read_json_file::<MycDiscoveryBundleManifest>(&manifest_path)?;
+    let nip05_path = output_dir.join(&manifest.nip05_relative_path);
+    let nip05_document = read_json_file::<MycNip05Document>(&nip05_path)?;
+    let nip89_handler_path = output_dir.join(&manifest.nip89_relative_path);
+    let nip89_handler = read_json_file::<MycNip89HandlerDocument>(&nip89_handler_path)?;
+
+    let bundle = MycDiscoveryBundleOutput {
+        output_dir,
+        manifest_path,
+        nip05_path,
+        nip89_handler_path,
+        manifest,
+        nip05_document,
+        nip89_handler,
+    };
+    bundle.validate()?;
+    Ok(bundle)
+}
+
 fn build_metadata(config: &MycDiscoveryMetadataConfig) -> Option<RadrootsNostrMetadata> {
     let mut metadata = RadrootsNostrMetadata::default();
     metadata.name = sanitize_optional_string(config.name.as_deref());
@@ -439,6 +451,207 @@ where
     Ok(())
 }
 
+fn read_json_file<T>(path: &Path) -> Result<T, MycError>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let encoded = fs::read_to_string(path).map_err(|source| MycError::DiscoveryIo {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    serde_json::from_str(&encoded).map_err(|source| MycError::DiscoveryParse {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn prepare_staged_output_dir(output_dir: &Path) -> Result<PathBuf, MycError> {
+    let parent = output_dir.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent).map_err(|source| MycError::DiscoveryIo {
+        path: parent.to_path_buf(),
+        source,
+    })?;
+
+    let bundle_name = output_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("discovery");
+    let staged_output_dir = parent.join(format!(
+        ".{bundle_name}.staging-{}-{}",
+        std::process::id(),
+        now_unix_nanos()
+    ));
+    remove_path_if_exists(&staged_output_dir)?;
+    fs::create_dir_all(&staged_output_dir).map_err(|source| MycError::DiscoveryIo {
+        path: staged_output_dir.clone(),
+        source,
+    })?;
+    Ok(staged_output_dir)
+}
+
+fn replace_directory_atomically(
+    staged_output_dir: &Path,
+    output_dir: &Path,
+) -> Result<(), MycError> {
+    let parent = output_dir.parent().unwrap_or_else(|| Path::new("."));
+    let bundle_name = output_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("discovery");
+    let backup_dir = parent.join(format!(
+        ".{bundle_name}.backup-{}-{}",
+        std::process::id(),
+        now_unix_nanos()
+    ));
+    let had_existing_output = output_dir.exists();
+
+    if had_existing_output {
+        remove_path_if_exists(&backup_dir)?;
+        fs::rename(output_dir, &backup_dir).map_err(|source| MycError::DiscoveryIo {
+            path: output_dir.to_path_buf(),
+            source,
+        })?;
+    }
+
+    match fs::rename(staged_output_dir, output_dir) {
+        Ok(()) => {
+            if had_existing_output {
+                remove_path_if_exists(&backup_dir)?;
+            }
+            Ok(())
+        }
+        Err(source) => {
+            let staged_cleanup_result = remove_path_if_exists(staged_output_dir);
+            if had_existing_output && !output_dir.exists() {
+                let _ = fs::rename(&backup_dir, output_dir);
+            }
+            if let Err(cleanup_error) = staged_cleanup_result {
+                return Err(MycError::InvalidDiscoveryBundle(format!(
+                    "failed to swap staged bundle into place: {source}; additionally failed to clean staged output: {cleanup_error}"
+                )));
+            }
+            Err(MycError::DiscoveryIo {
+                path: output_dir.to_path_buf(),
+                source,
+            })
+        }
+    }
+}
+
+fn remove_path_if_exists(path: &Path) -> Result<(), MycError> {
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(source) => {
+            return Err(MycError::DiscoveryIo {
+                path: path.to_path_buf(),
+                source,
+            });
+        }
+    };
+
+    if metadata.is_dir() {
+        fs::remove_dir_all(path).map_err(|source| MycError::DiscoveryIo {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    } else {
+        fs::remove_file(path).map_err(|source| MycError::DiscoveryIo {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    }
+    Ok(())
+}
+
+fn now_unix_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock is before unix epoch")
+        .as_nanos()
+}
+
+impl MycDiscoveryBundleOutput {
+    fn validate(&self) -> Result<(), MycError> {
+        if self.manifest.version != DISCOVERY_BUNDLE_VERSION {
+            return Err(MycError::InvalidDiscoveryBundle(format!(
+                "unsupported bundle version `{}`",
+                self.manifest.version
+            )));
+        }
+        if self.manifest.domain.trim().is_empty() {
+            return Err(MycError::InvalidDiscoveryBundle(
+                "bundle domain must not be empty".to_owned(),
+            ));
+        }
+        if self.manifest.author_public_key_hex.trim().is_empty()
+            || self.manifest.signer_public_key_hex.trim().is_empty()
+        {
+            return Err(MycError::InvalidDiscoveryBundle(
+                "bundle author and signer pubkeys must not be empty".to_owned(),
+            ));
+        }
+        if self.manifest.nip05_relative_path != DISCOVERY_BUNDLE_NIP05_RELATIVE_PATH {
+            return Err(MycError::InvalidDiscoveryBundle(format!(
+                "bundle manifest nip05_relative_path must be `{DISCOVERY_BUNDLE_NIP05_RELATIVE_PATH}`"
+            )));
+        }
+        if self.manifest.nip89_relative_path != DISCOVERY_BUNDLE_NIP89_FILE_NAME {
+            return Err(MycError::InvalidDiscoveryBundle(format!(
+                "bundle manifest nip89_relative_path must be `{DISCOVERY_BUNDLE_NIP89_FILE_NAME}`"
+            )));
+        }
+        if self.nip05_path != self.output_dir.join(&self.manifest.nip05_relative_path) {
+            return Err(MycError::InvalidDiscoveryBundle(
+                "bundle nip05 path does not match the manifest".to_owned(),
+            ));
+        }
+        if self.nip89_handler_path != self.output_dir.join(&self.manifest.nip89_relative_path) {
+            return Err(MycError::InvalidDiscoveryBundle(
+                "bundle NIP-89 handler path does not match the manifest".to_owned(),
+            ));
+        }
+        if self.nip05_document.names.get("_").map(String::as_str)
+            != Some(self.manifest.author_public_key_hex.as_str())
+        {
+            return Err(MycError::InvalidDiscoveryBundle(
+                "bundle nip05 names._ does not match the manifest author pubkey".to_owned(),
+            ));
+        }
+        if self.nip05_document.nip46.relays != self.manifest.public_relays {
+            return Err(MycError::InvalidDiscoveryBundle(
+                "bundle nip05 relays do not match the manifest public relays".to_owned(),
+            ));
+        }
+        if self.nip05_document.nip46.nostrconnect_url != self.manifest.nostrconnect_url {
+            return Err(MycError::InvalidDiscoveryBundle(
+                "bundle nip05 nostrconnect_url does not match the manifest".to_owned(),
+            ));
+        }
+        if self.nip89_handler.kinds != vec![NIP46_RPC_KIND] {
+            return Err(MycError::InvalidDiscoveryBundle(
+                "bundle NIP-89 handler kinds must be [24133]".to_owned(),
+            ));
+        }
+        if self.nip89_handler.identifier.trim().is_empty() {
+            return Err(MycError::InvalidDiscoveryBundle(
+                "bundle NIP-89 handler identifier must not be empty".to_owned(),
+            ));
+        }
+        if self.nip89_handler.relays != self.manifest.public_relays {
+            return Err(MycError::InvalidDiscoveryBundle(
+                "bundle NIP-89 handler relays do not match the manifest public relays".to_owned(),
+            ));
+        }
+        if self.nip89_handler.nostrconnect_url != self.manifest.nostrconnect_url {
+            return Err(MycError::InvalidDiscoveryBundle(
+                "bundle NIP-89 handler nostrconnect_url does not match the manifest".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 fn render_nostrconnect_url(
     template: &str,
     signer_identity: &RadrootsIdentity,
@@ -471,7 +684,8 @@ mod tests {
 
     use crate::config::MycConfig;
 
-    use super::{MycDiscoveryContext, build_metadata};
+    use super::{MycDiscoveryContext, build_metadata, verify_bundle, write_pretty_json};
+    use crate::MycError;
     use crate::app::MycRuntime;
 
     fn write_identity(path: &Path, secret_key: &str) {
@@ -629,5 +843,42 @@ mod tests {
         assert_eq!(manifest_first, manifest_second);
         assert_eq!(nip05_first, nip05_second);
         assert_eq!(nip89_first, nip89_second);
+    }
+
+    #[test]
+    fn write_bundle_replaces_existing_directory_without_leaving_stale_files() {
+        let runtime = runtime();
+        let context = MycDiscoveryContext::from_runtime(&runtime).expect("discovery context");
+        let bundle_dir = runtime.paths().state_dir.join("bundle");
+        fs::create_dir_all(&bundle_dir).expect("create old bundle dir");
+        fs::write(bundle_dir.join("stale.txt"), "stale").expect("write stale file");
+
+        let bundle = context.write_bundle(&bundle_dir).expect("write bundle");
+
+        assert_eq!(bundle.output_dir, bundle_dir);
+        assert!(!bundle.output_dir.join("stale.txt").exists());
+        assert!(bundle.manifest_path.exists());
+        assert!(bundle.nip05_path.exists());
+        assert!(bundle.nip89_handler_path.exists());
+    }
+
+    #[test]
+    fn verify_bundle_rejects_tampered_nip05_author() {
+        let runtime = runtime();
+        let context = MycDiscoveryContext::from_runtime(&runtime).expect("discovery context");
+        let bundle_dir = runtime.paths().state_dir.join("bundle");
+        let bundle = context.write_bundle(&bundle_dir).expect("write bundle");
+        let mut tampered = bundle.nip05_document.clone();
+        tampered.names.insert("_".to_owned(), "deadbeef".to_owned());
+        write_pretty_json(&bundle.nip05_path, &tampered).expect("rewrite tampered nip05");
+
+        let error = verify_bundle(&bundle_dir).expect_err("bundle should be invalid");
+
+        assert!(matches!(error, MycError::InvalidDiscoveryBundle(_)));
+        assert!(
+            error
+                .to_string()
+                .contains("bundle nip05 names._ does not match the manifest author pubkey")
+        );
     }
 }

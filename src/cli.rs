@@ -13,7 +13,7 @@ use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
 use crate::config::{DEFAULT_CONFIG_PATH, MycConfig};
 use crate::control::{accept_client_uri, authorize_auth_challenge, parse_permission_values};
-use crate::discovery::{MycDiscoveryContext, publish_nip89_event};
+use crate::discovery::{MycDiscoveryContext, publish_nip89_event, verify_bundle};
 use crate::error::MycError;
 use crate::logging;
 
@@ -122,6 +122,10 @@ pub enum MycDiscoveryCommand {
     ExportBundle {
         #[arg(long)]
         out: PathBuf,
+    },
+    VerifyBundle {
+        #[arg(long)]
+        dir: PathBuf,
     },
 }
 
@@ -274,22 +278,24 @@ pub async fn run_from_env() -> Result<(), MycError> {
                 }
             }
         }
-        MycCommand::Discovery { command } => {
-            let runtime = MycRuntime::bootstrap(config)?;
-            match command {
-                MycDiscoveryCommand::RenderNip05 { out, stdout } => {
-                    if stdout && out.is_some() {
-                        return Err(MycError::InvalidOperation(
-                            "discovery render-nip05 cannot use --stdout and --out together"
-                                .to_owned(),
-                        ));
-                    }
-                    let context = MycDiscoveryContext::from_runtime(&runtime)?;
-                    if stdout || (out.is_none() && context.nip05_output_path().is_none()) {
-                        println!("{}", context.render_nip05_json_pretty()?);
-                        Ok(())
-                    } else {
-                        let output = context.write_nip05_document(
+        MycCommand::Discovery { command } => match command {
+            MycDiscoveryCommand::VerifyBundle { dir } => {
+                let output = verify_bundle(dir)?;
+                print_json(&output)
+            }
+            MycDiscoveryCommand::RenderNip05 { out, stdout } => {
+                let runtime = MycRuntime::bootstrap(config.clone())?;
+                if stdout && out.is_some() {
+                    return Err(MycError::InvalidOperation(
+                        "discovery render-nip05 cannot use --stdout and --out together".to_owned(),
+                    ));
+                }
+                let context = MycDiscoveryContext::from_runtime(&runtime)?;
+                if stdout || (out.is_none() && context.nip05_output_path().is_none()) {
+                    println!("{}", context.render_nip05_json_pretty()?);
+                    Ok(())
+                } else {
+                    let output = context.write_nip05_document(
                             out.as_deref().or(context.nip05_output_path()).ok_or_else(|| {
                                 MycError::InvalidOperation(
                                     "discovery render-nip05 requires --out or discovery.nip05_output_path"
@@ -297,24 +303,25 @@ pub async fn run_from_env() -> Result<(), MycError> {
                                 )
                             })?,
                         )?;
-                        print_json(&output)
-                    }
-                }
-                MycDiscoveryCommand::RenderNip89 => {
-                    let output =
-                        MycDiscoveryContext::from_runtime(&runtime)?.render_nip89_output()?;
-                    print_json(&output)
-                }
-                MycDiscoveryCommand::PublishNip89 => {
-                    let output = publish_nip89_event(&runtime).await?;
-                    print_json(&output)
-                }
-                MycDiscoveryCommand::ExportBundle { out } => {
-                    let output = MycDiscoveryContext::from_runtime(&runtime)?.write_bundle(out)?;
                     print_json(&output)
                 }
             }
-        }
+            MycDiscoveryCommand::RenderNip89 => {
+                let runtime = MycRuntime::bootstrap(config.clone())?;
+                let output = MycDiscoveryContext::from_runtime(&runtime)?.render_nip89_output()?;
+                print_json(&output)
+            }
+            MycDiscoveryCommand::PublishNip89 => {
+                let runtime = MycRuntime::bootstrap(config.clone())?;
+                let output = publish_nip89_event(&runtime).await?;
+                print_json(&output)
+            }
+            MycDiscoveryCommand::ExportBundle { out } => {
+                let runtime = MycRuntime::bootstrap(config)?;
+                let output = MycDiscoveryContext::from_runtime(&runtime)?.write_bundle(out)?;
+                print_json(&output)
+            }
+        },
     }
 }
 

@@ -63,6 +63,14 @@ pub enum MycError {
         #[source]
         source: std::io::Error,
     },
+    #[error("discovery parse error at {path}: {source}")]
+    DiscoveryParse {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("invalid discovery bundle: {0}")]
+    InvalidDiscoveryBundle(String),
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error(transparent)]
