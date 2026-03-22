@@ -20,6 +20,7 @@ use radroots_nostr_signer::prelude::{
 use tokio::sync::broadcast;
 
 use crate::app::MycSignerContext;
+use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
 use crate::error::MycError;
 use crate::transport::{MycNostrTransport, ensure_publish_confirmed};
 
@@ -38,6 +39,7 @@ pub struct MycNip46Service {
 pub(crate) enum MycNip46HandledRequest {
     Respond {
         response: RadrootsNostrConnectResponse,
+        connection_id: Option<RadrootsNostrSignerConnectionId>,
         consume_connect_secret_for: Option<RadrootsNostrSignerConnectionId>,
     },
     Ignore,
@@ -203,20 +205,28 @@ impl MycNip46Handler {
         let evaluation = manager.evaluate_request(&connection.connection_id, request_message)?;
 
         match evaluation.action {
-            RadrootsNostrSignerRequestAction::Denied { reason } => Ok(
-                MycNip46HandledRequest::respond(RadrootsNostrConnectResponse::Error {
-                    result: None,
-                    error: reason,
-                }),
-            ),
+            RadrootsNostrSignerRequestAction::Denied { reason } => {
+                Ok(MycNip46HandledRequest::respond_for_connection(
+                    Some(connection.connection_id.clone()),
+                    RadrootsNostrConnectResponse::Error {
+                        result: None,
+                        error: reason,
+                    },
+                ))
+            }
             RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
-                Ok(MycNip46HandledRequest::respond(
+                Ok(MycNip46HandledRequest::respond_for_connection(
+                    Some(connection.connection_id.clone()),
                     RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
                 ))
             }
             RadrootsNostrSignerRequestAction::Allowed { response_hint, .. } => {
-                response_from_hint(&evaluation.connection, response_hint)
-                    .map(MycNip46HandledRequest::respond)
+                response_from_hint(&evaluation.connection, response_hint).map(|response| {
+                    MycNip46HandledRequest::respond_for_connection(
+                        Some(evaluation.connection.connection_id.clone()),
+                        response,
+                    )
+                })
             }
         }
     }
@@ -236,20 +246,29 @@ impl MycNip46Handler {
         let evaluation = manager.evaluate_request(&connection.connection_id, request_message)?;
 
         match evaluation.action {
-            RadrootsNostrSignerRequestAction::Denied { reason } => Ok(
-                MycNip46HandledRequest::respond(RadrootsNostrConnectResponse::Error {
-                    result: None,
-                    error: reason,
-                }),
-            ),
+            RadrootsNostrSignerRequestAction::Denied { reason } => {
+                Ok(MycNip46HandledRequest::respond_for_connection(
+                    Some(connection.connection_id.clone()),
+                    RadrootsNostrConnectResponse::Error {
+                        result: None,
+                        error: reason,
+                    },
+                ))
+            }
             RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
-                Ok(MycNip46HandledRequest::respond(
+                Ok(MycNip46HandledRequest::respond_for_connection(
+                    Some(connection.connection_id.clone()),
                     RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
                 ))
             }
-            RadrootsNostrSignerRequestAction::Allowed { .. } => self
-                .sign_event_response(unsigned_event)
-                .map(MycNip46HandledRequest::respond),
+            RadrootsNostrSignerRequestAction::Allowed { .. } => {
+                self.sign_event_response(unsigned_event).map(|response| {
+                    MycNip46HandledRequest::respond_for_connection(
+                        Some(connection.connection_id.clone()),
+                        response,
+                    )
+                })
+            }
         }
     }
 
@@ -268,20 +287,29 @@ impl MycNip46Handler {
         let evaluation = manager.evaluate_request(&connection.connection_id, request_message)?;
 
         match evaluation.action {
-            RadrootsNostrSignerRequestAction::Denied { reason } => Ok(
-                MycNip46HandledRequest::respond(RadrootsNostrConnectResponse::Error {
-                    result: None,
-                    error: reason,
-                }),
-            ),
+            RadrootsNostrSignerRequestAction::Denied { reason } => {
+                Ok(MycNip46HandledRequest::respond_for_connection(
+                    Some(connection.connection_id.clone()),
+                    RadrootsNostrConnectResponse::Error {
+                        result: None,
+                        error: reason,
+                    },
+                ))
+            }
             RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
-                Ok(MycNip46HandledRequest::respond(
+                Ok(MycNip46HandledRequest::respond_for_connection(
+                    Some(connection.connection_id.clone()),
                     RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
                 ))
             }
-            RadrootsNostrSignerRequestAction::Allowed { .. } => self
-                .crypto_response(request)
-                .map(MycNip46HandledRequest::respond),
+            RadrootsNostrSignerRequestAction::Allowed { .. } => {
+                self.crypto_response(request).map(|response| {
+                    MycNip46HandledRequest::respond_for_connection(
+                        Some(connection.connection_id.clone()),
+                        response,
+                    )
+                })
+            }
         }
     }
 
@@ -454,7 +482,8 @@ impl MycNip46Service {
                     })
                 }
             };
-            let Some((response, consume_connect_secret_for)) = handled_request.into_publish_parts()
+            let Some((response, connection_id, consume_connect_secret_for)) =
+                handled_request.into_publish_parts()
             else {
                 tracing::debug!(
                     request_id = %request_id,
@@ -466,7 +495,7 @@ impl MycNip46Service {
 
             let response_event =
                 self.handler
-                    .build_response_event(event.pubkey, request_id, response)?;
+                    .build_response_event(event.pubkey, request_id.as_str(), response)?;
             let publish_output = match self
                 .transport
                 .client()
@@ -475,13 +504,42 @@ impl MycNip46Service {
             {
                 Ok(output) => output,
                 Err(error) => {
-                    tracing::warn!(error = %error, "failed to publish NIP-46 response");
+                    self.handler
+                        .signer
+                        .record_operation_audit(&MycOperationAuditRecord::new(
+                            MycOperationAuditKind::ListenerResponsePublish,
+                            MycOperationAuditOutcome::Rejected,
+                            connection_id.as_ref(),
+                            Some(request_id.as_str()),
+                            self.transport.relays().len(),
+                            0,
+                            error.to_string(),
+                        ));
                     continue;
                 }
             };
             if let Err(error) = ensure_publish_confirmed(publish_output, "NIP-46 response publish")
             {
-                tracing::warn!(error = %error, "failed to publish NIP-46 response");
+                self.handler
+                    .signer
+                    .record_operation_audit(&MycOperationAuditRecord::new(
+                        MycOperationAuditKind::ListenerResponsePublish,
+                        MycOperationAuditOutcome::Rejected,
+                        connection_id.as_ref(),
+                        Some(request_id.as_str()),
+                        error
+                            .publish_rejection_counts()
+                            .map(|(relay_count, _)| relay_count)
+                            .unwrap_or(self.transport.relays().len()),
+                        error
+                            .publish_rejection_counts()
+                            .map(|(_, acknowledged)| acknowledged)
+                            .unwrap_or_default(),
+                        error
+                            .publish_rejection_details()
+                            .map(ToOwned::to_owned)
+                            .unwrap_or_else(|| error.to_string()),
+                    ));
                 continue;
             }
             if let Some(connection_id) = consume_connect_secret_for {
@@ -504,8 +562,16 @@ impl MycNip46Service {
 
 impl MycNip46HandledRequest {
     fn respond(response: RadrootsNostrConnectResponse) -> Self {
+        Self::respond_for_connection(None, response)
+    }
+
+    fn respond_for_connection(
+        connection_id: Option<RadrootsNostrSignerConnectionId>,
+        response: RadrootsNostrConnectResponse,
+    ) -> Self {
         Self::Respond {
             response,
+            connection_id,
             consume_connect_secret_for: None,
         }
     }
@@ -515,12 +581,14 @@ impl MycNip46HandledRequest {
     ) -> Option<(
         RadrootsNostrConnectResponse,
         Option<RadrootsNostrSignerConnectionId>,
+        Option<RadrootsNostrSignerConnectionId>,
     )> {
         match self {
             Self::Respond {
                 response,
+                connection_id,
                 consume_connect_secret_for,
-            } => Some((response, consume_connect_secret_for)),
+            } => Some((response, connection_id, consume_connect_secret_for)),
             Self::Ignore => None,
         }
     }
@@ -540,6 +608,7 @@ fn connect_response_outcome(
     let consume_connect_secret_for = secret.as_ref().map(|_| connection.connection_id.clone());
     MycNip46HandledRequest::Respond {
         response: connect_response(secret),
+        connection_id: Some(connection.connection_id.clone()),
         consume_connect_secret_for,
     }
 }

@@ -26,6 +26,13 @@ pub struct MycTransportSnapshot {
     pub connect_timeout_secs: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MycPublishOutcome {
+    pub relay_count: usize,
+    pub acknowledged_relay_count: usize,
+    pub relay_outcome_summary: String,
+}
+
 impl MycNostrTransport {
     pub fn bootstrap(
         config: &MycTransportConfig,
@@ -70,7 +77,7 @@ impl MycNostrTransport {
         relays: &[RadrootsNostrRelayUrl],
         connect_timeout_secs: u64,
         event: RadrootsNostrEventBuilder,
-    ) -> Result<(), MycError> {
+    ) -> Result<MycPublishOutcome, MycError> {
         if relays.is_empty() {
             return Err(MycError::InvalidOperation(
                 "cannot publish without at least one relay".to_owned(),
@@ -86,8 +93,7 @@ impl MycNostrTransport {
             .wait_for_connection(Duration::from_secs(connect_timeout_secs))
             .await;
         let output = client.send_event_builder(event).await?;
-        let _ = ensure_publish_confirmed(output, "one-shot Nostr publish")?;
-        Ok(())
+        ensure_publish_confirmed(output, "one-shot Nostr publish")
     }
 
     pub fn snapshot(&self) -> MycTransportSnapshot {
@@ -102,29 +108,53 @@ impl MycNostrTransport {
 pub(crate) fn ensure_publish_confirmed<T>(
     output: RadrootsNostrOutput<T>,
     operation: &str,
-) -> Result<RadrootsNostrOutput<T>, MycError>
+) -> Result<MycPublishOutcome, MycError>
 where
     T: std::fmt::Debug,
 {
+    let relay_count = output.success.len() + output.failed.len();
+    let acknowledged_relay_count = output.success.len();
+    let relay_outcome_summary = summarize_publish_output(&output);
+
     if !output.success.is_empty() {
-        return Ok(output);
+        return Ok(MycPublishOutcome {
+            relay_count,
+            acknowledged_relay_count,
+            relay_outcome_summary,
+        });
     }
 
-    let details = if output.failed.is_empty() {
-        "no relay acknowledged the publish".to_owned()
-    } else {
-        output
+    Err(MycError::PublishRejected {
+        operation: operation.to_owned(),
+        relay_count,
+        acknowledged_relay_count,
+        details: relay_outcome_summary,
+    })
+}
+
+fn summarize_publish_output<T>(output: &RadrootsNostrOutput<T>) -> String
+where
+    T: std::fmt::Debug,
+{
+    let relay_count = output.success.len() + output.failed.len();
+    let acknowledged_relay_count = output.success.len();
+    if relay_count == 0 {
+        return "no relay acknowledged the publish".to_owned();
+    }
+
+    let mut summary =
+        format!("{acknowledged_relay_count}/{relay_count} relays acknowledged publish");
+    if !output.failed.is_empty() {
+        let failures = output
             .failed
             .iter()
             .map(|(relay, error)| format!("{relay}: {error}"))
             .collect::<Vec<_>>()
-            .join("; ")
-    };
-
-    Err(MycError::PublishRejected {
-        operation: operation.to_owned(),
-        details,
-    })
+            .join("; ");
+        summary.push_str("; failures: ");
+        summary.push_str(&failures);
+    }
+    summary
 }
 
 impl MycTransportSnapshot {
