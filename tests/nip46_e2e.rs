@@ -4,7 +4,10 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use myc::control;
-use myc::{MycConfig, MycConnectionApproval, MycRuntime};
+use myc::{
+    MycConfig, MycConnectionApproval, MycOperationAuditKind, MycOperationAuditOutcome,
+    MycOperationAuditRecord, MycRuntime,
+};
 use nostr::filter::MatchEventOptions;
 use nostr::nips::nip44;
 use nostr::nips::nip44::Version;
@@ -472,6 +475,26 @@ async fn wait_for_connect_secret_consumed(runtime: &MycRuntime) -> TestResult<()
     Ok(())
 }
 
+async fn wait_for_operation_audit_count(
+    runtime: &MycRuntime,
+    expected: usize,
+) -> TestResult<Vec<MycOperationAuditRecord>> {
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let records = runtime
+                .operation_audit_store()
+                .list()
+                .expect("operation audit");
+            if records.len() >= expected {
+                return records;
+            }
+            sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .map_err(Into::into)
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn live_listener_consumes_connect_secret_only_after_successful_publish() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
@@ -521,6 +544,28 @@ async fn live_listener_consumes_connect_secret_only_after_successful_publish() -
         .next()
         .expect("stored connection");
     assert!(!initial_connection.connect_secret_is_consumed());
+    let operation_audit = wait_for_operation_audit_count(&runtime, 1).await?;
+    assert_eq!(operation_audit.len(), 1);
+    assert_eq!(
+        operation_audit[0].operation,
+        MycOperationAuditKind::ListenerResponsePublish
+    );
+    assert_eq!(
+        operation_audit[0].outcome,
+        MycOperationAuditOutcome::Rejected
+    );
+    assert_eq!(
+        operation_audit[0].connection_id.as_deref(),
+        Some(initial_connection.connection_id.as_str())
+    );
+    assert_eq!(operation_audit[0].request_id.as_deref(), Some("connect-1"));
+    assert_eq!(operation_audit[0].relay_count, 1);
+    assert_eq!(operation_audit[0].acknowledged_relay_count, 0);
+    assert!(
+        operation_audit[0]
+            .relay_outcome_summary
+            .contains("blocked by test relay")
+    );
 
     let request_two = build_request_event(
         &client_identity,
@@ -565,6 +610,7 @@ async fn live_listener_consumes_connect_secret_only_after_successful_publish() -
             .len(),
         1
     );
+    assert_eq!(runtime.operation_audit_store().list()?.len(), 1);
 
     let _ = shutdown_tx.send(());
     listener_task.await??;
@@ -605,6 +651,27 @@ async fn connect_accept_retries_without_consuming_secret_until_publish_succeeds(
         .next()
         .expect("stored connection");
     assert!(!stored_after_failure.connect_secret_is_consumed());
+    let operation_audit = wait_for_operation_audit_count(&runtime, 1).await?;
+    assert_eq!(
+        operation_audit[0].operation,
+        MycOperationAuditKind::ConnectAcceptPublish
+    );
+    assert_eq!(
+        operation_audit[0].outcome,
+        MycOperationAuditOutcome::Rejected
+    );
+    assert_eq!(
+        operation_audit[0].connection_id.as_deref(),
+        Some(stored_after_failure.connection_id.as_str())
+    );
+    assert!(operation_audit[0].request_id.is_some());
+    assert_eq!(operation_audit[0].relay_count, 1);
+    assert_eq!(operation_audit[0].acknowledged_relay_count, 0);
+    assert!(
+        operation_audit[0]
+            .relay_outcome_summary
+            .contains("blocked by test relay")
+    );
 
     let accepted = control::accept_client_uri(&runtime, &client_uri).await?;
     assert_eq!(accepted.response_request_id.len(), 36);
@@ -626,6 +693,30 @@ async fn connect_accept_retries_without_consuming_secret_until_publish_succeeds(
         .next()
         .expect("stored connection");
     assert!(stored_after_success.connect_secret_is_consumed());
+    let operation_audit = wait_for_operation_audit_count(&runtime, 2).await?;
+    assert_eq!(
+        operation_audit[1].operation,
+        MycOperationAuditKind::ConnectAcceptPublish
+    );
+    assert_eq!(
+        operation_audit[1].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
+    assert_eq!(
+        operation_audit[1].connection_id.as_deref(),
+        Some(stored_after_success.connection_id.as_str())
+    );
+    assert_eq!(
+        operation_audit[1].request_id.as_deref(),
+        Some(accepted.response_request_id.as_str())
+    );
+    assert_eq!(operation_audit[1].relay_count, 1);
+    assert_eq!(operation_audit[1].acknowledged_relay_count, 1);
+    assert!(
+        operation_audit[1]
+            .relay_outcome_summary
+            .contains("1/1 relays acknowledged publish")
+    );
 
     let consumed = control::accept_client_uri(&runtime, &client_uri)
         .await
@@ -690,6 +781,47 @@ async fn auth_replay_restores_pending_request_until_publish_succeeds() -> TestRe
             .authorized_at_unix,
         None
     );
+    let operation_audit = wait_for_operation_audit_count(&runtime, 2).await?;
+    assert_eq!(
+        operation_audit[0].operation,
+        MycOperationAuditKind::AuthReplayPublish
+    );
+    assert_eq!(
+        operation_audit[0].outcome,
+        MycOperationAuditOutcome::Rejected
+    );
+    assert_eq!(
+        operation_audit[0].connection_id.as_deref(),
+        Some(connection.connection_id.as_str())
+    );
+    assert_eq!(operation_audit[0].request_id.as_deref(), Some("auth-ping"));
+    assert_eq!(operation_audit[0].relay_count, 1);
+    assert_eq!(operation_audit[0].acknowledged_relay_count, 0);
+    assert!(
+        operation_audit[0]
+            .relay_outcome_summary
+            .contains("blocked by test relay")
+    );
+    assert_eq!(
+        operation_audit[1].operation,
+        MycOperationAuditKind::AuthReplayRestore
+    );
+    assert_eq!(
+        operation_audit[1].outcome,
+        MycOperationAuditOutcome::Restored
+    );
+    assert_eq!(
+        operation_audit[1].connection_id.as_deref(),
+        Some(connection.connection_id.as_str())
+    );
+    assert_eq!(operation_audit[1].request_id.as_deref(), Some("auth-ping"));
+    assert_eq!(operation_audit[1].relay_count, 1);
+    assert_eq!(operation_audit[1].acknowledged_relay_count, 0);
+    assert!(
+        operation_audit[1]
+            .relay_outcome_summary
+            .contains("restored pending auth challenge")
+    );
 
     let replayed = control::authorize_auth_challenge(&runtime, &connection.connection_id).await?;
     assert_eq!(replayed.replayed_request_id.as_deref(), Some("auth-ping"));
@@ -716,6 +848,27 @@ async fn auth_replay_restores_pending_request_until_publish_succeeds() -> TestRe
     );
     assert!(authorized.pending_request.is_none());
     assert!(authorized.last_authenticated_at_unix.is_some());
+    let operation_audit = wait_for_operation_audit_count(&runtime, 3).await?;
+    assert_eq!(
+        operation_audit[2].operation,
+        MycOperationAuditKind::AuthReplayPublish
+    );
+    assert_eq!(
+        operation_audit[2].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
+    assert_eq!(
+        operation_audit[2].connection_id.as_deref(),
+        Some(connection.connection_id.as_str())
+    );
+    assert_eq!(operation_audit[2].request_id.as_deref(), Some("auth-ping"));
+    assert_eq!(operation_audit[2].relay_count, 1);
+    assert_eq!(operation_audit[2].acknowledged_relay_count, 1);
+    assert!(
+        operation_audit[2]
+            .relay_outcome_summary
+            .contains("1/1 relays acknowledged publish")
+    );
 
     Ok(())
 }
