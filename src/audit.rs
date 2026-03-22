@@ -21,6 +21,8 @@ pub enum MycOperationAuditKind {
     AuthReplayPublish,
     AuthReplayRestore,
     DiscoveryHandlerPublish,
+    DiscoveryHandlerCompare,
+    DiscoveryHandlerRefresh,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,6 +31,10 @@ pub enum MycOperationAuditOutcome {
     Succeeded,
     Rejected,
     Restored,
+    Missing,
+    Matched,
+    Drifted,
+    Skipped,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -13,7 +13,10 @@ use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
 use crate::config::{DEFAULT_CONFIG_PATH, MycConfig};
 use crate::control::{accept_client_uri, authorize_auth_challenge, parse_permission_values};
-use crate::discovery::{MycDiscoveryContext, publish_nip89_event, verify_bundle};
+use crate::discovery::{
+    MycDiscoveryContext, diff_live_nip89, fetch_live_nip89, publish_nip89_event, refresh_nip89,
+    verify_bundle,
+};
 use crate::error::MycError;
 use crate::logging;
 
@@ -127,6 +130,12 @@ pub enum MycDiscoveryCommand {
         #[arg(long)]
         dir: PathBuf,
     },
+    InspectLiveNip89,
+    DiffLiveNip89,
+    RefreshNip89 {
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -163,6 +172,10 @@ pub struct MycOperationOutcomeCounts {
     pub succeeded: usize,
     pub rejected: usize,
     pub restored: usize,
+    pub missing: usize,
+    pub matched: usize,
+    pub drifted: usize,
+    pub skipped: usize,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -281,6 +294,21 @@ pub async fn run_from_env() -> Result<(), MycError> {
         MycCommand::Discovery { command } => match command {
             MycDiscoveryCommand::VerifyBundle { dir } => {
                 let output = verify_bundle(dir)?;
+                print_json(&output)
+            }
+            MycDiscoveryCommand::InspectLiveNip89 => {
+                let runtime = MycRuntime::bootstrap(config.clone())?;
+                let output = fetch_live_nip89(&runtime).await?;
+                print_json(&output)
+            }
+            MycDiscoveryCommand::DiffLiveNip89 => {
+                let runtime = MycRuntime::bootstrap(config.clone())?;
+                let output = diff_live_nip89(&runtime).await?;
+                print_json(&output)
+            }
+            MycDiscoveryCommand::RefreshNip89 { force } => {
+                let runtime = MycRuntime::bootstrap(config.clone())?;
+                let output = refresh_nip89(&runtime, force).await?;
                 print_json(&output)
             }
             MycDiscoveryCommand::RenderNip05 { out, stdout } => {
@@ -467,6 +495,10 @@ fn increment_outcome_counts(
         MycOperationAuditOutcome::Succeeded => counts.succeeded += 1,
         MycOperationAuditOutcome::Rejected => counts.rejected += 1,
         MycOperationAuditOutcome::Restored => counts.restored += 1,
+        MycOperationAuditOutcome::Missing => counts.missing += 1,
+        MycOperationAuditOutcome::Matched => counts.matched += 1,
+        MycOperationAuditOutcome::Drifted => counts.drifted += 1,
+        MycOperationAuditOutcome::Skipped => counts.skipped += 1,
     }
 }
 
@@ -477,6 +509,8 @@ fn operation_kind_label(kind: MycOperationAuditKind) -> String {
         MycOperationAuditKind::AuthReplayPublish => "auth_replay_publish".to_owned(),
         MycOperationAuditKind::AuthReplayRestore => "auth_replay_restore".to_owned(),
         MycOperationAuditKind::DiscoveryHandlerPublish => "discovery_handler_publish".to_owned(),
+        MycOperationAuditKind::DiscoveryHandlerCompare => "discovery_handler_compare".to_owned(),
+        MycOperationAuditKind::DiscoveryHandlerRefresh => "discovery_handler_refresh".to_owned(),
     }
 }
 

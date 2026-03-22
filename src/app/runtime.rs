@@ -295,7 +295,10 @@ impl MycSignerContext {
 
 fn emit_operation_audit_trace(record: &MycOperationAuditRecord) {
     match record.outcome {
-        crate::audit::MycOperationAuditOutcome::Succeeded => tracing::info!(
+        crate::audit::MycOperationAuditOutcome::Succeeded
+        | crate::audit::MycOperationAuditOutcome::Missing
+        | crate::audit::MycOperationAuditOutcome::Matched
+        | crate::audit::MycOperationAuditOutcome::Skipped => tracing::info!(
             operation = ?record.operation,
             outcome = ?record.outcome,
             connection_id = record.connection_id.as_deref().unwrap_or(""),
@@ -306,7 +309,8 @@ fn emit_operation_audit_trace(record: &MycOperationAuditRecord) {
             "recorded myc operation audit"
         ),
         crate::audit::MycOperationAuditOutcome::Rejected
-        | crate::audit::MycOperationAuditOutcome::Restored => tracing::warn!(
+        | crate::audit::MycOperationAuditOutcome::Restored
+        | crate::audit::MycOperationAuditOutcome::Drifted => tracing::warn!(
             operation = ?record.operation,
             outcome = ?record.outcome,
             connection_id = record.connection_id.as_deref().unwrap_or(""),

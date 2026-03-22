@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{
-    RadrootsNostrApplicationHandlerSpec, RadrootsNostrEvent, RadrootsNostrMetadata,
-    RadrootsNostrRelayUrl, radroots_nostr_build_application_handler_event,
+    RadrootsNostrApplicationHandlerSpec, RadrootsNostrClient, RadrootsNostrEvent,
+    RadrootsNostrFilter, RadrootsNostrKind, RadrootsNostrMetadata, RadrootsNostrRelayUrl,
+    radroots_nostr_build_application_handler_event, radroots_nostr_filter_tag,
+    radroots_nostr_metadata_has_fields, radroots_nostr_tag_first_value,
 };
 use radroots_nostr_connect::prelude::{RadrootsNostrConnectBunkerUri, RadrootsNostrConnectUri};
 use serde::{Deserialize, Serialize};
@@ -75,6 +77,58 @@ pub struct MycPublishedNip89Output {
     pub acknowledged_relay_count: usize,
     pub relay_outcome_summary: String,
     pub event: RadrootsNostrEvent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MycDiscoveryLiveStatus {
+    Missing,
+    Matched,
+    Drifted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MycNormalizedNip89Handler {
+    pub author_public_key_hex: String,
+    pub kinds: Vec<u32>,
+    pub identifier: String,
+    pub relays: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nostrconnect_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<RadrootsNostrMetadata>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MycLiveNip89Event {
+    pub event_id_hex: String,
+    pub created_at_unix: u64,
+    pub handler: MycNormalizedNip89Handler,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycFetchedLiveNip89Output {
+    pub author_public_key_hex: String,
+    pub publish_relays: Vec<String>,
+    pub handler_identifier: String,
+    pub live_event: Option<MycLiveNip89Event>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycDiscoveryDiffOutput {
+    pub status: MycDiscoveryLiveStatus,
+    pub local_handler: MycNormalizedNip89Handler,
+    pub live_event: Option<MycLiveNip89Event>,
+    pub differing_fields: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycRefreshedNip89Output {
+    pub status: MycDiscoveryLiveStatus,
+    pub force: bool,
+    pub differing_fields: Vec<String>,
+    pub live_event: Option<MycLiveNip89Event>,
+    pub published: Option<MycPublishedNip89Output>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -167,6 +221,10 @@ impl MycDiscoveryContext {
         self.domain.as_str()
     }
 
+    pub fn handler_identifier(&self) -> &str {
+        self.handler_identifier.as_str()
+    }
+
     pub fn publish_relays(&self) -> &[RadrootsNostrRelayUrl] {
         self.publish_relays.as_slice()
     }
@@ -245,6 +303,19 @@ impl MycDiscoveryContext {
             relays: self.public_relays.iter().map(ToString::to_string).collect(),
             nostrconnect_url: self.nostrconnect_url.clone(),
             metadata: self.metadata.clone(),
+        }
+    }
+
+    pub fn render_normalized_nip89_handler(&self) -> MycNormalizedNip89Handler {
+        MycNormalizedNip89Handler {
+            author_public_key_hex: self.app_identity.public_key_hex(),
+            kinds: vec![NIP46_RPC_KIND],
+            identifier: self.handler_identifier.clone(),
+            relays: normalize_string_list(
+                self.public_relays.iter().map(ToString::to_string).collect(),
+            ),
+            nostrconnect_url: normalize_optional_string(self.nostrconnect_url.clone()),
+            metadata: normalize_metadata(self.metadata.clone()),
         }
     }
 
@@ -382,6 +453,85 @@ pub async fn publish_nip89_event(
     })
 }
 
+pub async fn fetch_live_nip89(runtime: &MycRuntime) -> Result<MycFetchedLiveNip89Output, MycError> {
+    let context = MycDiscoveryContext::from_runtime(runtime)?;
+    let live_event = fetch_latest_live_nip89_event(&context).await?;
+    Ok(MycFetchedLiveNip89Output {
+        author_public_key_hex: context.app_identity().public_key_hex(),
+        publish_relays: context
+            .publish_relays()
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        handler_identifier: context.handler_identifier().to_owned(),
+        live_event,
+    })
+}
+
+pub async fn diff_live_nip89(runtime: &MycRuntime) -> Result<MycDiscoveryDiffOutput, MycError> {
+    let context = MycDiscoveryContext::from_runtime(runtime)?;
+    let local_handler = context.render_normalized_nip89_handler();
+    let live_event = fetch_latest_live_nip89_event(&context).await?;
+    let (status, differing_fields) = compare_live_handler(&local_handler, live_event.as_ref());
+    Ok(MycDiscoveryDiffOutput {
+        status,
+        local_handler,
+        live_event,
+        differing_fields,
+    })
+}
+
+pub async fn refresh_nip89(
+    runtime: &MycRuntime,
+    force: bool,
+) -> Result<MycRefreshedNip89Output, MycError> {
+    let context = MycDiscoveryContext::from_runtime(runtime)?;
+    let local_handler = context.render_normalized_nip89_handler();
+    let live_event = fetch_latest_live_nip89_event(&context).await?;
+    let (status, differing_fields) = compare_live_handler(&local_handler, live_event.as_ref());
+    let relay_count = context.publish_relays().len();
+    let compare_request_id = live_event.as_ref().map(|event| event.event_id_hex.as_str());
+    let compare_summary = describe_compare_status(status, &differing_fields);
+
+    runtime.record_operation_audit(&MycOperationAuditRecord::new(
+        MycOperationAuditKind::DiscoveryHandlerCompare,
+        compare_status_to_audit_outcome(status),
+        None,
+        compare_request_id,
+        relay_count,
+        relay_count,
+        compare_summary,
+    ));
+
+    if status == MycDiscoveryLiveStatus::Matched && !force {
+        runtime.record_operation_audit(&MycOperationAuditRecord::new(
+            MycOperationAuditKind::DiscoveryHandlerRefresh,
+            MycOperationAuditOutcome::Skipped,
+            None,
+            compare_request_id,
+            relay_count,
+            relay_count,
+            "local discovery handler already matches live state".to_owned(),
+        ));
+        return Ok(MycRefreshedNip89Output {
+            status,
+            force,
+            differing_fields,
+            live_event,
+            published: None,
+        });
+    }
+
+    let published = publish_nip89_event(runtime).await?;
+    Ok(MycRefreshedNip89Output {
+        status,
+        force,
+        differing_fields,
+        live_event,
+        published: Some(published),
+    })
+}
+
 pub fn verify_bundle(output_dir: impl AsRef<Path>) -> Result<MycDiscoveryBundleOutput, MycError> {
     let output_dir = output_dir.as_ref().to_path_buf();
     let manifest_path = output_dir.join(DISCOVERY_BUNDLE_MANIFEST_FILE_NAME);
@@ -402,6 +552,182 @@ pub fn verify_bundle(output_dir: impl AsRef<Path>) -> Result<MycDiscoveryBundleO
     };
     bundle.validate()?;
     Ok(bundle)
+}
+
+async fn fetch_latest_live_nip89_event(
+    context: &MycDiscoveryContext,
+) -> Result<Option<MycLiveNip89Event>, MycError> {
+    let client = RadrootsNostrClient::from_identity(context.app_identity());
+    for relay in context.publish_relays() {
+        let _ = client.add_relay(relay.as_str()).await?;
+    }
+    client.connect().await;
+    client
+        .wait_for_connection(Duration::from_secs(context.connect_timeout_secs()))
+        .await;
+
+    let mut filter = RadrootsNostrFilter::new()
+        .author(context.app_identity().public_key())
+        .kind(RadrootsNostrKind::Custom(31_990));
+    filter = radroots_nostr_filter_tag(filter, "d", vec![context.handler_identifier().to_owned()])?;
+    filter = radroots_nostr_filter_tag(filter, "k", vec![NIP46_RPC_KIND.to_string()])?;
+
+    let mut events = client
+        .fetch_events(filter, Duration::from_secs(context.connect_timeout_secs()))
+        .await?;
+    events.sort_by(|left, right| {
+        left.created_at
+            .as_secs()
+            .cmp(&right.created_at.as_secs())
+            .then_with(|| left.id.to_hex().cmp(&right.id.to_hex()))
+    });
+    let Some(event) = events.pop() else {
+        return Ok(None);
+    };
+
+    Ok(Some(MycLiveNip89Event {
+        event_id_hex: event.id.to_hex(),
+        created_at_unix: event.created_at.as_secs(),
+        handler: normalize_live_nip89_handler(&event)?,
+    }))
+}
+
+fn compare_live_handler(
+    local_handler: &MycNormalizedNip89Handler,
+    live_event: Option<&MycLiveNip89Event>,
+) -> (MycDiscoveryLiveStatus, Vec<String>) {
+    let Some(live_event) = live_event else {
+        return (
+            MycDiscoveryLiveStatus::Missing,
+            vec!["live_event".to_owned()],
+        );
+    };
+
+    let mut differing_fields = Vec::new();
+    if live_event.handler.author_public_key_hex != local_handler.author_public_key_hex {
+        differing_fields.push("author_public_key_hex".to_owned());
+    }
+    if live_event.handler.kinds != local_handler.kinds {
+        differing_fields.push("kinds".to_owned());
+    }
+    if live_event.handler.identifier != local_handler.identifier {
+        differing_fields.push("identifier".to_owned());
+    }
+    if live_event.handler.relays != local_handler.relays {
+        differing_fields.push("relays".to_owned());
+    }
+    if live_event.handler.nostrconnect_url != local_handler.nostrconnect_url {
+        differing_fields.push("nostrconnect_url".to_owned());
+    }
+    if live_event.handler.metadata != local_handler.metadata {
+        differing_fields.push("metadata".to_owned());
+    }
+
+    if differing_fields.is_empty() {
+        (MycDiscoveryLiveStatus::Matched, differing_fields)
+    } else {
+        (MycDiscoveryLiveStatus::Drifted, differing_fields)
+    }
+}
+
+fn compare_status_to_audit_outcome(status: MycDiscoveryLiveStatus) -> MycOperationAuditOutcome {
+    match status {
+        MycDiscoveryLiveStatus::Missing => MycOperationAuditOutcome::Missing,
+        MycDiscoveryLiveStatus::Matched => MycOperationAuditOutcome::Matched,
+        MycDiscoveryLiveStatus::Drifted => MycOperationAuditOutcome::Drifted,
+    }
+}
+
+fn describe_compare_status(status: MycDiscoveryLiveStatus, differing_fields: &[String]) -> String {
+    match status {
+        MycDiscoveryLiveStatus::Missing => {
+            "no live NIP-89 handler was found for the configured discovery identity".to_owned()
+        }
+        MycDiscoveryLiveStatus::Matched => {
+            "local discovery handler matches the latest live NIP-89 handler".to_owned()
+        }
+        MycDiscoveryLiveStatus::Drifted => format!(
+            "local discovery handler differs from live state in: {}",
+            differing_fields.join(", ")
+        ),
+    }
+}
+
+fn normalize_live_nip89_handler(
+    event: &RadrootsNostrEvent,
+) -> Result<MycNormalizedNip89Handler, MycError> {
+    if event.kind != RadrootsNostrKind::Custom(31_990) {
+        return Err(MycError::InvalidDiscoveryEvent(format!(
+            "expected kind 31990 but found kind {}",
+            event.kind.as_u16()
+        )));
+    }
+
+    let identifier = event
+        .tags
+        .iter()
+        .find_map(|tag| radroots_nostr_tag_first_value(tag, "d"))
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            MycError::InvalidDiscoveryEvent(
+                "live handler event is missing a non-empty `d` tag".to_owned(),
+            )
+        })?;
+
+    let mut kinds = event
+        .tags
+        .iter()
+        .filter_map(|tag| radroots_nostr_tag_first_value(tag, "k"))
+        .map(|value| {
+            value.parse::<u32>().map_err(|error| {
+                MycError::InvalidDiscoveryEvent(format!(
+                    "failed to parse live handler kind `{value}`: {error}"
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if kinds.is_empty() {
+        return Err(MycError::InvalidDiscoveryEvent(
+            "live handler event is missing `k` tags".to_owned(),
+        ));
+    }
+    kinds.sort_unstable();
+    kinds.dedup();
+
+    let relays = normalize_string_list(
+        event
+            .tags
+            .iter()
+            .filter_map(|tag| radroots_nostr_tag_first_value(tag, "relay"))
+            .collect(),
+    );
+    let nostrconnect_url = normalize_optional_string(
+        event
+            .tags
+            .iter()
+            .find_map(|tag| radroots_nostr_tag_first_value(tag, "nostrconnect_url")),
+    );
+    let metadata = if event.content.trim().is_empty() {
+        None
+    } else {
+        Some(
+            serde_json::from_str::<RadrootsNostrMetadata>(&event.content).map_err(|error| {
+                MycError::InvalidDiscoveryEvent(format!(
+                    "failed to parse live handler metadata: {error}"
+                ))
+            })?,
+        )
+    };
+
+    Ok(MycNormalizedNip89Handler {
+        author_public_key_hex: event.pubkey.to_hex(),
+        kinds,
+        identifier,
+        relays,
+        nostrconnect_url,
+        metadata: normalize_metadata(metadata),
+    })
 }
 
 fn build_metadata(config: &MycDiscoveryMetadataConfig) -> Option<RadrootsNostrMetadata> {
@@ -429,6 +755,33 @@ fn sanitize_optional_string(value: Option<&str>) -> Option<String> {
     } else {
         Some(trimmed.to_owned())
     }
+}
+
+fn normalize_optional_string(value: Option<String>) -> Option<String> {
+    sanitize_optional_string(value.as_deref())
+}
+
+fn normalize_string_list(values: Vec<String>) -> Vec<String> {
+    let mut values = values
+        .into_iter()
+        .filter_map(|value| normalize_optional_string(Some(value)))
+        .collect::<Vec<_>>();
+    values.sort();
+    values.dedup();
+    values
+}
+
+fn normalize_metadata(metadata: Option<RadrootsNostrMetadata>) -> Option<RadrootsNostrMetadata> {
+    let mut metadata = metadata?;
+    metadata.name = sanitize_optional_string(metadata.name.as_deref());
+    metadata.display_name = sanitize_optional_string(metadata.display_name.as_deref());
+    metadata.about = sanitize_optional_string(metadata.about.as_deref());
+    metadata.website = sanitize_optional_string(metadata.website.as_deref());
+    metadata.picture = sanitize_optional_string(metadata.picture.as_deref());
+    if !radroots_nostr_metadata_has_fields(&metadata) {
+        return None;
+    }
+    Some(metadata)
 }
 
 fn write_pretty_json<T>(path: &Path, value: &T) -> Result<(), MycError>

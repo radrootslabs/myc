@@ -71,6 +71,8 @@ pub enum MycError {
     },
     #[error("invalid discovery bundle: {0}")]
     InvalidDiscoveryBundle(String),
+    #[error("invalid discovery event: {0}")]
+    InvalidDiscoveryEvent(String),
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error(transparent)]
