@@ -17,6 +17,10 @@ use crate::error::MycError;
 use crate::transport::MycNostrTransport;
 
 const NIP46_RPC_KIND: u32 = 24_133;
+const DISCOVERY_BUNDLE_VERSION: u32 = 1;
+const DISCOVERY_BUNDLE_MANIFEST_FILE_NAME: &str = "bundle.json";
+const DISCOVERY_BUNDLE_NIP89_FILE_NAME: &str = "nip89-handler.json";
+const DISCOVERY_BUNDLE_NIP05_RELATIVE_PATH: &str = ".well-known/nostr.json";
 
 #[derive(Clone)]
 pub struct MycDiscoveryContext {
@@ -70,6 +74,42 @@ pub struct MycPublishedNip89Output {
     pub acknowledged_relay_count: usize,
     pub relay_outcome_summary: String,
     pub event: RadrootsNostrEvent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycNip89HandlerDocument {
+    pub kinds: Vec<u32>,
+    pub identifier: String,
+    pub relays: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nostrconnect_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<RadrootsNostrMetadata>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycDiscoveryBundleManifest {
+    pub version: u32,
+    pub domain: String,
+    pub author_public_key_hex: String,
+    pub signer_public_key_hex: String,
+    pub public_relays: Vec<String>,
+    pub publish_relays: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nostrconnect_url: Option<String>,
+    pub nip05_relative_path: String,
+    pub nip89_relative_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycDiscoveryBundleOutput {
+    pub output_dir: PathBuf,
+    pub manifest_path: PathBuf,
+    pub nip05_path: PathBuf,
+    pub nip89_handler_path: PathBuf,
+    pub manifest: MycDiscoveryBundleManifest,
+    pub nip05_document: MycNip05Document,
+    pub nip89_handler: MycNip89HandlerDocument,
 }
 
 impl MycDiscoveryContext {
@@ -197,6 +237,34 @@ impl MycDiscoveryContext {
         })
     }
 
+    pub fn render_nip89_handler_document(&self) -> MycNip89HandlerDocument {
+        MycNip89HandlerDocument {
+            kinds: vec![NIP46_RPC_KIND],
+            identifier: self.handler_identifier.clone(),
+            relays: self.public_relays.iter().map(ToString::to_string).collect(),
+            nostrconnect_url: self.nostrconnect_url.clone(),
+            metadata: self.metadata.clone(),
+        }
+    }
+
+    pub fn render_bundle_manifest(&self) -> MycDiscoveryBundleManifest {
+        MycDiscoveryBundleManifest {
+            version: DISCOVERY_BUNDLE_VERSION,
+            domain: self.domain.clone(),
+            author_public_key_hex: self.app_identity.public_key_hex(),
+            signer_public_key_hex: self.signer_identity.public_key_hex(),
+            public_relays: self.public_relays.iter().map(ToString::to_string).collect(),
+            publish_relays: self
+                .publish_relays
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            nostrconnect_url: self.nostrconnect_url.clone(),
+            nip05_relative_path: DISCOVERY_BUNDLE_NIP05_RELATIVE_PATH.to_owned(),
+            nip89_relative_path: DISCOVERY_BUNDLE_NIP89_FILE_NAME.to_owned(),
+        }
+    }
+
     pub fn build_signed_handler_event(&self) -> Result<RadrootsNostrEvent, MycError> {
         let builder = radroots_nostr_build_application_handler_event(&self.build_handler_spec())?;
         builder
@@ -206,6 +274,38 @@ impl MycDiscoveryContext {
                     "failed to sign NIP-89 application handler event: {error}"
                 ))
             })
+    }
+
+    pub fn write_bundle(
+        &self,
+        output_dir: impl AsRef<Path>,
+    ) -> Result<MycDiscoveryBundleOutput, MycError> {
+        let output_dir = output_dir.as_ref().to_path_buf();
+        fs::create_dir_all(&output_dir).map_err(|source| MycError::DiscoveryIo {
+            path: output_dir.clone(),
+            source,
+        })?;
+
+        let manifest = self.render_bundle_manifest();
+        let nip05_document = self.render_nip05_document();
+        let nip89_handler = self.render_nip89_handler_document();
+        let manifest_path = output_dir.join(DISCOVERY_BUNDLE_MANIFEST_FILE_NAME);
+        let nip05_path = output_dir.join(DISCOVERY_BUNDLE_NIP05_RELATIVE_PATH);
+        let nip89_handler_path = output_dir.join(DISCOVERY_BUNDLE_NIP89_FILE_NAME);
+
+        write_pretty_json(&manifest_path, &manifest)?;
+        write_pretty_json(&nip05_path, &nip05_document)?;
+        write_pretty_json(&nip89_handler_path, &nip89_handler)?;
+
+        Ok(MycDiscoveryBundleOutput {
+            output_dir,
+            manifest_path,
+            nip05_path,
+            nip89_handler_path,
+            manifest,
+            nip05_document,
+            nip89_handler,
+        })
     }
 
     fn build_handler_spec(&self) -> RadrootsNostrApplicationHandlerSpec {
@@ -317,6 +417,26 @@ fn sanitize_optional_string(value: Option<&str>) -> Option<String> {
     } else {
         Some(trimmed.to_owned())
     }
+}
+
+fn write_pretty_json<T>(path: &Path, value: &T) -> Result<(), MycError>
+where
+    T: Serialize,
+{
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|source| MycError::DiscoveryIo {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+    }
+    let encoded = serde_json::to_string_pretty(value)?;
+    fs::write(path, encoded).map_err(|source| MycError::DiscoveryIo {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    Ok(())
 }
 
 fn render_nostrconnect_url(
@@ -476,5 +596,38 @@ mod tests {
         assert!(written.contains("\"names\""));
         assert!(written.contains("\"nip46\""));
         assert!(written.contains(&context.app_identity().public_key_hex()));
+    }
+
+    #[test]
+    fn write_bundle_writes_deterministic_artifacts() {
+        let runtime = runtime();
+        let context = MycDiscoveryContext::from_runtime(&runtime).expect("discovery context");
+        let bundle_dir = runtime.paths().state_dir.join("bundle");
+
+        let first = context
+            .write_bundle(&bundle_dir)
+            .expect("first bundle write");
+        let manifest_first = fs::read_to_string(&first.manifest_path).expect("manifest");
+        let nip05_first = fs::read_to_string(&first.nip05_path).expect("nip05");
+        let nip89_first = fs::read_to_string(&first.nip89_handler_path).expect("nip89");
+
+        let second = context
+            .write_bundle(&bundle_dir)
+            .expect("second bundle write");
+        let manifest_second = fs::read_to_string(&second.manifest_path).expect("manifest");
+        let nip05_second = fs::read_to_string(&second.nip05_path).expect("nip05");
+        let nip89_second = fs::read_to_string(&second.nip89_handler_path).expect("nip89");
+
+        assert_eq!(first.manifest.version, 1);
+        assert_eq!(first.manifest.nip05_relative_path, ".well-known/nostr.json");
+        assert_eq!(first.manifest.nip89_relative_path, "nip89-handler.json");
+        assert_eq!(first.nip05_path, bundle_dir.join(".well-known/nostr.json"));
+        assert_eq!(
+            first.nip89_handler_path,
+            bundle_dir.join("nip89-handler.json")
+        );
+        assert_eq!(manifest_first, manifest_second);
+        assert_eq!(nip05_first, nip05_second);
+        assert_eq!(nip89_first, nip89_second);
     }
 }

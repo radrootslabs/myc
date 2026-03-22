@@ -119,6 +119,10 @@ pub enum MycDiscoveryCommand {
     },
     RenderNip89,
     PublishNip89,
+    ExportBundle {
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -303,6 +307,10 @@ pub async fn run_from_env() -> Result<(), MycError> {
                 }
                 MycDiscoveryCommand::PublishNip89 => {
                     let output = publish_nip89_event(&runtime).await?;
+                    print_json(&output)
+                }
+                MycDiscoveryCommand::ExportBundle { out } => {
+                    let output = MycDiscoveryContext::from_runtime(&runtime)?.write_bundle(out)?;
                     print_json(&output)
                 }
             }

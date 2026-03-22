@@ -22,7 +22,8 @@ pub use config::{
 };
 pub use control::{MycAcceptedConnectionOutput, MycAuthorizedReplayOutput};
 pub use discovery::{
-    MycDiscoveryContext, MycNip05Document, MycNip05DocumentSection, MycPublishedNip89Output,
+    MycDiscoveryBundleManifest, MycDiscoveryBundleOutput, MycDiscoveryContext, MycNip05Document,
+    MycNip05DocumentSection, MycNip89HandlerDocument, MycPublishedNip89Output,
     MycRenderedNip05Output, MycRenderedNip89Output, publish_nip89_event, render_nip05_output,
 };
 pub use error::MycError;
