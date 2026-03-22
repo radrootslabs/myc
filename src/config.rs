@@ -17,6 +17,7 @@ pub struct MycConfig {
     pub service: MycServiceConfig,
     pub logging: MycLoggingConfig,
     pub paths: MycPathsConfig,
+    pub audit: MycAuditConfig,
     pub policy: MycPolicyConfig,
     pub transport: MycTransportConfig,
 }
@@ -39,6 +40,14 @@ pub struct MycPathsConfig {
     pub state_dir: PathBuf,
     pub signer_identity_path: PathBuf,
     pub user_identity_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MycAuditConfig {
+    pub default_read_limit: usize,
+    pub max_active_file_bytes: u64,
+    pub max_archived_files: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,6 +77,7 @@ impl Default for MycConfig {
             service: MycServiceConfig::default(),
             logging: MycLoggingConfig::default(),
             paths: MycPathsConfig::default(),
+            audit: MycAuditConfig::default(),
             policy: MycPolicyConfig::default(),
             transport: MycTransportConfig::default(),
         }
@@ -106,6 +116,16 @@ impl Default for MycTransportConfig {
             enabled: false,
             connect_timeout_secs: 10,
             relays: Vec::new(),
+        }
+    }
+}
+
+impl Default for MycAuditConfig {
+    fn default() -> Self {
+        Self {
+            default_read_limit: 200,
+            max_active_file_bytes: 262_144,
+            max_archived_files: 8,
         }
     }
 }
@@ -194,6 +214,18 @@ impl MycConfig {
             ));
         }
 
+        if self.audit.default_read_limit == 0 {
+            return Err(MycError::InvalidConfig(
+                "audit.default_read_limit must be greater than zero".to_owned(),
+            ));
+        }
+
+        if self.audit.max_active_file_bytes == 0 {
+            return Err(MycError::InvalidConfig(
+                "audit.max_active_file_bytes must be greater than zero".to_owned(),
+            ));
+        }
+
         if self.transport.connect_timeout_secs == 0 {
             return Err(MycError::InvalidConfig(
                 "transport.connect_timeout_secs must be greater than zero".to_owned(),
@@ -257,6 +289,9 @@ mod tests {
             config.policy.connection_approval,
             MycConnectionApproval::ExplicitUser
         );
+        assert_eq!(config.audit.default_read_limit, 200);
+        assert_eq!(config.audit.max_active_file_bytes, 262_144);
+        assert_eq!(config.audit.max_archived_files, 8);
         assert!(!config.transport.enabled);
         assert_eq!(config.transport.connect_timeout_secs, 10);
         assert!(config.transport.relays.is_empty());
@@ -276,6 +311,11 @@ mod tests {
                 state_dir = "/tmp/myc"
                 signer_identity_path = "/tmp/myc-identity.json"
                 user_identity_path = "/tmp/myc-user.json"
+
+                [audit]
+                default_read_limit = 50
+                max_active_file_bytes = 4096
+                max_archived_files = 3
 
                 [policy]
                 connection_approval = "not_required"
@@ -299,6 +339,9 @@ mod tests {
             config.paths.user_identity_path,
             PathBuf::from("/tmp/myc-user.json")
         );
+        assert_eq!(config.audit.default_read_limit, 50);
+        assert_eq!(config.audit.max_active_file_bytes, 4096);
+        assert_eq!(config.audit.max_archived_files, 3);
         assert_eq!(
             config.policy.connection_approval,
             MycConnectionApproval::NotRequired
@@ -344,5 +387,14 @@ mod tests {
 
         let err = config.validate().expect_err("missing relays");
         assert!(err.to_string().contains("transport.relays"));
+    }
+
+    #[test]
+    fn validate_rejects_zero_audit_read_limit() {
+        let mut config = MycConfig::default();
+        config.audit.default_read_limit = 0;
+
+        let err = config.validate().expect_err("invalid audit read limit");
+        assert!(err.to_string().contains("audit.default_read_limit"));
     }
 }

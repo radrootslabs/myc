@@ -15,8 +15,8 @@ pub use audit::{
     MycOperationAuditStore,
 };
 pub use config::{
-    DEFAULT_CONFIG_PATH, MycConfig, MycConnectionApproval, MycLoggingConfig, MycPathsConfig,
-    MycPolicyConfig, MycServiceConfig, MycTransportConfig,
+    DEFAULT_CONFIG_PATH, MycAuditConfig, MycConfig, MycConnectionApproval, MycLoggingConfig,
+    MycPathsConfig, MycPolicyConfig, MycServiceConfig, MycTransportConfig,
 };
 pub use control::{MycAcceptedConnectionOutput, MycAuthorizedReplayOutput};
 pub use error::MycError;

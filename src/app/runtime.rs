@@ -3,7 +3,7 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 
 use crate::audit::{MycOperationAuditRecord, MycOperationAuditStore};
-use crate::config::MycConfig;
+use crate::config::{MycAuditConfig, MycConfig};
 use crate::error::MycError;
 use crate::transport::{MycNip46Service, MycNostrTransport, MycTransportSnapshot};
 use radroots_identity::{RadrootsIdentity, RadrootsIdentityPublic};
@@ -44,6 +44,7 @@ pub struct MycSignerContext {
     user_identity: RadrootsIdentity,
     signer_state_path: PathBuf,
     audit_dir: PathBuf,
+    audit_config: MycAuditConfig,
     connection_approval_requirement: RadrootsNostrSignerApprovalRequirement,
 }
 
@@ -63,6 +64,7 @@ impl MycRuntime {
         Self::prepare_filesystem_for(&paths)?;
         let signer = MycSignerContext::bootstrap(
             &paths,
+            config.audit.clone(),
             config
                 .policy
                 .connection_approval
@@ -227,7 +229,7 @@ impl MycSignerContext {
     }
 
     pub fn operation_audit_store(&self) -> MycOperationAuditStore {
-        MycOperationAuditStore::new(&self.audit_dir)
+        MycOperationAuditStore::new(&self.audit_dir, self.audit_config.clone())
     }
 
     pub fn record_operation_audit(&self, record: &MycOperationAuditRecord) {
@@ -253,6 +255,7 @@ impl MycSignerContext {
 
     fn bootstrap(
         paths: &MycRuntimePaths,
+        audit_config: MycAuditConfig,
         connection_approval_requirement: RadrootsNostrSignerApprovalRequirement,
     ) -> Result<Self, MycError> {
         let signer_identity = RadrootsIdentity::load_from_path_auto(&paths.signer_identity_path)?;
@@ -278,6 +281,7 @@ impl MycSignerContext {
             user_identity,
             signer_state_path: paths.signer_state_path.clone(),
             audit_dir: paths.audit_dir.clone(),
+            audit_config,
             connection_approval_requirement,
         })
     }
