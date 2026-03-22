@@ -12,6 +12,7 @@ Thumbs.db
 # Local development files
 .vscode/
 .idea/
+var/
 
 # Local secrets
 *.pem
