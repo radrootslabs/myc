@@ -12,6 +12,7 @@ use radroots_nostr::prelude::{
 };
 use radroots_nostr_connect::prelude::{RadrootsNostrConnectBunkerUri, RadrootsNostrConnectUri};
 use serde::{Deserialize, Serialize};
+use tokio::task::JoinSet;
 
 use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
@@ -24,6 +25,7 @@ const DISCOVERY_BUNDLE_VERSION: u32 = 1;
 const DISCOVERY_BUNDLE_MANIFEST_FILE_NAME: &str = "bundle.json";
 const DISCOVERY_BUNDLE_NIP89_FILE_NAME: &str = "nip89-handler.json";
 const DISCOVERY_BUNDLE_NIP05_RELATIVE_PATH: &str = ".well-known/nostr.json";
+const DISCOVERY_RELAY_FETCH_CONCURRENCY_LIMIT: usize = 8;
 
 #[derive(Clone)]
 pub struct MycDiscoveryContext {
@@ -193,6 +195,13 @@ struct MycSourcedLiveNip89Event {
 struct MycFetchedLiveNip89State {
     live_groups: Vec<MycLiveNip89Group>,
     relay_states: Vec<MycLiveNip89RelayState>,
+}
+
+#[derive(Debug)]
+struct MycRelayFetchTaskOutput {
+    relay_index: usize,
+    relay_events: Vec<MycSourcedLiveNip89Event>,
+    relay_state: MycLiveNip89RelayState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -719,30 +728,51 @@ pub fn verify_bundle(output_dir: impl AsRef<Path>) -> Result<MycDiscoveryBundleO
 async fn fetch_live_nip89_state(
     context: &MycDiscoveryContext,
 ) -> Result<MycFetchedLiveNip89State, MycError> {
-    let mut relay_states = Vec::new();
-    let mut all_events = Vec::new();
+    let relay_count = context.publish_relays().len();
+    let mut pending = context
+        .publish_relays()
+        .iter()
+        .cloned()
+        .enumerate()
+        .collect::<Vec<_>>()
+        .into_iter();
+    let mut join_set = JoinSet::new();
+    let max_concurrency = relay_count.min(DISCOVERY_RELAY_FETCH_CONCURRENCY_LIMIT);
 
-    for relay in context.publish_relays() {
-        let relay_url = relay.to_string();
-        match fetch_live_nip89_events_for_relay(context, relay).await {
-            Ok(relay_events) => {
-                all_events.extend(relay_events.iter().cloned());
-                relay_states.push(MycLiveNip89RelayState {
-                    relay_url,
-                    fetch_status: MycDiscoveryRelayFetchStatus::Available,
-                    fetch_error: None,
-                    live_groups: group_live_nip89_events(relay_events)?,
-                });
-            }
-            Err(error) => {
-                relay_states.push(MycLiveNip89RelayState {
-                    relay_url,
-                    fetch_status: MycDiscoveryRelayFetchStatus::Unavailable,
-                    fetch_error: Some(error.to_string()),
-                    live_groups: Vec::new(),
-                });
-            }
+    while join_set.len() < max_concurrency {
+        let Some((relay_index, relay)) = pending.next() else {
+            break;
+        };
+        spawn_live_nip89_relay_fetch(&mut join_set, context.clone(), relay_index, relay);
+    }
+
+    let mut fetched = std::iter::repeat_with(|| None)
+        .take(relay_count)
+        .collect::<Vec<Option<MycRelayFetchTaskOutput>>>();
+
+    while let Some(joined) = join_set.join_next().await {
+        let output = joined.map_err(|error| {
+            MycError::InvalidOperation(format!("discovery relay fetch task failed: {error}"))
+        })??;
+        let relay_index = output.relay_index;
+        fetched[relay_index] = Some(output);
+
+        while join_set.len() < max_concurrency {
+            let Some((relay_index, relay)) = pending.next() else {
+                break;
+            };
+            spawn_live_nip89_relay_fetch(&mut join_set, context.clone(), relay_index, relay);
         }
+    }
+
+    let mut relay_states = Vec::with_capacity(relay_count);
+    let mut all_events = Vec::new();
+    for fetched_relay in fetched {
+        let fetched_relay = fetched_relay.ok_or_else(|| {
+            MycError::InvalidOperation("missing discovery relay fetch result".to_owned())
+        })?;
+        all_events.extend(fetched_relay.relay_events.into_iter());
+        relay_states.push(fetched_relay.relay_state);
     }
 
     let available_relay_count = relay_states
@@ -760,6 +790,48 @@ async fn fetch_live_nip89_state(
         live_groups: group_live_nip89_events(all_events)?,
         relay_states,
     })
+}
+
+fn spawn_live_nip89_relay_fetch(
+    join_set: &mut JoinSet<Result<MycRelayFetchTaskOutput, MycError>>,
+    context: MycDiscoveryContext,
+    relay_index: usize,
+    relay: RadrootsNostrRelayUrl,
+) {
+    join_set.spawn(async move { fetch_live_nip89_relay_state(&context, relay_index, relay).await });
+}
+
+async fn fetch_live_nip89_relay_state(
+    context: &MycDiscoveryContext,
+    relay_index: usize,
+    relay: RadrootsNostrRelayUrl,
+) -> Result<MycRelayFetchTaskOutput, MycError> {
+    let relay_url = relay.to_string();
+    match fetch_live_nip89_events_for_relay(context, &relay).await {
+        Ok(relay_events) => {
+            let live_groups = group_live_nip89_events(relay_events.clone())?;
+            Ok(MycRelayFetchTaskOutput {
+                relay_index,
+                relay_events,
+                relay_state: MycLiveNip89RelayState {
+                    relay_url,
+                    fetch_status: MycDiscoveryRelayFetchStatus::Available,
+                    fetch_error: None,
+                    live_groups,
+                },
+            })
+        }
+        Err(error) => Ok(MycRelayFetchTaskOutput {
+            relay_index,
+            relay_events: Vec::new(),
+            relay_state: MycLiveNip89RelayState {
+                relay_url,
+                fetch_status: MycDiscoveryRelayFetchStatus::Unavailable,
+                fetch_error: Some(error.to_string()),
+                live_groups: Vec::new(),
+            },
+        }),
+    }
 }
 
 async fn fetch_live_nip89_events_for_relay(

@@ -35,7 +35,7 @@ use radroots_nostr_signer::prelude::{
 use tempfile::TempDir;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
-use tokio::time::{sleep, timeout};
+use tokio::time::{Instant, sleep, timeout};
 use tokio_tungstenite::tungstenite::Message;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -155,6 +155,54 @@ impl TestRelay {
 }
 
 impl Drop for TestRelay {
+    fn drop(&mut self) {
+        if let Some(shutdown_tx) = self.shutdown_tx.take() {
+            let _ = shutdown_tx.send(());
+        }
+    }
+}
+
+struct HangingRelay {
+    url: String,
+    shutdown_tx: Option<oneshot::Sender<()>>,
+}
+
+impl HangingRelay {
+    async fn spawn(hold_open_for: Duration) -> TestResult<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let url = format!("ws://{addr}");
+        let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = &mut shutdown_rx => break,
+                    accept = listener.accept() => {
+                        let Ok((stream, _)) = accept else {
+                            break;
+                        };
+                        tokio::spawn(async move {
+                            sleep(hold_open_for).await;
+                            drop(stream);
+                        });
+                    }
+                }
+            }
+        });
+
+        Ok(Self {
+            url,
+            shutdown_tx: Some(shutdown_tx),
+        })
+    }
+
+    fn url(&self) -> &str {
+        self.url.as_str()
+    }
+}
+
+impl Drop for HangingRelay {
     fn drop(&mut self) {
         if let Some(shutdown_tx) = self.shutdown_tx.take() {
             let _ = shutdown_tx.send(());
@@ -367,13 +415,21 @@ impl MycTestRuntime {
     }
 
     fn new_with_discovery_relays(relay_urls: &[&str], approval: MycConnectionApproval) -> Self {
+        Self::new_with_discovery_relays_and_timeout(relay_urls, approval, 1)
+    }
+
+    fn new_with_discovery_relays_and_timeout(
+        relay_urls: &[&str],
+        approval: MycConnectionApproval,
+        connect_timeout_secs: u64,
+    ) -> Self {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut config = MycConfig::default();
         config.paths.state_dir = temp.path().join("state");
         config.paths.signer_identity_path = temp.path().join("signer.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         config.policy.connection_approval = approval;
-        config.transport.connect_timeout_secs = 1;
+        config.transport.connect_timeout_secs = connect_timeout_secs;
         config.discovery.enabled = true;
         config.discovery.domain = Some("signer.example.com".to_owned());
         config.discovery.public_relays =
@@ -1175,6 +1231,94 @@ async fn fetch_live_nip89_fails_when_all_discovery_relays_are_unavailable() -> T
     assert_eq!(audit[0].acknowledged_relay_count, 0);
     assert!(audit[0].relay_outcome_summary.contains(&unavailable_a));
     assert!(audit[0].relay_outcome_summary.contains(&unavailable_b));
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fetch_live_nip89_parallelizes_relay_fetch_and_preserves_configured_order() -> TestResult<()>
+{
+    let live_relay = TestRelay::spawn().await?;
+    let slow_a = HangingRelay::spawn(Duration::from_secs(3)).await?;
+    let slow_b = HangingRelay::spawn(Duration::from_secs(3)).await?;
+    let slow_c = HangingRelay::spawn(Duration::from_secs(3)).await?;
+    let slow_d = HangingRelay::spawn(Duration::from_secs(3)).await?;
+    let relay_urls = [
+        slow_a.url(),
+        live_relay.url(),
+        slow_b.url(),
+        slow_c.url(),
+        slow_d.url(),
+    ];
+    let mut expected_relay_states = vec![
+        (
+            slow_a.url().to_owned(),
+            MycDiscoveryRelayFetchStatus::Unavailable,
+        ),
+        (
+            live_relay.url().to_owned(),
+            MycDiscoveryRelayFetchStatus::Available,
+        ),
+        (
+            slow_b.url().to_owned(),
+            MycDiscoveryRelayFetchStatus::Unavailable,
+        ),
+        (
+            slow_c.url().to_owned(),
+            MycDiscoveryRelayFetchStatus::Unavailable,
+        ),
+        (
+            slow_d.url().to_owned(),
+            MycDiscoveryRelayFetchStatus::Unavailable,
+        ),
+    ];
+    expected_relay_states.sort_by(|left, right| left.0.cmp(&right.0));
+    let expected_relay_urls = expected_relay_states
+        .iter()
+        .map(|(relay_url, _)| relay_url.clone())
+        .collect::<Vec<_>>();
+    let test_runtime = MycTestRuntime::new_with_discovery_relays_and_timeout(
+        &relay_urls,
+        MycConnectionApproval::ExplicitUser,
+        1,
+    );
+
+    let started_at = Instant::now();
+    let output = fetch_live_nip89(&test_runtime.runtime).await?;
+    let elapsed = started_at.elapsed();
+
+    assert!(
+        elapsed < Duration::from_millis(2500),
+        "expected concurrent relay fetch to finish under 2.5s, got {:?}",
+        elapsed
+    );
+    assert_eq!(
+        output
+            .relay_states
+            .iter()
+            .map(|relay_state| relay_state.relay_url.clone())
+            .collect::<Vec<_>>(),
+        expected_relay_urls
+    );
+    assert_eq!(
+        output
+            .relay_states
+            .iter()
+            .map(|relay_state| relay_state.fetch_status)
+            .collect::<Vec<_>>(),
+        expected_relay_states
+            .iter()
+            .map(|(_, fetch_status)| *fetch_status)
+            .collect::<Vec<_>>()
+    );
+    for relay_state in &output.relay_states {
+        if relay_state.fetch_status == MycDiscoveryRelayFetchStatus::Available {
+            assert!(relay_state.fetch_error.is_none());
+            assert!(relay_state.live_groups.is_empty());
+        } else {
+            assert!(relay_state.fetch_error.is_some());
+        }
+    }
 
     Ok(())
 }
