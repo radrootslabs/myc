@@ -1,4 +1,5 @@
 use std::fs;
+use std::future::Future;
 use std::path::{Path, PathBuf};
 
 use crate::config::MycConfig;
@@ -135,6 +136,13 @@ impl MycRuntime {
     }
 
     pub async fn run(self) -> Result<(), MycError> {
+        self.run_until(std::future::pending()).await
+    }
+
+    pub async fn run_until<F>(self, shutdown: F) -> Result<(), MycError>
+    where
+        F: Future<Output = ()>,
+    {
         let snapshot = self.snapshot();
         tracing::info!(
             instance_name = %snapshot.instance_name,
@@ -154,8 +162,10 @@ impl MycRuntime {
         );
         if let Some(transport) = self.transport.clone() {
             let service = MycNip46Service::new(self.signer_context(), transport);
-            return service.run().await;
+            return service.run_until(shutdown).await;
         }
+        tokio::pin!(shutdown);
+        shutdown.await;
         Ok(())
     }
 

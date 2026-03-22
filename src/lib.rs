@@ -3,6 +3,7 @@
 pub mod app;
 pub mod cli;
 pub mod config;
+pub mod control;
 pub mod error;
 pub mod logging;
 pub mod transport;
@@ -12,6 +13,7 @@ pub use config::{
     DEFAULT_CONFIG_PATH, MycConfig, MycConnectionApproval, MycLoggingConfig, MycPathsConfig,
     MycPolicyConfig, MycServiceConfig, MycTransportConfig,
 };
+pub use control::{MycAcceptedConnectionOutput, MycAuthorizedReplayOutput};
 pub use error::MycError;
 pub use transport::{MycNostrTransport, MycTransportSnapshot};
 

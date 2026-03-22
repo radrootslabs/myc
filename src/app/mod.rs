@@ -28,6 +28,13 @@ impl MycApp {
     pub async fn run(self) -> Result<(), MycError> {
         self.runtime.run().await
     }
+
+    pub async fn run_until<F>(self, shutdown: F) -> Result<(), MycError>
+    where
+        F: std::future::Future<Output = ()>,
+    {
+        self.runtime.run_until(shutdown).await
+    }
 }
 
 #[cfg(test)]

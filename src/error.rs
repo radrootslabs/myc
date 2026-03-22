@@ -54,6 +54,8 @@ pub enum MycError {
     Nip46Encrypt(String),
     #[error("NIP-46 listener notifications closed")]
     Nip46ListenerClosed,
+    #[error("Nostr publish failed for {operation}: {details}")]
+    PublishRejected { operation: String, details: String },
     #[error(
         "configured signer identity `{configured_identity_id}` at {identity_path} does not match persisted signer identity `{persisted_identity_id}` in {state_path}"
     )]

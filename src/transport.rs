@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{
-    RadrootsNostrClient, RadrootsNostrEventBuilder, RadrootsNostrRelayUrl,
+    RadrootsNostrClient, RadrootsNostrEventBuilder, RadrootsNostrOutput, RadrootsNostrRelayUrl,
 };
 
 use crate::config::MycTransportConfig;
@@ -85,7 +85,8 @@ impl MycNostrTransport {
         client
             .wait_for_connection(Duration::from_secs(connect_timeout_secs))
             .await;
-        let _ = client.send_event_builder(event).await?;
+        let output = client.send_event_builder(event).await?;
+        let _ = ensure_publish_confirmed(output, "one-shot Nostr publish")?;
         Ok(())
     }
 
@@ -96,6 +97,34 @@ impl MycNostrTransport {
             connect_timeout_secs: self.connect_timeout_secs,
         }
     }
+}
+
+pub(crate) fn ensure_publish_confirmed<T>(
+    output: RadrootsNostrOutput<T>,
+    operation: &str,
+) -> Result<RadrootsNostrOutput<T>, MycError>
+where
+    T: std::fmt::Debug,
+{
+    if !output.success.is_empty() {
+        return Ok(output);
+    }
+
+    let details = if output.failed.is_empty() {
+        "no relay acknowledged the publish".to_owned()
+    } else {
+        output
+            .failed
+            .iter()
+            .map(|(relay, error)| format!("{relay}: {error}"))
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+
+    Err(MycError::PublishRejected {
+        operation: operation.to_owned(),
+        details,
+    })
 }
 
 impl MycTransportSnapshot {

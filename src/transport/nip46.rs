@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use nostr::nips::nip04;
 use nostr::nips::nip44;
 use nostr::nips::nip44::Version;
@@ -19,7 +21,7 @@ use tokio::sync::broadcast;
 
 use crate::app::MycSignerContext;
 use crate::error::MycError;
-use crate::transport::MycNostrTransport;
+use crate::transport::{MycNostrTransport, ensure_publish_confirmed};
 
 #[derive(Clone)]
 pub struct MycNip46Handler {
@@ -393,6 +395,14 @@ impl MycNip46Service {
     }
 
     pub async fn run(&self) -> Result<(), MycError> {
+        self.run_until(std::future::pending()).await
+    }
+
+    pub async fn run_until<F>(&self, shutdown: F) -> Result<(), MycError>
+    where
+        F: Future<Output = ()>,
+    {
+        tokio::pin!(shutdown);
         self.transport.connect().await?;
 
         let filter = self.handler.filter()?;
@@ -405,11 +415,16 @@ impl MycNip46Service {
         );
 
         loop {
-            let notification = match notifications.recv().await {
-                Ok(notification) => notification,
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => {
-                    return Err(MycError::Nip46ListenerClosed);
+            let notification = tokio::select! {
+                _ = &mut shutdown => return Ok(()),
+                notification = notifications.recv() => {
+                    match notification {
+                        Ok(notification) => notification,
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Closed) => {
+                            return Err(MycError::Nip46ListenerClosed);
+                        }
+                    }
                 }
             };
             let RadrootsNostrRelayPoolNotification::Event { event, .. } = notification else {
@@ -452,11 +467,19 @@ impl MycNip46Service {
             let response_event =
                 self.handler
                     .build_response_event(event.pubkey, request_id, response)?;
-            if let Err(error) = self
+            let publish_output = match self
                 .transport
                 .client()
                 .send_event_builder(response_event)
                 .await
+            {
+                Ok(output) => output,
+                Err(error) => {
+                    tracing::warn!(error = %error, "failed to publish NIP-46 response");
+                    continue;
+                }
+            };
+            if let Err(error) = ensure_publish_confirmed(publish_output, "NIP-46 response publish")
             {
                 tracing::warn!(error = %error, "failed to publish NIP-46 response");
                 continue;
