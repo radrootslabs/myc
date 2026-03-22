@@ -91,6 +91,14 @@ pub enum MycDiscoveryRepairOutcome {
     Skipped,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct MycDiscoveryRepairSummary {
+    pub repaired: usize,
+    pub failed: usize,
+    pub unchanged: usize,
+    pub skipped: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycDiscoveryRelayRepairResult {
     pub relay_url: String,
@@ -200,6 +208,7 @@ pub struct MycRefreshedNip89Output {
     pub live_groups: Vec<MycLiveNip89Group>,
     pub relay_states: Vec<MycDiscoveryRelayState>,
     pub relay_summary: MycDiscoveryRelaySummary,
+    pub repair_summary: MycDiscoveryRepairSummary,
     pub repair_results: Vec<MycDiscoveryRelayRepairResult>,
     pub remaining_repair_relays: Vec<String>,
     pub published: Option<MycPublishedNip89Output>,
@@ -651,6 +660,7 @@ pub async fn refresh_nip89(
 
     if refresh_relays.is_empty() {
         let repair_results = build_repair_results(&context, &relay_states, &[], None, None);
+        let repair_summary = summarize_repair_results(&repair_results);
         runtime.record_operation_audit(&MycOperationAuditRecord::new(
             MycOperationAuditKind::DiscoveryHandlerRefresh,
             MycOperationAuditOutcome::Skipped,
@@ -667,6 +677,7 @@ pub async fn refresh_nip89(
             live_groups,
             relay_states,
             relay_summary,
+            repair_summary,
             repair_results,
             remaining_repair_relays: Vec::new(),
             published: None,
@@ -687,6 +698,7 @@ pub async fn refresh_nip89(
                 Some(published.event.id.to_hex()),
                 &repair_results,
             );
+            let repair_summary = summarize_repair_results(&repair_results);
             let remaining_repair_relays = remaining_repair_relays(&repair_results);
             return Ok(MycRefreshedNip89Output {
                 status,
@@ -695,6 +707,7 @@ pub async fn refresh_nip89(
                 live_groups,
                 relay_states,
                 relay_summary,
+                repair_summary,
                 repair_results,
                 remaining_repair_relays,
                 published: Some(published),
@@ -843,6 +856,21 @@ fn remaining_repair_relays(repair_results: &[MycDiscoveryRelayRepairResult]) -> 
         .filter(|result| result.outcome == MycDiscoveryRepairOutcome::Failed)
         .map(|result| result.relay_url.clone())
         .collect()
+}
+
+fn summarize_repair_results(
+    repair_results: &[MycDiscoveryRelayRepairResult],
+) -> MycDiscoveryRepairSummary {
+    let mut summary = MycDiscoveryRepairSummary::default();
+    for result in repair_results {
+        match result.outcome {
+            MycDiscoveryRepairOutcome::Repaired => summary.repaired += 1,
+            MycDiscoveryRepairOutcome::Failed => summary.failed += 1,
+            MycDiscoveryRepairOutcome::Unchanged => summary.unchanged += 1,
+            MycDiscoveryRepairOutcome::Skipped => summary.skipped += 1,
+        }
+    }
+    summary
 }
 
 fn record_refresh_repair_audit(

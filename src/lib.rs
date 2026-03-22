@@ -25,11 +25,12 @@ pub use discovery::{
     MycDiscoveryBundleManifest, MycDiscoveryBundleOutput, MycDiscoveryContext,
     MycDiscoveryDiffOutput, MycDiscoveryLiveStatus, MycDiscoveryRelayFetchStatus,
     MycDiscoveryRelayRepairResult, MycDiscoveryRelayState, MycDiscoveryRelaySummary,
-    MycDiscoveryRepairOutcome, MycFetchedLiveNip89Output, MycLiveNip89Event, MycLiveNip89Group,
-    MycLiveNip89RelayState, MycNip05Document, MycNip05DocumentSection, MycNip89HandlerDocument,
-    MycNormalizedNip89Handler, MycPublishedNip89Output, MycRefreshedNip89Output,
-    MycRenderedNip05Output, MycRenderedNip89Output, diff_live_nip89, fetch_live_nip89,
-    publish_nip89_event, refresh_nip89, render_nip05_output, verify_bundle,
+    MycDiscoveryRepairOutcome, MycDiscoveryRepairSummary, MycFetchedLiveNip89Output,
+    MycLiveNip89Event, MycLiveNip89Group, MycLiveNip89RelayState, MycNip05Document,
+    MycNip05DocumentSection, MycNip89HandlerDocument, MycNormalizedNip89Handler,
+    MycPublishedNip89Output, MycRefreshedNip89Output, MycRenderedNip05Output,
+    MycRenderedNip89Output, diff_live_nip89, fetch_live_nip89, publish_nip89_event, refresh_nip89,
+    render_nip05_output, verify_bundle,
 };
 pub use error::MycError;
 pub use transport::{MycNostrTransport, MycRelayPublishResult, MycTransportSnapshot};

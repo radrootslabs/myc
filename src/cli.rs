@@ -188,7 +188,9 @@ pub struct MycAuditSummaryOutput {
     pub runtime_operation_total: usize,
     pub runtime_operation_outcomes: MycOperationOutcomeCounts,
     pub runtime_operation_by_kind: BTreeMap<String, MycOperationOutcomeCounts>,
-    pub runtime_publish_rejection_count: usize,
+    pub runtime_aggregate_publish_rejection_count: usize,
+    pub runtime_repair_success_count: usize,
+    pub runtime_repair_rejection_count: usize,
     pub runtime_unavailable_count: usize,
     pub runtime_replay_restore_count: usize,
 }
@@ -455,7 +457,9 @@ fn summarize_audit_output(
 
     let mut runtime_operation_outcomes = MycOperationOutcomeCounts::default();
     let mut runtime_operation_by_kind = BTreeMap::new();
-    let mut runtime_publish_rejection_count = 0;
+    let mut runtime_aggregate_publish_rejection_count = 0;
+    let mut runtime_repair_success_count = 0;
+    let mut runtime_repair_rejection_count = 0;
     let mut runtime_unavailable_count = 0;
     let mut runtime_replay_restore_count = 0;
     for record in &audit.runtime_operation_audit {
@@ -465,8 +469,17 @@ fn summarize_audit_output(
             runtime_operation_by_kind.entry(key).or_default(),
             record.outcome,
         );
-        if record.outcome == MycOperationAuditOutcome::Rejected {
-            runtime_publish_rejection_count += 1;
+        if is_aggregate_publish_operation(record.operation)
+            && record.outcome == MycOperationAuditOutcome::Rejected
+        {
+            runtime_aggregate_publish_rejection_count += 1;
+        }
+        if record.operation == MycOperationAuditKind::DiscoveryHandlerRepair {
+            match record.outcome {
+                MycOperationAuditOutcome::Succeeded => runtime_repair_success_count += 1,
+                MycOperationAuditOutcome::Rejected => runtime_repair_rejection_count += 1,
+                _ => {}
+            }
         }
         if record.outcome == MycOperationAuditOutcome::Unavailable {
             runtime_unavailable_count += 1;
@@ -485,7 +498,9 @@ fn summarize_audit_output(
         runtime_operation_total: audit.runtime_operation_audit.len(),
         runtime_operation_outcomes,
         runtime_operation_by_kind,
-        runtime_publish_rejection_count,
+        runtime_aggregate_publish_rejection_count,
+        runtime_repair_success_count,
+        runtime_repair_rejection_count,
         runtime_unavailable_count,
         runtime_replay_restore_count,
     })
@@ -524,6 +539,16 @@ fn operation_kind_label(kind: MycOperationAuditKind) -> String {
         MycOperationAuditKind::DiscoveryHandlerRefresh => "discovery_handler_refresh".to_owned(),
         MycOperationAuditKind::DiscoveryHandlerRepair => "discovery_handler_repair".to_owned(),
     }
+}
+
+fn is_aggregate_publish_operation(kind: MycOperationAuditKind) -> bool {
+    matches!(
+        kind,
+        MycOperationAuditKind::ListenerResponsePublish
+            | MycOperationAuditKind::ConnectAcceptPublish
+            | MycOperationAuditKind::AuthReplayPublish
+            | MycOperationAuditKind::DiscoveryHandlerPublish
+    )
 }
 
 fn print_json<T>(value: &T) -> Result<(), MycError>
@@ -707,7 +732,9 @@ mod tests {
         assert_eq!(summary.runtime_operation_total, 2);
         assert_eq!(summary.runtime_operation_outcomes.succeeded, 1);
         assert_eq!(summary.runtime_operation_outcomes.restored, 1);
-        assert_eq!(summary.runtime_publish_rejection_count, 0);
+        assert_eq!(summary.runtime_aggregate_publish_rejection_count, 0);
+        assert_eq!(summary.runtime_repair_success_count, 0);
+        assert_eq!(summary.runtime_repair_rejection_count, 0);
         assert_eq!(summary.runtime_unavailable_count, 0);
         assert_eq!(summary.runtime_replay_restore_count, 1);
         assert_eq!(
@@ -728,5 +755,99 @@ mod tests {
         );
         assert_eq!(denied.audit.request_id.as_str(), "request-1");
         assert_eq!(challenged_eval.audit.request_id.as_str(), "request-2");
+    }
+
+    #[test]
+    fn audit_summary_separates_repair_rejections_from_aggregate_publish_rejections() {
+        let runtime = runtime();
+        let manager = runtime.signer_manager().expect("manager");
+        let connection = manager
+            .register_connection(RadrootsNostrSignerConnectionDraft::new(
+                nostr::Keys::generate().public_key(),
+                runtime.user_public_identity(),
+            ))
+            .expect("register connection");
+
+        runtime.record_operation_audit(&MycOperationAuditRecord::new(
+            MycOperationAuditKind::DiscoveryHandlerPublish,
+            MycOperationAuditOutcome::Succeeded,
+            Some(&connection.connection_id),
+            Some("request-1"),
+            2,
+            1,
+            "1/2 relays acknowledged publish; failures: relay-b: blocked",
+        ));
+        runtime.record_operation_audit(
+            &MycOperationAuditRecord::new(
+                MycOperationAuditKind::DiscoveryHandlerRepair,
+                MycOperationAuditOutcome::Succeeded,
+                Some(&connection.connection_id),
+                Some("request-1"),
+                1,
+                1,
+                "relay repaired",
+            )
+            .with_relay_url("wss://relay-a.example.com"),
+        );
+        runtime.record_operation_audit(
+            &MycOperationAuditRecord::new(
+                MycOperationAuditKind::DiscoveryHandlerRepair,
+                MycOperationAuditOutcome::Rejected,
+                Some(&connection.connection_id),
+                Some("request-1"),
+                1,
+                0,
+                "blocked by relay",
+            )
+            .with_relay_url("wss://relay-b.example.com"),
+        );
+        runtime.record_operation_audit(&MycOperationAuditRecord::new(
+            MycOperationAuditKind::ListenerResponsePublish,
+            MycOperationAuditOutcome::Rejected,
+            Some(&connection.connection_id),
+            Some("request-2"),
+            1,
+            0,
+            "listener publish rejected",
+        ));
+
+        let summary = summarize_audit_output(
+            &runtime,
+            &manager,
+            Some(connection.connection_id.as_str()),
+            MycAuditScope::Operation,
+            Some(10),
+        )
+        .expect("summary");
+
+        assert_eq!(summary.runtime_operation_total, 4);
+        assert_eq!(summary.runtime_aggregate_publish_rejection_count, 1);
+        assert_eq!(summary.runtime_repair_success_count, 1);
+        assert_eq!(summary.runtime_repair_rejection_count, 1);
+        assert_eq!(summary.runtime_replay_restore_count, 0);
+        assert_eq!(
+            summary
+                .runtime_operation_by_kind
+                .get("discovery_handler_publish")
+                .expect("publish kind")
+                .succeeded,
+            1
+        );
+        assert_eq!(
+            summary
+                .runtime_operation_by_kind
+                .get("discovery_handler_repair")
+                .expect("repair kind")
+                .succeeded,
+            1
+        );
+        assert_eq!(
+            summary
+                .runtime_operation_by_kind
+                .get("discovery_handler_repair")
+                .expect("repair kind")
+                .rejected,
+            1
+        );
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::net::TcpListener as StdTcpListener;
 use std::path::Path;
@@ -36,6 +36,7 @@ struct RelayState {
     senders: HashMap<usize, mpsc::UnboundedSender<Message>>,
     subscriptions: Vec<RelaySubscription>,
     published_events: Vec<Event>,
+    publish_outcomes_by_pubkey: HashMap<String, VecDeque<bool>>,
 }
 
 struct TestRelay {
@@ -84,6 +85,13 @@ impl TestRelay {
 
     fn url(&self) -> &str {
         self.url.as_str()
+    }
+
+    async fn queue_publish_outcomes(&self, public_key: PublicKey, outcomes: &[bool]) {
+        let mut state = self.state.lock().await;
+        state
+            .publish_outcomes_by_pubkey
+            .insert(public_key.to_hex(), outcomes.iter().copied().collect());
     }
 
     async fn wait_for_published_events_by_author(
@@ -247,28 +255,43 @@ async fn accept_published_event(
     Vec<(mpsc::UnboundedSender<Message>, Message)>,
 )> {
     let event_id = event.id;
+    let event_pubkey_hex = event.pubkey.to_hex();
     let mut subscriber_messages = Vec::new();
     let mut ok_message = None;
 
     {
         let mut state = state.lock().await;
+        let publish_status = state
+            .publish_outcomes_by_pubkey
+            .get_mut(&event_pubkey_hex)
+            .and_then(|outcomes| outcomes.pop_front())
+            .unwrap_or(true);
+
         if let Some(sender) = state.senders.get(&connection_id).cloned() {
-            let message = RelayMessage::ok(event_id, true, "").as_json();
+            let message = if publish_status {
+                RelayMessage::ok(event_id, true, "").as_json()
+            } else {
+                RelayMessage::ok(event_id, false, "blocked by test relay").as_json()
+            };
             ok_message = Some((sender, Message::Text(message.into())));
         }
 
-        state.published_events.push(event.clone());
-        for subscription in &state.subscriptions {
-            if subscription
-                .filters
-                .iter()
-                .any(|filter| filter.match_event(&event, MatchEventOptions::new()))
-            {
-                if let Some(sender) = state.senders.get(&subscription.connection_id).cloned() {
-                    let message =
-                        RelayMessage::event(subscription.subscription_id.clone(), event.clone())
-                            .as_json();
-                    subscriber_messages.push((sender, Message::Text(message.into())));
+        if publish_status {
+            state.published_events.push(event.clone());
+            for subscription in &state.subscriptions {
+                if subscription
+                    .filters
+                    .iter()
+                    .any(|filter| filter.match_event(&event, MatchEventOptions::new()))
+                {
+                    if let Some(sender) = state.senders.get(&subscription.connection_id).cloned() {
+                        let message = RelayMessage::event(
+                            subscription.subscription_id.clone(),
+                            event.clone(),
+                        )
+                        .as_json();
+                        subscriber_messages.push((sender, Message::Text(message.into())));
+                    }
                 }
             }
         }
@@ -673,6 +696,108 @@ async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
     let forced_refresh_output: Value = serde_json::from_slice(&forced_refresh.stdout)?;
     assert_eq!(forced_refresh_output["status"], "conflicted");
     assert!(forced_refresh_output["published"].is_object());
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn refresh_reports_partial_repair_and_audit_summary_through_the_cli() -> TestResult<()> {
+    let relay_a = TestRelay::spawn().await?;
+    let relay_b = TestRelay::spawn().await?;
+    let temp = tempfile::tempdir()?;
+    let config_path = temp.path().join("config.toml");
+    let state_dir = temp.path().join("state");
+    let signer_identity_path = temp.path().join("signer.json");
+    let user_identity_path = temp.path().join("user.json");
+    let app_identity_path = temp.path().join("app.json");
+    let app_identity = RadrootsIdentity::from_secret_key_str(
+        "3333333333333333333333333333333333333333333333333333333333333333",
+    )?;
+
+    write_identity(
+        &signer_identity_path,
+        "1111111111111111111111111111111111111111111111111111111111111111",
+    );
+    write_identity(
+        &user_identity_path,
+        "2222222222222222222222222222222222222222222222222222222222222222",
+    );
+    app_identity.save_json(&app_identity_path)?;
+    write_config(
+        &config_path,
+        &state_dir,
+        &signer_identity_path,
+        &user_identity_path,
+        &app_identity_path,
+        &[relay_a.url(), relay_b.url()],
+    );
+
+    relay_a
+        .queue_publish_outcomes(app_identity.public_key(), &[true])
+        .await;
+    relay_b
+        .queue_publish_outcomes(app_identity.public_key(), &[false])
+        .await;
+
+    let refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
+    assert!(
+        refresh.status.success(),
+        "refresh-nip89 failed: {}",
+        String::from_utf8_lossy(&refresh.stderr)
+    );
+    let refresh_output: Value = serde_json::from_slice(&refresh.stdout)?;
+    assert_eq!(refresh_output["status"], "missing");
+    assert_eq!(refresh_output["repair_summary"]["repaired"], 1);
+    assert_eq!(refresh_output["repair_summary"]["failed"], 1);
+    assert_eq!(refresh_output["repair_summary"]["unchanged"], 0);
+    assert_eq!(refresh_output["repair_summary"]["skipped"], 0);
+    assert_eq!(
+        refresh_output["remaining_repair_relays"],
+        Value::Array(vec![Value::String(relay_b.url().to_owned())])
+    );
+    assert_eq!(
+        refresh_output["published"]["acknowledged_relay_count"],
+        Value::from(1_u64)
+    );
+
+    relay_a
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+    assert_eq!(
+        relay_b
+            .published_events_by_author(app_identity.public_key())
+            .await
+            .len(),
+        0
+    );
+
+    let audit_summary = run_myc(&config_path, &["audit", "summary", "--scope", "operation"])?;
+    assert!(
+        audit_summary.status.success(),
+        "audit summary failed: {}",
+        String::from_utf8_lossy(&audit_summary.stderr)
+    );
+    let audit_summary_output: Value = serde_json::from_slice(&audit_summary.stdout)?;
+    assert_eq!(
+        audit_summary_output["runtime_aggregate_publish_rejection_count"],
+        Value::from(0_u64)
+    );
+    assert_eq!(
+        audit_summary_output["runtime_repair_success_count"],
+        Value::from(1_u64)
+    );
+    assert_eq!(
+        audit_summary_output["runtime_repair_rejection_count"],
+        Value::from(1_u64)
+    );
+    assert_eq!(
+        audit_summary_output["runtime_operation_by_kind"]["discovery_handler_publish"]["succeeded"],
+        Value::from(1_u64)
+    );
+    assert_eq!(
+        audit_summary_output["runtime_operation_by_kind"]["discovery_handler_repair"]["rejected"],
+        Value::from(1_u64)
+    );
 
     Ok(())
 }

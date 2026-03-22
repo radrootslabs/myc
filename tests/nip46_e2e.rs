@@ -1391,6 +1391,10 @@ async fn refresh_nip89_publishes_when_live_handler_is_missing() -> TestResult<()
     assert_eq!(refreshed.differing_fields, vec!["live_groups".to_owned()]);
     assert!(refreshed.live_groups.is_empty());
     assert!(refreshed.published.is_some());
+    assert_eq!(refreshed.repair_summary.repaired, 1);
+    assert_eq!(refreshed.repair_summary.failed, 0);
+    assert_eq!(refreshed.repair_summary.unchanged, 0);
+    assert_eq!(refreshed.repair_summary.skipped, 0);
     assert_eq!(refreshed.remaining_repair_relays, Vec::<String>::new());
     assert_eq!(refreshed.repair_results.len(), 1);
     assert_eq!(
@@ -1455,6 +1459,10 @@ async fn refresh_nip89_repairs_missing_relays_without_republishing_matched_relay
     assert_eq!(published.publish_relays, vec![relay_b.url().to_owned()]);
     assert_eq!(published.relay_count, 1);
     assert_eq!(published.acknowledged_relay_count, 1);
+    assert_eq!(refreshed.repair_summary.repaired, 1);
+    assert_eq!(refreshed.repair_summary.failed, 0);
+    assert_eq!(refreshed.repair_summary.unchanged, 1);
+    assert_eq!(refreshed.repair_summary.skipped, 0);
     assert_eq!(refreshed.remaining_repair_relays, Vec::<String>::new());
     assert_eq!(refreshed.repair_results.len(), 2);
     assert_eq!(
@@ -1531,6 +1539,10 @@ async fn refresh_nip89_skips_when_live_handler_matches() -> TestResult<()> {
     assert!(refreshed.differing_fields.is_empty());
     assert_eq!(refreshed.live_groups.len(), 1);
     assert!(refreshed.published.is_none());
+    assert_eq!(refreshed.repair_summary.repaired, 0);
+    assert_eq!(refreshed.repair_summary.failed, 0);
+    assert_eq!(refreshed.repair_summary.unchanged, 1);
+    assert_eq!(refreshed.repair_summary.skipped, 0);
     assert_eq!(refreshed.remaining_repair_relays, Vec::<String>::new());
     assert_eq!(refreshed.repair_results.len(), 1);
     assert_eq!(
@@ -1589,6 +1601,10 @@ async fn refresh_nip89_republishes_when_live_handler_drifted() -> TestResult<()>
     assert_eq!(refreshed.status, MycDiscoveryLiveStatus::Drifted);
     assert_eq!(refreshed.live_groups.len(), 1);
     assert!(refreshed.published.is_some());
+    assert_eq!(refreshed.repair_summary.repaired, 1);
+    assert_eq!(refreshed.repair_summary.failed, 0);
+    assert_eq!(refreshed.repair_summary.unchanged, 0);
+    assert_eq!(refreshed.repair_summary.skipped, 0);
     assert_eq!(refreshed.remaining_repair_relays, Vec::<String>::new());
     assert_eq!(refreshed.repair_results.len(), 1);
     assert_eq!(
@@ -1668,6 +1684,10 @@ async fn refresh_nip89_repairs_drifted_relays_without_force_when_other_relays_ma
     assert_eq!(published.publish_relays, vec![relay_b.url().to_owned()]);
     assert_eq!(published.relay_count, 1);
     assert_eq!(published.acknowledged_relay_count, 1);
+    assert_eq!(refreshed.repair_summary.repaired, 1);
+    assert_eq!(refreshed.repair_summary.failed, 0);
+    assert_eq!(refreshed.repair_summary.unchanged, 1);
+    assert_eq!(refreshed.repair_summary.skipped, 0);
     assert_eq!(refreshed.remaining_repair_relays, Vec::<String>::new());
     assert_eq!(refreshed.repair_results.len(), 2);
     assert_eq!(
@@ -1746,6 +1766,10 @@ async fn refresh_nip89_reports_remaining_relays_after_mixed_targeted_repair() ->
     assert_eq!(published.relay_count, 2);
     assert_eq!(published.acknowledged_relay_count, 1);
     assert_eq!(published.relay_results.len(), 2);
+    assert_eq!(refreshed.repair_summary.repaired, 1);
+    assert_eq!(refreshed.repair_summary.failed, 1);
+    assert_eq!(refreshed.repair_summary.unchanged, 0);
+    assert_eq!(refreshed.repair_summary.skipped, 0);
     assert_eq!(refreshed.repair_results.len(), 2);
     assert_eq!(
         refreshed.remaining_repair_relays,
