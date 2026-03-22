@@ -709,6 +709,8 @@ fn now_unix_secs() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionId;
 
     use crate::config::MycAuditConfig;

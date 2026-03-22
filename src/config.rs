@@ -694,18 +694,24 @@ fn validate_nostrconnect_url_template(template: &str) -> Result<(), MycError> {
                 .to_owned(),
         ));
     }
-    if !trimmed.starts_with("https://") {
-        return Err(MycError::InvalidConfig(
-            "discovery.nostrconnect_url_template must start with `https://`".to_owned(),
-        ));
-    }
     let candidate = trimmed.replace("<nostrconnect>", "nostrconnect%3A%2F%2Fclient");
-    nostr::Url::parse(&candidate).map_err(|source| {
+    let url = nostr::Url::parse(&candidate).map_err(|source| {
         MycError::InvalidConfig(format!(
             "discovery.nostrconnect_url_template is invalid: {source}"
         ))
     })?;
-    Ok(())
+
+    match url.scheme() {
+        "https" => Ok(()),
+        "http" if discovery_host_is_local(url.host_str()) => Ok(()),
+        _ => Err(MycError::InvalidConfig(
+            "discovery.nostrconnect_url_template must use `https://`, except loopback hosts may use `http://`".to_owned(),
+        )),
+    }
+}
+
+fn discovery_host_is_local(host: Option<&str>) -> bool {
+    matches!(host, Some("localhost" | "127.0.0.1" | "::1"))
 }
 
 #[cfg(test)]
@@ -894,6 +900,18 @@ MYC_UNKNOWN=nope
     }
 
     #[test]
+    fn discovery_validation_allows_localhost_http_nostrconnect_template() {
+        let mut config = MycConfig::default();
+        config.discovery.enabled = true;
+        config.discovery.domain = Some("localhost".to_owned());
+        config.discovery.public_relays = vec!["ws://localhost:8080".to_owned()];
+        config.discovery.nostrconnect_url_template =
+            Some("http://localhost/connect?uri=<nostrconnect>".to_owned());
+
+        config.validate().expect("localhost http template");
+    }
+
+    #[test]
     fn discovery_validation_rejects_invalid_nostrconnect_template() {
         let mut config = MycConfig::default();
         config.discovery.enabled = true;
@@ -920,12 +938,12 @@ MYC_UNKNOWN=nope
         assert!(config.discovery.enabled);
         assert_eq!(
             config.discovery.domain.as_deref(),
-            Some("signer.example.com")
+            Some("localhost")
         );
         assert_eq!(config.discovery.handler_identifier, "myc");
         assert_eq!(
             config.discovery.nip05_output_path,
-            Some(PathBuf::from("public/.well-known/nostr.json"))
+            Some(PathBuf::from("var/public/.well-known/nostr.json"))
         );
     }
 }
