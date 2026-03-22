@@ -38,6 +38,25 @@ pub enum MycError {
         #[source]
         source: std::io::Error,
     },
+    #[error("audit io error at {path}: {source}")]
+    AuditIo {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("audit parse error at {path}:{line_number}: {source}")]
+    AuditParse {
+        path: PathBuf,
+        line_number: usize,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("failed to serialize audit record at {path}: {source}")]
+    AuditSerialize {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error(transparent)]
@@ -55,7 +74,12 @@ pub enum MycError {
     #[error("NIP-46 listener notifications closed")]
     Nip46ListenerClosed,
     #[error("Nostr publish failed for {operation}: {details}")]
-    PublishRejected { operation: String, details: String },
+    PublishRejected {
+        operation: String,
+        relay_count: usize,
+        acknowledged_relay_count: usize,
+        details: String,
+    },
     #[error(
         "configured signer identity `{configured_identity_id}` at {identity_path} does not match persisted signer identity `{persisted_identity_id}` in {state_path}"
     )]
@@ -65,4 +89,24 @@ pub enum MycError {
         configured_identity_id: String,
         persisted_identity_id: String,
     },
+}
+
+impl MycError {
+    pub fn publish_rejection_details(&self) -> Option<&str> {
+        match self {
+            Self::PublishRejected { details, .. } => Some(details.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn publish_rejection_counts(&self) -> Option<(usize, usize)> {
+        match self {
+            Self::PublishRejected {
+                relay_count,
+                acknowledged_relay_count,
+                ..
+            } => Some((*relay_count, *acknowledged_relay_count)),
+            _ => None,
+        }
+    }
 }

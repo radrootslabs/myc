@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod app;
+pub mod audit;
 pub mod cli;
 pub mod config;
 pub mod control;
@@ -9,6 +10,10 @@ pub mod logging;
 pub mod transport;
 
 pub use app::{MycApp, MycRuntime, MycRuntimePaths, MycSignerContext, MycStartupSnapshot};
+pub use audit::{
+    MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord,
+    MycOperationAuditStore,
+};
 pub use config::{
     DEFAULT_CONFIG_PATH, MycConfig, MycConnectionApproval, MycLoggingConfig, MycPathsConfig,
     MycPolicyConfig, MycServiceConfig, MycTransportConfig,

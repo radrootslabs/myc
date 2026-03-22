@@ -2,6 +2,7 @@ use std::fs;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 
+use crate::audit::{MycOperationAuditRecord, MycOperationAuditStore};
 use crate::config::MycConfig;
 use crate::error::MycError;
 use crate::transport::{MycNip46Service, MycNostrTransport, MycTransportSnapshot};
@@ -42,6 +43,7 @@ pub struct MycSignerContext {
     signer_identity: RadrootsIdentity,
     user_identity: RadrootsIdentity,
     signer_state_path: PathBuf,
+    audit_dir: PathBuf,
     connection_approval_requirement: RadrootsNostrSignerApprovalRequirement,
 }
 
@@ -106,6 +108,14 @@ impl MycRuntime {
 
     pub fn transport(&self) -> Option<&MycNostrTransport> {
         self.transport.as_ref()
+    }
+
+    pub fn operation_audit_store(&self) -> MycOperationAuditStore {
+        self.signer.operation_audit_store()
+    }
+
+    pub fn record_operation_audit(&self, record: &MycOperationAuditRecord) {
+        self.signer.record_operation_audit(record);
     }
 
     pub(crate) fn signer_context(&self) -> MycSignerContext {
@@ -216,6 +226,27 @@ impl MycSignerContext {
         Self::load_signer_manager_from_path(&self.signer_state_path)
     }
 
+    pub fn operation_audit_store(&self) -> MycOperationAuditStore {
+        MycOperationAuditStore::new(&self.audit_dir)
+    }
+
+    pub fn record_operation_audit(&self, record: &MycOperationAuditRecord) {
+        emit_operation_audit_trace(record);
+        if let Err(error) = self.operation_audit_store().append(record) {
+            tracing::error!(
+                operation = ?record.operation,
+                outcome = ?record.outcome,
+                connection_id = record.connection_id.as_deref().unwrap_or(""),
+                request_id = record.request_id.as_deref().unwrap_or(""),
+                relay_count = record.relay_count,
+                acknowledged_relay_count = record.acknowledged_relay_count,
+                relay_outcome_summary = %record.relay_outcome_summary,
+                error = %error,
+                "failed to persist myc operation audit record"
+            );
+        }
+    }
+
     pub fn connection_approval_requirement(&self) -> RadrootsNostrSignerApprovalRequirement {
         self.connection_approval_requirement
     }
@@ -246,6 +277,7 @@ impl MycSignerContext {
             signer_identity,
             user_identity,
             signer_state_path: paths.signer_state_path.clone(),
+            audit_dir: paths.audit_dir.clone(),
             connection_approval_requirement,
         })
     }
@@ -254,6 +286,32 @@ impl MycSignerContext {
         Ok(RadrootsNostrSignerManager::new(Arc::new(
             RadrootsNostrFileSignerStore::new(path),
         ))?)
+    }
+}
+
+fn emit_operation_audit_trace(record: &MycOperationAuditRecord) {
+    match record.outcome {
+        crate::audit::MycOperationAuditOutcome::Succeeded => tracing::info!(
+            operation = ?record.operation,
+            outcome = ?record.outcome,
+            connection_id = record.connection_id.as_deref().unwrap_or(""),
+            request_id = record.request_id.as_deref().unwrap_or(""),
+            relay_count = record.relay_count,
+            acknowledged_relay_count = record.acknowledged_relay_count,
+            relay_outcome_summary = %record.relay_outcome_summary,
+            "recorded myc operation audit"
+        ),
+        crate::audit::MycOperationAuditOutcome::Rejected
+        | crate::audit::MycOperationAuditOutcome::Restored => tracing::warn!(
+            operation = ?record.operation,
+            outcome = ?record.outcome,
+            connection_id = record.connection_id.as_deref().unwrap_or(""),
+            request_id = record.request_id.as_deref().unwrap_or(""),
+            relay_count = record.relay_count,
+            acknowledged_relay_count = record.acknowledged_relay_count,
+            relay_outcome_summary = %record.relay_outcome_summary,
+            "recorded myc operation audit"
+        ),
     }
 }
 
