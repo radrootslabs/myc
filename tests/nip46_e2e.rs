@@ -1104,7 +1104,7 @@ async fn fetch_live_nip89_reports_missing_when_handler_is_unpublished() -> TestR
 
     assert_eq!(output.handler_identifier, "myc");
     assert_eq!(output.publish_relays, vec![relay.url().to_owned()]);
-    assert!(output.live_event.is_none());
+    assert!(output.live_groups.is_empty());
 
     Ok(())
 }
@@ -1136,7 +1136,12 @@ async fn diff_live_nip89_reports_matched_after_publish() -> TestResult<()> {
 
     assert_eq!(diff.status, MycDiscoveryLiveStatus::Matched);
     assert!(diff.differing_fields.is_empty());
-    let live_event = diff.live_event.expect("live event");
+    assert_eq!(diff.live_groups.len(), 1);
+    let live_event = diff.live_groups[0]
+        .events
+        .last()
+        .cloned()
+        .expect("live event");
     assert_eq!(live_event.event_id_hex, published.event.id.to_hex());
     assert_eq!(
         live_event.handler.author_public_key_hex,
@@ -1169,8 +1174,8 @@ async fn refresh_nip89_publishes_when_live_handler_is_missing() -> TestResult<()
     let refreshed = refresh_nip89(&runtime, false).await?;
 
     assert_eq!(refreshed.status, MycDiscoveryLiveStatus::Missing);
-    assert_eq!(refreshed.differing_fields, vec!["live_event".to_owned()]);
-    assert!(refreshed.live_event.is_none());
+    assert_eq!(refreshed.differing_fields, vec!["live_groups".to_owned()]);
+    assert!(refreshed.live_groups.is_empty());
     assert!(refreshed.published.is_some());
 
     let audit = wait_for_operation_audit_count(&runtime, 2).await?;
@@ -1215,6 +1220,7 @@ async fn refresh_nip89_skips_when_live_handler_matches() -> TestResult<()> {
 
     assert_eq!(refreshed.status, MycDiscoveryLiveStatus::Matched);
     assert!(refreshed.differing_fields.is_empty());
+    assert_eq!(refreshed.live_groups.len(), 1);
     assert!(refreshed.published.is_none());
 
     let audit = wait_for_operation_audit_count(&runtime, 3).await?;
@@ -1266,6 +1272,7 @@ async fn refresh_nip89_republishes_when_live_handler_drifted() -> TestResult<()>
     let refreshed = refresh_nip89(&runtime, false).await?;
 
     assert_eq!(refreshed.status, MycDiscoveryLiveStatus::Drifted);
+    assert_eq!(refreshed.live_groups.len(), 1);
     assert!(refreshed.published.is_some());
     assert!(
         refreshed
@@ -1285,6 +1292,105 @@ async fn refresh_nip89_republishes_when_live_handler_drifted() -> TestResult<()>
         MycOperationAuditKind::DiscoveryHandlerPublish
     );
     assert_eq!(audit[1].outcome, MycOperationAuditOutcome::Succeeded);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn diff_live_nip89_reports_conflicted_when_live_groups_disagree() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime =
+        MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
+    let runtime = test_runtime.runtime;
+    let app_identity = RadrootsIdentity::load_from_path_auto(
+        runtime
+            .config()
+            .discovery
+            .app_identity_path
+            .as_ref()
+            .expect("app identity path"),
+    )?;
+
+    let mut first_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133]);
+    first_spec.identifier = Some("myc".to_owned());
+    first_spec.relays = vec!["wss://relay-a.example.com".to_owned()];
+    publish_handler_event(relay.url(), &app_identity, &first_spec).await?;
+
+    let mut second_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133]);
+    second_spec.identifier = Some("myc".to_owned());
+    second_spec.relays = vec!["wss://relay-b.example.com".to_owned()];
+    publish_handler_event(relay.url(), &app_identity, &second_spec).await?;
+
+    relay
+        .wait_for_published_events_by_author(app_identity.public_key(), 2)
+        .await?;
+
+    let diff = diff_live_nip89(&runtime).await?;
+
+    assert_eq!(diff.status, MycDiscoveryLiveStatus::Conflicted);
+    assert_eq!(diff.differing_fields, vec!["live_groups".to_owned()]);
+    assert_eq!(diff.live_groups.len(), 2);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn refresh_nip89_requires_force_when_live_handler_is_conflicted() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime =
+        MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
+    let runtime = test_runtime.runtime;
+    let app_identity = RadrootsIdentity::load_from_path_auto(
+        runtime
+            .config()
+            .discovery
+            .app_identity_path
+            .as_ref()
+            .expect("app identity path"),
+    )?;
+
+    let mut first_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133]);
+    first_spec.identifier = Some("myc".to_owned());
+    first_spec.relays = vec!["wss://relay-a.example.com".to_owned()];
+    publish_handler_event(relay.url(), &app_identity, &first_spec).await?;
+
+    let mut second_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133]);
+    second_spec.identifier = Some("myc".to_owned());
+    second_spec.relays = vec!["wss://relay-b.example.com".to_owned()];
+    publish_handler_event(relay.url(), &app_identity, &second_spec).await?;
+
+    relay
+        .wait_for_published_events_by_author(app_identity.public_key(), 2)
+        .await?;
+
+    let error = refresh_nip89(&runtime, false)
+        .await
+        .expect_err("conflicted refresh without force should fail");
+    assert!(
+        error
+            .to_string()
+            .contains("live discovery handler state is conflicted")
+    );
+
+    let audit = wait_for_operation_audit_count(&runtime, 2).await?;
+    assert_eq!(
+        audit[0].operation,
+        MycOperationAuditKind::DiscoveryHandlerCompare
+    );
+    assert_eq!(audit[0].outcome, MycOperationAuditOutcome::Conflicted);
+    assert_eq!(
+        audit[1].operation,
+        MycOperationAuditKind::DiscoveryHandlerRefresh
+    );
+    assert_eq!(audit[1].outcome, MycOperationAuditOutcome::Conflicted);
+
+    relay
+        .queue_publish_outcomes(app_identity.public_key(), &[true])
+        .await;
+    let refreshed = refresh_nip89(&runtime, true).await?;
+    assert_eq!(refreshed.status, MycDiscoveryLiveStatus::Conflicted);
+    assert_eq!(refreshed.live_groups.len(), 2);
+    assert!(refreshed.published.is_some());
 
     Ok(())
 }
