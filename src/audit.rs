@@ -20,6 +20,7 @@ pub enum MycOperationAuditKind {
     ConnectAcceptPublish,
     AuthReplayPublish,
     AuthReplayRestore,
+    DiscoveryHandlerPublish,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -4,7 +4,8 @@ use std::time::Duration;
 
 use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{
-    RadrootsNostrClient, RadrootsNostrEventBuilder, RadrootsNostrOutput, RadrootsNostrRelayUrl,
+    RadrootsNostrClient, RadrootsNostrEvent, RadrootsNostrEventBuilder, RadrootsNostrOutput,
+    RadrootsNostrRelayUrl,
 };
 
 use crate::config::MycTransportConfig;
@@ -93,6 +94,30 @@ impl MycNostrTransport {
             .wait_for_connection(Duration::from_secs(connect_timeout_secs))
             .await;
         let output = client.send_event_builder(event).await?;
+        ensure_publish_confirmed(output, "one-shot Nostr publish")
+    }
+
+    pub async fn publish_event_once(
+        signer_identity: &RadrootsIdentity,
+        relays: &[RadrootsNostrRelayUrl],
+        connect_timeout_secs: u64,
+        event: &RadrootsNostrEvent,
+    ) -> Result<MycPublishOutcome, MycError> {
+        if relays.is_empty() {
+            return Err(MycError::InvalidOperation(
+                "cannot publish without at least one relay".to_owned(),
+            ));
+        }
+
+        let client = RadrootsNostrClient::from_identity(signer_identity);
+        for relay in relays {
+            let _ = client.add_relay(relay.as_str()).await?;
+        }
+        client.connect().await;
+        client
+            .wait_for_connection(Duration::from_secs(connect_timeout_secs))
+            .await;
+        let output = client.send_event(event).await?;
         ensure_publish_confirmed(output, "one-shot Nostr publish")
     }
 

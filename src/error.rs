@@ -57,6 +57,12 @@ pub enum MycError {
         #[source]
         source: serde_json::Error,
     },
+    #[error("discovery io error at {path}: {source}")]
+    DiscoveryIo {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error(transparent)]

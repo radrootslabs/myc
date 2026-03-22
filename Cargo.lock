@@ -1047,6 +1047,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
@@ -1370,6 +1371,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "radroots-events-codec"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "radroots-core",
+ "radroots-events",
+]
+
+[[package]]
 name = "radroots-identity"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -1398,6 +1407,8 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "nostr",
  "nostr-sdk",
+ "radroots-events",
+ "radroots-events-codec",
  "radroots-identity",
  "serde",
  "serde_json",

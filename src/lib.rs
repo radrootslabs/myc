@@ -5,6 +5,7 @@ pub mod audit;
 pub mod cli;
 pub mod config;
 pub mod control;
+pub mod discovery;
 pub mod error;
 pub mod logging;
 pub mod transport;
@@ -15,10 +16,15 @@ pub use audit::{
     MycOperationAuditStore,
 };
 pub use config::{
-    DEFAULT_CONFIG_PATH, MycAuditConfig, MycConfig, MycConnectionApproval, MycLoggingConfig,
-    MycPathsConfig, MycPolicyConfig, MycServiceConfig, MycTransportConfig,
+    DEFAULT_CONFIG_PATH, MycAuditConfig, MycConfig, MycConnectionApproval, MycDiscoveryConfig,
+    MycDiscoveryMetadataConfig, MycLoggingConfig, MycPathsConfig, MycPolicyConfig,
+    MycServiceConfig, MycTransportConfig,
 };
 pub use control::{MycAcceptedConnectionOutput, MycAuthorizedReplayOutput};
+pub use discovery::{
+    MycDiscoveryContext, MycNip05Document, MycNip05DocumentSection, MycPublishedNip89Output,
+    MycRenderedNip05Output, MycRenderedNip89Output, publish_nip89_event, render_nip05_output,
+};
 pub use error::MycError;
 pub use transport::{MycNostrTransport, MycTransportSnapshot};
 
