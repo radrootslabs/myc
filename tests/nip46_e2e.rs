@@ -1408,6 +1408,70 @@ async fn refresh_nip89_publishes_when_live_handler_is_missing() -> TestResult<()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn refresh_nip89_repairs_missing_relays_without_republishing_matched_relays() -> TestResult<()>
+{
+    let relay_a = TestRelay::spawn().await?;
+    let relay_b = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new_with_discovery_relays(
+        &[relay_a.url(), relay_b.url()],
+        MycConnectionApproval::ExplicitUser,
+    );
+    let runtime = test_runtime.runtime;
+    let app_identity = RadrootsIdentity::load_from_path_auto(
+        runtime
+            .config()
+            .discovery
+            .app_identity_path
+            .as_ref()
+            .expect("app identity path"),
+    )?;
+
+    let matched_event = MycDiscoveryContext::from_runtime(&runtime)?
+        .build_signed_handler_event()
+        .expect("matched event");
+    publish_signed_event(relay_a.url(), &app_identity, &matched_event).await?;
+    relay_a
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+
+    relay_b
+        .queue_publish_outcomes(app_identity.public_key(), &[true])
+        .await;
+    let refreshed = refresh_nip89(&runtime, false).await?;
+    let published = refreshed.published.expect("published output");
+
+    assert_eq!(refreshed.status, MycDiscoveryLiveStatus::Matched);
+    assert_eq!(published.publish_relays, vec![relay_b.url().to_owned()]);
+    assert_eq!(published.relay_count, 1);
+    assert_eq!(published.acknowledged_relay_count, 1);
+
+    relay_b
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+    assert_eq!(
+        relay_a
+            .published_events_by_author(app_identity.public_key())
+            .await
+            .len(),
+        1
+    );
+    assert_eq!(
+        relay_b
+            .published_events_by_author(app_identity.public_key())
+            .await
+            .len(),
+        1
+    );
+
+    let diff = diff_live_nip89(&runtime).await?;
+    assert_eq!(diff.status, MycDiscoveryLiveStatus::Matched);
+    assert_eq!(diff.relay_summary.matched_relays.len(), 2);
+    assert!(diff.relay_summary.missing_relays.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn refresh_nip89_skips_when_live_handler_matches() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime =
@@ -1506,6 +1570,74 @@ async fn refresh_nip89_republishes_when_live_handler_drifted() -> TestResult<()>
         MycOperationAuditKind::DiscoveryHandlerPublish
     );
     assert_eq!(audit[1].outcome, MycOperationAuditOutcome::Succeeded);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn refresh_nip89_repairs_drifted_relays_without_force_when_other_relays_match()
+-> TestResult<()> {
+    let relay_a = TestRelay::spawn().await?;
+    let relay_b = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new_with_discovery_relays(
+        &[relay_a.url(), relay_b.url()],
+        MycConnectionApproval::ExplicitUser,
+    );
+    let runtime = test_runtime.runtime;
+    let app_identity = RadrootsIdentity::load_from_path_auto(
+        runtime
+            .config()
+            .discovery
+            .app_identity_path
+            .as_ref()
+            .expect("app identity path"),
+    )?;
+
+    let matched_event = MycDiscoveryContext::from_runtime(&runtime)?
+        .build_signed_handler_event()
+        .expect("matched event");
+    publish_signed_event(relay_a.url(), &app_identity, &matched_event).await?;
+
+    let mut drifted_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133]);
+    drifted_spec.identifier = Some("myc".to_owned());
+    drifted_spec.relays = vec!["wss://stale.example.com".to_owned()];
+    publish_handler_event(relay_b.url(), &app_identity, &drifted_spec).await?;
+
+    relay_a
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+    relay_b
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+
+    relay_b
+        .queue_publish_outcomes(app_identity.public_key(), &[true])
+        .await;
+    let refreshed = refresh_nip89(&runtime, false).await?;
+    let published = refreshed.published.expect("published output");
+
+    assert_eq!(refreshed.status, MycDiscoveryLiveStatus::Conflicted);
+    assert_eq!(published.publish_relays, vec![relay_b.url().to_owned()]);
+    assert_eq!(published.relay_count, 1);
+    assert_eq!(published.acknowledged_relay_count, 1);
+
+    relay_b
+        .wait_for_published_events_by_author(app_identity.public_key(), 2)
+        .await?;
+    assert_eq!(
+        relay_a
+            .published_events_by_author(app_identity.public_key())
+            .await
+            .len(),
+        1
+    );
+    assert_eq!(
+        relay_b
+            .published_events_by_author(app_identity.public_key())
+            .await
+            .len(),
+        2
+    );
 
     Ok(())
 }

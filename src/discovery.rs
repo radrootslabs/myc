@@ -467,11 +467,19 @@ pub async fn publish_nip89_event(
     runtime: &MycRuntime,
 ) -> Result<MycPublishedNip89Output, MycError> {
     let context = MycDiscoveryContext::from_runtime(runtime)?;
+    publish_nip89_event_to_relays(runtime, &context, context.publish_relays()).await
+}
+
+async fn publish_nip89_event_to_relays(
+    runtime: &MycRuntime,
+    context: &MycDiscoveryContext,
+    relays: &[RadrootsNostrRelayUrl],
+) -> Result<MycPublishedNip89Output, MycError> {
     let event = context.build_signed_handler_event()?;
     let event_id = event.id.to_hex();
     let publish_outcome = match MycNostrTransport::publish_event_once(
         context.app_identity(),
-        context.publish_relays(),
+        relays,
         context.connect_timeout_secs(),
         &event,
     )
@@ -487,7 +495,7 @@ pub async fn publish_nip89_event(
                 error
                     .publish_rejection_counts()
                     .map(|(relay_count, _)| relay_count)
-                    .unwrap_or(context.publish_relays().len()),
+                    .unwrap_or(relays.len()),
                 error
                     .publish_rejection_counts()
                     .map(|(_, acknowledged)| acknowledged)
@@ -514,11 +522,7 @@ pub async fn publish_nip89_event(
     Ok(MycPublishedNip89Output {
         author_public_key_hex: context.app_identity().public_key_hex(),
         signer_public_key_hex: context.signer_identity().public_key_hex(),
-        publish_relays: context
-            .publish_relays()
-            .iter()
-            .map(ToString::to_string)
-            .collect(),
+        publish_relays: relays.iter().map(ToString::to_string).collect(),
         relay_count: publish_outcome.relay_count,
         acknowledged_relay_count: publish_outcome.acknowledged_relay_count,
         relay_outcome_summary: publish_outcome.relay_outcome_summary,
@@ -605,7 +609,7 @@ pub async fn refresh_nip89(
         )));
     }
 
-    if status == MycDiscoveryLiveStatus::Conflicted && !force {
+    if !relay_summary.conflicted_relays.is_empty() && !force {
         runtime.record_operation_audit(&MycOperationAuditRecord::new(
             MycOperationAuditKind::DiscoveryHandlerRefresh,
             MycOperationAuditOutcome::Conflicted,
@@ -622,7 +626,9 @@ pub async fn refresh_nip89(
         ));
     }
 
-    if status == MycDiscoveryLiveStatus::Matched && !force {
+    let refresh_relays = select_refresh_relays(&context, &relay_states, force)?;
+
+    if refresh_relays.is_empty() {
         runtime.record_operation_audit(&MycOperationAuditRecord::new(
             MycOperationAuditKind::DiscoveryHandlerRefresh,
             MycOperationAuditOutcome::Skipped,
@@ -643,7 +649,7 @@ pub async fn refresh_nip89(
         });
     }
 
-    let published = publish_nip89_event(runtime).await?;
+    let published = publish_nip89_event_to_relays(runtime, &context, &refresh_relays).await?;
     Ok(MycRefreshedNip89Output {
         status,
         force,
@@ -653,6 +659,48 @@ pub async fn refresh_nip89(
         relay_summary,
         published: Some(published),
     })
+}
+
+fn select_refresh_relays(
+    context: &MycDiscoveryContext,
+    relay_states: &[MycDiscoveryRelayState],
+    force: bool,
+) -> Result<Vec<RadrootsNostrRelayUrl>, MycError> {
+    if context.publish_relays().len() != relay_states.len() {
+        return Err(MycError::InvalidOperation(
+            "discovery relay state count did not match configured publish relay count".to_owned(),
+        ));
+    }
+
+    let mut repair_relays = Vec::new();
+    let mut matched_relays = Vec::new();
+
+    for (relay, relay_state) in context.publish_relays().iter().zip(relay_states.iter()) {
+        if relay_state.fetch_status == MycDiscoveryRelayFetchStatus::Unavailable {
+            continue;
+        }
+
+        match relay_state.live_status {
+            Some(MycDiscoveryLiveStatus::Missing | MycDiscoveryLiveStatus::Drifted) => {
+                repair_relays.push(relay.clone());
+            }
+            Some(MycDiscoveryLiveStatus::Conflicted) => {
+                if force {
+                    repair_relays.push(relay.clone());
+                }
+            }
+            Some(MycDiscoveryLiveStatus::Matched) => {
+                matched_relays.push(relay.clone());
+            }
+            None => {}
+        }
+    }
+
+    if repair_relays.is_empty() && force {
+        Ok(matched_relays)
+    } else {
+        Ok(repair_relays)
+    }
 }
 
 async fn fetch_live_nip89_state_for_runtime(
