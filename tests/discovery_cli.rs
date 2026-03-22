@@ -13,6 +13,7 @@ use radroots_nostr::prelude::{
     RadrootsNostrApplicationHandlerSpec, RadrootsNostrClient, RadrootsNostrMetadata,
     radroots_nostr_build_application_handler_event,
 };
+use radroots_nostr_connect::prelude::{RadrootsNostrConnectBunkerUri, RadrootsNostrConnectUri};
 use serde_json::Value;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
@@ -289,8 +290,13 @@ fn write_config(
     signer_identity_path: &Path,
     user_identity_path: &Path,
     app_identity_path: &Path,
-    relay_url: &str,
+    relay_urls: &[&str],
 ) {
+    let relay_list = relay_urls
+        .iter()
+        .map(|relay| format!("\"{relay}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
     let config = format!(
         r#"[service]
 instance_name = "myc"
@@ -313,8 +319,8 @@ enabled = true
 domain = "signer.example.com"
 handler_identifier = "myc"
 app_identity_path = "{app_identity_path}"
-public_relays = ["{relay_url}"]
-publish_relays = ["{relay_url}"]
+public_relays = [{relay_list}]
+publish_relays = [{relay_list}]
 nostrconnect_url_template = "https://signer.example.com/connect?uri=<nostrconnect>"
 nip05_output_path = "{nip05_output_path}"
 
@@ -337,7 +343,7 @@ relays = []
         signer_identity_path = signer_identity_path.display(),
         user_identity_path = user_identity_path.display(),
         app_identity_path = app_identity_path.display(),
-        relay_url = relay_url,
+        relay_list = relay_list,
         nip05_output_path = state_dir.join("public/.well-known/nostr.json").display(),
     );
     fs::write(path, config).expect("write config");
@@ -400,7 +406,7 @@ fn export_bundle_and_verify_bundle_work_through_the_cli() -> TestResult<()> {
         &signer_identity_path,
         &user_identity_path,
         &app_identity_path,
-        "wss://relay.example.com",
+        &["wss://relay.example.com"],
     );
 
     let export = run_myc(
@@ -481,7 +487,7 @@ async fn discovery_sync_commands_work_through_the_cli() -> TestResult<()> {
         &signer_identity_path,
         &user_identity_path,
         &app_identity_path,
-        relay.url(),
+        &[relay.url()],
     );
 
     let inspect_missing = run_myc(&config_path, &["discovery", "inspect-live-nip89"])?;
@@ -497,6 +503,13 @@ async fn discovery_sync_commands_work_through_the_cli() -> TestResult<()> {
             .unwrap()
             .len(),
         0
+    );
+    assert_eq!(
+        inspect_missing_output["relay_states"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
     );
 
     let refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
@@ -524,6 +537,13 @@ async fn discovery_sync_commands_work_through_the_cli() -> TestResult<()> {
         inspect_live_output["live_groups"].as_array().unwrap().len(),
         1
     );
+    assert_eq!(
+        inspect_live_output["live_groups"][0]["source_relays"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 
     let diff = run_myc(&config_path, &["discovery", "diff-live-nip89"])?;
     assert!(
@@ -534,6 +554,17 @@ async fn discovery_sync_commands_work_through_the_cli() -> TestResult<()> {
     let diff_output: Value = serde_json::from_slice(&diff.stdout)?;
     assert_eq!(diff_output["status"], "matched");
     assert_eq!(diff_output["live_groups"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        diff_output["relay_summary"]["matched_relays"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        diff_output["relay_states"][0]["status"],
+        Value::String("matched".to_owned())
+    );
 
     Ok(())
 }
@@ -566,7 +597,7 @@ async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
         &signer_identity_path,
         &user_identity_path,
         &app_identity_path,
-        relay.url(),
+        &[relay.url()],
     );
 
     let mut first_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133]);
@@ -595,6 +626,13 @@ async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
     let diff_output: Value = serde_json::from_slice(&diff.stdout)?;
     assert_eq!(diff_output["status"], "conflicted");
     assert_eq!(diff_output["live_groups"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        diff_output["relay_summary"]["conflicted_relays"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 
     let refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
     assert!(
@@ -617,6 +655,140 @@ async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
     let forced_refresh_output: Value = serde_json::from_slice(&forced_refresh.stdout)?;
     assert_eq!(forced_refresh_output["status"], "conflicted");
     assert!(forced_refresh_output["published"].is_object());
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn discovery_diff_surfaces_relay_provenance_through_the_cli() -> TestResult<()> {
+    let relay_a = TestRelay::spawn().await?;
+    let relay_b = TestRelay::spawn().await?;
+    let temp = tempfile::tempdir()?;
+    let config_path = temp.path().join("config.toml");
+    let state_dir = temp.path().join("state");
+    let signer_identity_path = temp.path().join("signer.json");
+    let user_identity_path = temp.path().join("user.json");
+    let app_identity_path = temp.path().join("app.json");
+    let app_identity = RadrootsIdentity::from_secret_key_str(
+        "3333333333333333333333333333333333333333333333333333333333333333",
+    )?;
+    let signer_identity = RadrootsIdentity::from_secret_key_str(
+        "1111111111111111111111111111111111111111111111111111111111111111",
+    )?;
+
+    write_identity(
+        &signer_identity_path,
+        "1111111111111111111111111111111111111111111111111111111111111111",
+    );
+    write_identity(
+        &user_identity_path,
+        "2222222222222222222222222222222222222222222222222222222222222222",
+    );
+    app_identity.save_json(&app_identity_path)?;
+    write_config(
+        &config_path,
+        &state_dir,
+        &signer_identity_path,
+        &user_identity_path,
+        &app_identity_path,
+        &[relay_a.url(), relay_b.url()],
+    );
+
+    let mut matched_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133]);
+    matched_spec.identifier = Some("myc".to_owned());
+    matched_spec.relays = vec![relay_a.url().to_owned(), relay_b.url().to_owned()];
+    let bunker_uri = RadrootsNostrConnectUri::Bunker(RadrootsNostrConnectBunkerUri {
+        remote_signer_public_key: signer_identity.public_key(),
+        relays: vec![
+            relay_a.url().parse().expect("relay a url"),
+            relay_b.url().parse().expect("relay b url"),
+        ],
+        secret: None,
+    })
+    .to_string();
+    let encoded_bunker_uri: String =
+        url::form_urlencoded::byte_serialize(bunker_uri.as_bytes()).collect();
+    matched_spec.nostrconnect_url = Some(format!(
+        "https://signer.example.com/connect?uri={encoded_bunker_uri}"
+    ));
+    let mut matched_metadata = RadrootsNostrMetadata::default();
+    matched_metadata.name = Some("myc".to_owned());
+    matched_metadata.display_name = Some("Mycorrhiza".to_owned());
+    matched_metadata.about = Some("NIP-46 signer".to_owned());
+    matched_metadata.website = Some("https://signer.example.com".to_owned());
+    matched_metadata.picture = Some("https://signer.example.com/logo.png".to_owned());
+    matched_spec.metadata = Some(matched_metadata);
+    publish_handler_event(relay_a.url(), &app_identity, &matched_spec).await?;
+
+    let mut drifted_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133]);
+    drifted_spec.identifier = Some("myc".to_owned());
+    drifted_spec.relays = vec!["wss://stale.example.com".to_owned()];
+    let mut drifted_metadata = RadrootsNostrMetadata::default();
+    drifted_metadata.name = Some("stale".to_owned());
+    drifted_spec.metadata = Some(drifted_metadata);
+    publish_handler_event(relay_b.url(), &app_identity, &drifted_spec).await?;
+
+    relay_a
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+    relay_b
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+
+    let inspect = run_myc(&config_path, &["discovery", "inspect-live-nip89"])?;
+    assert!(
+        inspect.status.success(),
+        "inspect-live-nip89 failed: {}",
+        String::from_utf8_lossy(&inspect.stderr)
+    );
+    let inspect_output: Value = serde_json::from_slice(&inspect.stdout)?;
+    assert_eq!(inspect_output["live_groups"].as_array().unwrap().len(), 2);
+    assert_eq!(inspect_output["relay_states"].as_array().unwrap().len(), 2);
+    let group_relays = inspect_output["live_groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|group| {
+            group["source_relays"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|relay| relay.as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        group_relays
+            .iter()
+            .any(|relays| relays == &vec![relay_a.url().to_owned()])
+    );
+    assert!(
+        group_relays
+            .iter()
+            .any(|relays| relays == &vec![relay_b.url().to_owned()])
+    );
+
+    let diff = run_myc(&config_path, &["discovery", "diff-live-nip89"])?;
+    assert!(
+        diff.status.success(),
+        "diff-live-nip89 failed: {}",
+        String::from_utf8_lossy(&diff.stderr)
+    );
+    let diff_output: Value = serde_json::from_slice(&diff.stdout)?;
+    assert_eq!(diff_output["status"], "conflicted");
+    assert_eq!(
+        diff_output["relay_summary"]["matched_relays"],
+        Value::Array(vec![Value::String(relay_a.url().to_owned())])
+    );
+    assert_eq!(
+        diff_output["relay_summary"]["drifted_relays"],
+        Value::Array(vec![Value::String(relay_b.url().to_owned())])
+    );
+    assert_eq!(
+        diff_output["relay_summary"]["conflicted_relays"],
+        Value::Array(vec![])
+    );
+    assert_eq!(diff_output["relay_states"].as_array().unwrap().len(), 2);
 
     Ok(())
 }

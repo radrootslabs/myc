@@ -5,9 +5,9 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use myc::control;
 use myc::{
-    MycConfig, MycConnectionApproval, MycDiscoveryLiveStatus, MycOperationAuditKind,
-    MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime, diff_live_nip89,
-    fetch_live_nip89, publish_nip89_event, refresh_nip89,
+    MycConfig, MycConnectionApproval, MycDiscoveryContext, MycDiscoveryLiveStatus,
+    MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime,
+    diff_live_nip89, fetch_live_nip89, publish_nip89_event, refresh_nip89,
 };
 use nostr::filter::MatchEventOptions;
 use nostr::nips::nip44;
@@ -361,6 +361,10 @@ impl MycTestRuntime {
     }
 
     fn new_with_discovery(relay_url: &str, approval: MycConnectionApproval) -> Self {
+        Self::new_with_discovery_relays(&[relay_url], approval)
+    }
+
+    fn new_with_discovery_relays(relay_urls: &[&str], approval: MycConnectionApproval) -> Self {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut config = MycConfig::default();
         config.paths.state_dir = temp.path().join("state");
@@ -370,8 +374,10 @@ impl MycTestRuntime {
         config.transport.connect_timeout_secs = 1;
         config.discovery.enabled = true;
         config.discovery.domain = Some("signer.example.com".to_owned());
-        config.discovery.public_relays = vec![relay_url.to_owned()];
-        config.discovery.publish_relays = vec![relay_url.to_owned()];
+        config.discovery.public_relays =
+            relay_urls.iter().map(|relay| (*relay).to_owned()).collect();
+        config.discovery.publish_relays =
+            relay_urls.iter().map(|relay| (*relay).to_owned()).collect();
         config.discovery.nostrconnect_url_template =
             Some("https://signer.example.com/connect?uri=<nostrconnect>".to_owned());
         config.discovery.app_identity_path = Some(temp.path().join("app.json"));
@@ -429,6 +435,24 @@ async fn publish_handler_event(
         output.failed
     );
     Ok(event)
+}
+
+async fn publish_signed_event(
+    relay_url: &str,
+    identity: &RadrootsIdentity,
+    event: &Event,
+) -> TestResult<()> {
+    let client = RadrootsNostrClient::from_identity(identity);
+    let _ = client.add_relay(relay_url).await?;
+    client.connect().await;
+    client.wait_for_connection(Duration::from_secs(1)).await;
+    let output = client.send_event(event).await?;
+    assert!(
+        !output.success.is_empty(),
+        "signed event publish did not succeed: {:?}",
+        output.failed
+    );
+    Ok(())
 }
 
 fn connect_request_message(
@@ -1330,6 +1354,96 @@ async fn diff_live_nip89_reports_conflicted_when_live_groups_disagree() -> TestR
     assert_eq!(diff.status, MycDiscoveryLiveStatus::Conflicted);
     assert_eq!(diff.differing_fields, vec!["live_groups".to_owned()]);
     assert_eq!(diff.live_groups.len(), 2);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn diff_live_nip89_surfaces_relay_divergence_with_provenance() -> TestResult<()> {
+    let relay_a = TestRelay::spawn().await?;
+    let relay_b = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new_with_discovery_relays(
+        &[relay_a.url(), relay_b.url()],
+        MycConnectionApproval::ExplicitUser,
+    );
+    let runtime = test_runtime.runtime;
+    let app_identity = RadrootsIdentity::load_from_path_auto(
+        runtime
+            .config()
+            .discovery
+            .app_identity_path
+            .as_ref()
+            .expect("app identity path"),
+    )?;
+
+    let matched_event = MycDiscoveryContext::from_runtime(&runtime)?
+        .build_signed_handler_event()
+        .expect("matched event");
+    publish_signed_event(relay_a.url(), &app_identity, &matched_event).await?;
+
+    let mut drifted_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133]);
+    drifted_spec.identifier = Some("myc".to_owned());
+    drifted_spec.relays = vec!["wss://stale.example.com".to_owned()];
+    let mut drifted_metadata = RadrootsNostrMetadata::default();
+    drifted_metadata.name = Some("stale".to_owned());
+    drifted_spec.metadata = Some(drifted_metadata);
+    publish_handler_event(relay_b.url(), &app_identity, &drifted_spec).await?;
+
+    relay_a
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+    relay_b
+        .wait_for_published_events_by_author(app_identity.public_key(), 1)
+        .await?;
+
+    let diff = diff_live_nip89(&runtime).await?;
+
+    assert_eq!(diff.status, MycDiscoveryLiveStatus::Conflicted);
+    assert_eq!(diff.live_groups.len(), 2);
+    assert_eq!(diff.relay_states.len(), 2);
+    assert_eq!(diff.relay_summary.total_relays, 2);
+    assert_eq!(
+        diff.relay_summary.matched_relays,
+        vec![relay_a.url().to_owned()]
+    );
+    assert_eq!(
+        diff.relay_summary.drifted_relays,
+        vec![relay_b.url().to_owned()]
+    );
+    assert!(diff.relay_summary.missing_relays.is_empty());
+    assert!(diff.relay_summary.conflicted_relays.is_empty());
+
+    let matched_relay = diff
+        .relay_states
+        .iter()
+        .find(|relay_state| relay_state.relay_url == relay_a.url())
+        .expect("matched relay");
+    assert_eq!(matched_relay.status, MycDiscoveryLiveStatus::Matched);
+    assert_eq!(matched_relay.live_groups.len(), 1);
+    assert_eq!(
+        matched_relay.live_groups[0].source_relays,
+        vec![relay_a.url().to_owned()]
+    );
+
+    let drifted_relay = diff
+        .relay_states
+        .iter()
+        .find(|relay_state| relay_state.relay_url == relay_b.url())
+        .expect("drifted relay");
+    assert_eq!(drifted_relay.status, MycDiscoveryLiveStatus::Drifted);
+    assert_eq!(drifted_relay.live_groups.len(), 1);
+    assert_eq!(
+        drifted_relay.live_groups[0].source_relays,
+        vec![relay_b.url().to_owned()]
+    );
+
+    let live_group_relays = diff
+        .live_groups
+        .iter()
+        .map(|group| group.source_relays.clone())
+        .collect::<Vec<_>>();
+    assert!(live_group_relays.contains(&vec![relay_a.url().to_owned()]));
+    assert!(live_group_relays.contains(&vec![relay_b.url().to_owned()]));
 
     Ok(())
 }
