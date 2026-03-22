@@ -1035,6 +1035,7 @@ dependencies = [
  "futures-util",
  "nostr",
  "radroots-identity",
+ "radroots-log",
  "radroots-nostr",
  "radroots-nostr-connect",
  "radroots-nostr-signer",

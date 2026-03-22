@@ -1,38 +1,42 @@
-use tracing_subscriber::EnvFilter;
-
+use radroots_log::{LogFileLayout, LoggingOptions};
 use crate::config::MycLoggingConfig;
 use crate::error::MycError;
 
-pub fn build_env_filter(filter: &str) -> Result<EnvFilter, MycError> {
-    EnvFilter::try_new(filter).map_err(|source| MycError::InvalidLogFilter {
-        filter: filter.to_owned(),
-        source,
-    })
-}
-
 pub fn init_logging(config: &MycLoggingConfig) -> Result<(), MycError> {
-    let filter = build_env_filter(&config.filter)?;
-    let subscriber = tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(true)
-        .finish();
-
-    tracing::subscriber::set_global_default(subscriber)
-        .map_err(|_| MycError::LoggingAlreadyInitialized)
+    radroots_log::init_logging(LoggingOptions {
+        dir: config.output_dir.clone(),
+        file_name: "log".to_owned(),
+        stdout: config.stdout,
+        default_level: Some(config.filter.clone()),
+        file_layout: LogFileLayout::DatedFileName,
+    })
+    .map_err(|source| MycError::InvalidOperation(format!("failed to initialize logging: {source}")))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::path::PathBuf;
+
+    use crate::config::MycConfig;
 
     #[test]
-    fn build_env_filter_accepts_valid_filter() {
-        assert!(build_env_filter("info,myc=debug").is_ok());
-    }
+    fn config_parses_logging_output_dir_and_stdout() {
+        let config = MycConfig::from_env_str(
+            r#"
+MYC_LOGGING_FILTER=info,myc=debug
+MYC_LOGGING_OUTPUT_DIR=/tmp/myc-logs
+MYC_LOGGING_STDOUT=false
+MYC_PATHS_STATE_DIR=/tmp/myc
+MYC_PATHS_SIGNER_IDENTITY_PATH=/tmp/signer.json
+MYC_PATHS_USER_IDENTITY_PATH=/tmp/user.json
+MYC_DISCOVERY_ENABLED=false
+MYC_TRANSPORT_ENABLED=false
+MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=10
+            "#,
+        )
+        .expect("config");
 
-    #[test]
-    fn build_env_filter_rejects_invalid_filter() {
-        let err = build_env_filter("info,myc=[").expect_err("invalid filter");
-        assert!(err.to_string().contains("invalid log filter"));
+        assert_eq!(config.logging.output_dir, Some(PathBuf::from("/tmp/myc-logs")));
+        assert!(!config.logging.stdout);
     }
 }

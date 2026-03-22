@@ -34,6 +34,8 @@ pub struct MycServiceConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct MycLoggingConfig {
     pub filter: String,
+    pub output_dir: Option<PathBuf>,
+    pub stdout: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -123,6 +125,8 @@ impl Default for MycLoggingConfig {
     fn default() -> Self {
         Self {
             filter: "info,myc=info".to_owned(),
+            output_dir: None,
+            stdout: true,
         }
     }
 }
@@ -239,6 +243,14 @@ impl MycConfig {
                 source,
             }
         })?;
+
+        if let Some(output_dir) = self.logging.output_dir.as_ref() {
+            if output_dir.as_os_str().is_empty() {
+                return Err(MycError::InvalidConfig(
+                    "logging.output_dir must not be empty when set".to_owned(),
+                ));
+            }
+        }
 
         if self.paths.state_dir.as_os_str().is_empty() {
             return Err(MycError::InvalidConfig(
@@ -376,6 +388,12 @@ fn apply_env_entry(
     match key {
         "MYC_SERVICE_INSTANCE_NAME" => config.service.instance_name = value.to_owned(),
         "MYC_LOGGING_FILTER" => config.logging.filter = value.to_owned(),
+        "MYC_LOGGING_OUTPUT_DIR" => {
+            config.logging.output_dir = parse_optional_path_env(value);
+        }
+        "MYC_LOGGING_STDOUT" => {
+            config.logging.stdout = parse_bool_env(key, value, path, line_number)?;
+        }
         "MYC_PATHS_STATE_DIR" => config.paths.state_dir = PathBuf::from(value),
         "MYC_PATHS_SIGNER_IDENTITY_PATH" => {
             config.paths.signer_identity_path = PathBuf::from(value);
@@ -725,6 +743,8 @@ mod tests {
         let config = MycConfig::default();
         assert_eq!(config.service.instance_name, "myc");
         assert_eq!(config.logging.filter, "info,myc=info");
+        assert_eq!(config.logging.output_dir, None);
+        assert!(config.logging.stdout);
         assert_eq!(config.paths.state_dir, PathBuf::from("var"));
         assert_eq!(
             config.paths.signer_identity_path,
@@ -759,6 +779,8 @@ mod tests {
             r#"
 MYC_SERVICE_INSTANCE_NAME=myc-dev
 MYC_LOGGING_FILTER=debug,myc=trace
+MYC_LOGGING_OUTPUT_DIR=/tmp/myc-logs
+MYC_LOGGING_STDOUT=false
 MYC_PATHS_STATE_DIR=/tmp/myc
 MYC_PATHS_SIGNER_IDENTITY_PATH=/tmp/myc-identity.json
 MYC_PATHS_USER_IDENTITY_PATH=/tmp/myc-user.json
@@ -788,6 +810,8 @@ MYC_TRANSPORT_RELAYS=wss://relay.example.com,wss://relay2.example.com
 
         assert_eq!(config.service.instance_name, "myc-dev");
         assert_eq!(config.logging.filter, "debug,myc=trace");
+        assert_eq!(config.logging.output_dir, Some(PathBuf::from("/tmp/myc-logs")));
+        assert!(!config.logging.stdout);
         assert_eq!(config.paths.state_dir, PathBuf::from("/tmp/myc"));
         assert_eq!(
             config.paths.signer_identity_path,
@@ -938,12 +962,16 @@ MYC_UNKNOWN=nope
         assert!(config.discovery.enabled);
         assert_eq!(
             config.discovery.domain.as_deref(),
-            Some("localhost")
+            Some("myc.radroots.org")
         );
         assert_eq!(config.discovery.handler_identifier, "myc");
         assert_eq!(
+            config.logging.output_dir,
+            Some(PathBuf::from("/var/log/radroots/services/myc"))
+        );
+        assert_eq!(
             config.discovery.nip05_output_path,
-            Some(PathBuf::from("var/public/.well-known/nostr.json"))
+            Some(PathBuf::from("/var/lib/myc/public/.well-known/nostr.json"))
         );
     }
 }
