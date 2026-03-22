@@ -387,6 +387,13 @@ fn extract_discovery_attempt_id(stderr: &str) -> Option<&str> {
         .find_map(|line| line.strip_prefix("myc: discovery repair attempt id: "))
 }
 
+fn extract_discovery_attempt_hint(stderr: &str) -> Option<Value> {
+    stderr.lines().find_map(|line| {
+        line.strip_prefix("myc: discovery repair attempt json: ")
+            .and_then(|json| serde_json::from_str(json).ok())
+    })
+}
+
 fn unavailable_relay_url() -> TestResult<String> {
     let listener = StdTcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;
@@ -694,6 +701,20 @@ async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
     );
     let refresh_stderr = String::from_utf8_lossy(&refresh.stderr);
     let attempt_id = extract_discovery_attempt_id(&refresh_stderr).expect("attempt id");
+    let attempt_hint = extract_discovery_attempt_hint(&refresh_stderr).expect("attempt hint");
+    assert_eq!(
+        attempt_hint["attempt_id"],
+        Value::String(attempt_id.to_owned())
+    );
+    assert_eq!(
+        attempt_hint["inspect_args"],
+        Value::Array(vec![
+            Value::String("audit".to_owned()),
+            Value::String("discovery-repair-attempt".to_owned()),
+            Value::String("--attempt-id".to_owned()),
+            Value::String(attempt_id.to_owned()),
+        ])
+    );
     let attempt = run_myc(
         &config_path,
         &[
@@ -716,6 +737,22 @@ async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
     assert_eq!(
         attempt_output["refresh_outcome"],
         Value::String("conflicted".to_owned())
+    );
+    assert_eq!(
+        attempt_output["planned_repair_relays"],
+        Value::Array(vec![Value::String(relay.url().to_owned())])
+    );
+    assert_eq!(
+        attempt_output["blocked_relays"],
+        Value::Array(vec![Value::String(relay.url().to_owned())])
+    );
+    assert_eq!(
+        attempt_output["blocked_reason"],
+        Value::String("conflicted_relays".to_owned())
+    );
+    assert_eq!(
+        attempt_output["remaining_repair_relays"],
+        Value::Array(vec![Value::String(relay.url().to_owned())])
     );
 
     let forced_refresh = run_myc(&config_path, &["discovery", "refresh-nip89", "--force"])?;
@@ -880,6 +917,11 @@ async fn failed_refresh_publish_surfaces_attempt_id_and_exact_audit_lookup() -> 
         "unexpected refresh stderr: {refresh_stderr}"
     );
     let attempt_id = extract_discovery_attempt_id(&refresh_stderr).expect("attempt id");
+    let attempt_hint = extract_discovery_attempt_hint(&refresh_stderr).expect("attempt hint");
+    assert_eq!(
+        attempt_hint["attempt_id"],
+        Value::String(attempt_id.to_owned())
+    );
 
     let attempt = run_myc(
         &config_path,
@@ -916,6 +958,12 @@ async fn failed_refresh_publish_surfaces_attempt_id_and_exact_audit_lookup() -> 
         attempt_output["remaining_repair_relays"],
         Value::Array(vec![Value::String(relay.url().to_owned())])
     );
+    assert_eq!(
+        attempt_output["planned_repair_relays"],
+        Value::Array(vec![Value::String(relay.url().to_owned())])
+    );
+    assert_eq!(attempt_output["blocked_relays"], Value::Array(vec![]));
+    assert!(attempt_output["blocked_reason"].is_null());
 
     Ok(())
 }
@@ -1309,6 +1357,11 @@ async fn refresh_requires_force_when_a_discovery_relay_is_unavailable_through_th
     );
     let refresh_stderr = String::from_utf8_lossy(&refresh.stderr);
     let attempt_id = extract_discovery_attempt_id(&refresh_stderr).expect("attempt id");
+    let attempt_hint = extract_discovery_attempt_hint(&refresh_stderr).expect("attempt hint");
+    assert_eq!(
+        attempt_hint["attempt_id"],
+        Value::String(attempt_id.to_owned())
+    );
     let attempt = run_myc(
         &config_path,
         &[
@@ -1332,6 +1385,22 @@ async fn refresh_requires_force_when_a_discovery_relay_is_unavailable_through_th
         attempt_output["refresh_outcome"],
         Value::String("unavailable".to_owned())
     );
+    assert_eq!(
+        attempt_output["planned_repair_relays"],
+        Value::Array(vec![Value::String(relay.url().to_owned())])
+    );
+    assert_eq!(
+        attempt_output["blocked_relays"],
+        Value::Array(vec![Value::String(unavailable_relay.clone())])
+    );
+    assert_eq!(
+        attempt_output["blocked_reason"],
+        Value::String("unavailable_relays".to_owned())
+    );
+    assert_eq!(
+        attempt_output["remaining_repair_relays"],
+        Value::Array(vec![Value::String(relay.url().to_owned())])
+    );
 
     let forced_refresh = run_myc(&config_path, &["discovery", "refresh-nip89", "--force"])?;
     assert!(
@@ -1346,6 +1415,99 @@ async fn refresh_requires_force_when_a_discovery_relay_is_unavailable_through_th
         Value::Array(vec![Value::String(unavailable_relay.clone())])
     );
     assert!(forced_refresh_output["published"].is_object());
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn refresh_surfaces_blocked_summary_when_all_discovery_relays_are_unavailable()
+-> TestResult<()> {
+    let unavailable_relay = unavailable_relay_url()?;
+    let temp = tempfile::tempdir()?;
+    let config_path = temp.path().join("config.toml");
+    let state_dir = temp.path().join("state");
+    let signer_identity_path = temp.path().join("signer.json");
+    let user_identity_path = temp.path().join("user.json");
+    let app_identity_path = temp.path().join("app.json");
+
+    write_identity(
+        &signer_identity_path,
+        "1111111111111111111111111111111111111111111111111111111111111111",
+    );
+    write_identity(
+        &user_identity_path,
+        "2222222222222222222222222222222222222222222222222222222222222222",
+    );
+    write_identity(
+        &app_identity_path,
+        "3333333333333333333333333333333333333333333333333333333333333333",
+    );
+    write_config(
+        &config_path,
+        &state_dir,
+        &signer_identity_path,
+        &user_identity_path,
+        &app_identity_path,
+        &[unavailable_relay.as_str()],
+    );
+
+    let refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
+    assert!(
+        !refresh.status.success(),
+        "refresh-nip89 unexpectedly succeeded: {}",
+        String::from_utf8_lossy(&refresh.stdout)
+    );
+    let refresh_stderr = String::from_utf8_lossy(&refresh.stderr);
+    assert!(
+        refresh_stderr.contains("failed to fetch discovery state from all configured relays"),
+        "unexpected refresh stderr: {refresh_stderr}"
+    );
+    let attempt_id = extract_discovery_attempt_id(&refresh_stderr).expect("attempt id");
+    let attempt_hint = extract_discovery_attempt_hint(&refresh_stderr).expect("attempt hint");
+    assert_eq!(
+        attempt_hint["attempt_id"],
+        Value::String(attempt_id.to_owned())
+    );
+
+    let attempt = run_myc(
+        &config_path,
+        &[
+            "audit",
+            "discovery-repair-attempt",
+            "--attempt-id",
+            attempt_id,
+        ],
+    )?;
+    assert!(
+        attempt.status.success(),
+        "discovery-repair-attempt failed: {}",
+        String::from_utf8_lossy(&attempt.stderr)
+    );
+    let attempt_output: Value = serde_json::from_slice(&attempt.stdout)?;
+    assert_eq!(
+        attempt_output["attempt_id"],
+        Value::String(attempt_id.to_owned())
+    );
+    assert_eq!(
+        attempt_output["refresh_outcome"],
+        Value::String("unavailable".to_owned())
+    );
+    assert_eq!(
+        attempt_output["planned_repair_relays"],
+        Value::Array(vec![])
+    );
+    assert_eq!(
+        attempt_output["blocked_relays"],
+        Value::Array(vec![Value::String(unavailable_relay)])
+    );
+    assert_eq!(
+        attempt_output["blocked_reason"],
+        Value::String("all_relays_unavailable".to_owned())
+    );
+    assert_eq!(
+        attempt_output["remaining_repair_relays"],
+        Value::Array(vec![])
+    );
 
     Ok(())
 }

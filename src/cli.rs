@@ -240,6 +240,10 @@ pub struct MycDiscoveryRepairAttemptSummaryOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregate_publish_relay_outcome_summary: Option<String>,
     pub repair_summary: MycDiscoveryRepairSummary,
+    pub planned_repair_relays: Vec<String>,
+    pub blocked_relays: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<String>,
     pub failed_relays: Vec<String>,
     pub remaining_repair_relays: Vec<String>,
 }
@@ -705,6 +709,10 @@ impl MycDiscoveryRepairAttemptSummaryOutput {
             (record.operation == MycOperationAuditKind::DiscoveryHandlerRefresh)
                 .then_some(record.outcome)
         });
+        let refresh_record = records
+            .iter()
+            .rev()
+            .find(|record| record.operation == MycOperationAuditKind::DiscoveryHandlerRefresh);
         let publish_record = records
             .iter()
             .rev()
@@ -731,6 +739,27 @@ impl MycDiscoveryRepairAttemptSummaryOutput {
         }
         failed_relays.sort();
         failed_relays.dedup();
+        let planned_repair_relays = refresh_record
+            .map(|record| record.planned_repair_relays.clone())
+            .unwrap_or_default();
+        let blocked_relays = refresh_record
+            .map(|record| record.blocked_relays.clone())
+            .unwrap_or_default();
+        let blocked_reason = refresh_record.and_then(|record| record.blocked_reason.clone());
+        let remaining_repair_relays = if !failed_relays.is_empty() {
+            failed_relays.clone()
+        } else if matches!(
+            refresh_outcome,
+            Some(
+                MycOperationAuditOutcome::Unavailable
+                    | MycOperationAuditOutcome::Conflicted
+                    | MycOperationAuditOutcome::Rejected
+            )
+        ) {
+            planned_repair_relays.clone()
+        } else {
+            Vec::new()
+        };
 
         Ok(Self {
             attempt_id: attempt_id.to_owned(),
@@ -746,8 +775,11 @@ impl MycDiscoveryRepairAttemptSummaryOutput {
             aggregate_publish_relay_outcome_summary: publish_record
                 .map(|record| record.relay_outcome_summary.clone()),
             repair_summary,
+            planned_repair_relays,
+            blocked_relays,
+            blocked_reason,
             failed_relays: failed_relays.clone(),
-            remaining_repair_relays: failed_relays,
+            remaining_repair_relays,
         })
     }
 }

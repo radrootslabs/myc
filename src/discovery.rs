@@ -216,6 +216,12 @@ pub struct MycRefreshedNip89Output {
     pub published: Option<MycPublishedNip89Output>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MycDiscoveryRefreshPlan {
+    selected_relays: Vec<RadrootsNostrRelayUrl>,
+    planned_repair_relays: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 struct MycSourcedLiveNip89Event {
     source_relay: String,
@@ -611,6 +617,7 @@ pub async fn refresh_nip89(
 ) -> Result<MycRefreshedNip89Output, MycError> {
     let context = MycDiscoveryContext::from_runtime(runtime)?;
     let attempt_id = RadrootsNostrSignerRequestId::new_v7().into_string();
+    let configured_publish_relays = relay_urls_to_strings(context.publish_relays());
     let local_handler = context.render_normalized_nip89_handler();
     let fetched = match fetch_live_nip89_state_for_runtime(
         runtime,
@@ -634,7 +641,8 @@ pub async fn refresh_nip89(
                     0,
                     details.clone(),
                 )
-                .with_attempt_id(attempt_id.clone()),
+                .with_attempt_id(attempt_id.clone())
+                .with_blocked_relays("all_relays_unavailable", configured_publish_relays.clone()),
             );
             return Err(MycError::DiscoveryFetchUnavailable {
                 relay_count,
@@ -654,6 +662,8 @@ pub async fn refresh_nip89(
     let compare_request_id = latest_live_event_id(&live_groups);
     let compare_summary =
         describe_compare_status(status, &differing_fields, &live_groups, &relay_summary);
+    let blocked_refresh_plan = build_refresh_plan(&context, &relay_states, true)
+        .map_err(|error| error.with_discovery_refresh_attempt_id(attempt_id.clone()))?;
 
     runtime.record_operation_audit(
         &MycOperationAuditRecord::new(
@@ -682,7 +692,12 @@ pub async fn refresh_nip89(
                     relay_summary.unavailable_relays.join(", ")
                 ),
             )
-            .with_attempt_id(attempt_id.clone()),
+            .with_attempt_id(attempt_id.clone())
+            .with_planned_repair_relays(blocked_refresh_plan.planned_repair_relays.clone())
+            .with_blocked_relays(
+                "unavailable_relays",
+                relay_summary.unavailable_relays.clone(),
+            ),
         );
         return Err(
             MycError::InvalidOperation(format!(
@@ -705,7 +720,12 @@ pub async fn refresh_nip89(
                 "live discovery handler state is conflicted; rerun refresh with --force to override"
                     .to_owned(),
             )
-            .with_attempt_id(attempt_id.clone()),
+            .with_attempt_id(attempt_id.clone())
+            .with_planned_repair_relays(blocked_refresh_plan.planned_repair_relays.clone())
+            .with_blocked_relays(
+                "conflicted_relays",
+                relay_summary.conflicted_relays.clone(),
+            ),
         );
         return Err(
             MycError::InvalidOperation(
@@ -716,8 +736,10 @@ pub async fn refresh_nip89(
         );
     }
 
-    let refresh_relays = select_refresh_relays(&context, &relay_states, force)
+    let refresh_plan = build_refresh_plan(&context, &relay_states, force)
         .map_err(|error| error.with_discovery_refresh_attempt_id(attempt_id.clone()))?;
+    let refresh_relays = refresh_plan.selected_relays;
+    let refresh_relay_urls = relay_urls_to_strings(&refresh_relays);
 
     if refresh_relays.is_empty() {
         let repair_results = build_repair_results(&context, &relay_states, &[], None, None);
@@ -738,7 +760,8 @@ pub async fn refresh_nip89(
                 relay_count.saturating_sub(relay_summary.unavailable_relays.len()),
                 "local discovery handler already matches live state".to_owned(),
             )
-            .with_attempt_id(attempt_id.clone()),
+            .with_attempt_id(attempt_id.clone())
+            .with_planned_repair_relays(refresh_relay_urls.clone()),
         );
         return Ok(MycRefreshedNip89Output {
             attempt_id,
@@ -796,7 +819,8 @@ pub async fn refresh_nip89(
                         repair_summary.skipped
                     ),
                 )
-                .with_attempt_id(attempt_id.clone()),
+                .with_attempt_id(attempt_id.clone())
+                .with_planned_repair_relays(refresh_relay_urls.clone()),
             );
             return Ok(MycRefreshedNip89Output {
                 attempt_id,
@@ -838,11 +862,28 @@ pub async fn refresh_nip89(
                         repair_summary.skipped
                     ),
                 )
-                .with_attempt_id(attempt_id.clone()),
+                .with_attempt_id(attempt_id.clone())
+                .with_planned_repair_relays(refresh_relay_urls.clone()),
             );
             return Err(error.with_discovery_refresh_attempt_id(attempt_id));
         }
     }
+}
+
+fn build_refresh_plan(
+    context: &MycDiscoveryContext,
+    relay_states: &[MycDiscoveryRelayState],
+    force: bool,
+) -> Result<MycDiscoveryRefreshPlan, MycError> {
+    let selected_relays = select_refresh_relays(context, relay_states, force)?;
+    Ok(MycDiscoveryRefreshPlan {
+        selected_relays: selected_relays.clone(),
+        planned_repair_relays: relay_urls_to_strings(&selected_relays),
+    })
+}
+
+fn relay_urls_to_strings(relays: &[RadrootsNostrRelayUrl]) -> Vec<String> {
+    relays.iter().map(ToString::to_string).collect()
 }
 
 fn select_refresh_relays(

@@ -54,6 +54,12 @@ pub struct MycOperationAuditRecord {
     pub request_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attempt_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub planned_repair_relays: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocked_relays: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<String>,
     pub relay_count: usize,
     pub acknowledged_relay_count: usize,
     pub relay_outcome_summary: String,
@@ -83,6 +89,9 @@ impl MycOperationAuditRecord {
             connection_id: connection_id.map(ToString::to_string),
             request_id: request_id.map(ToOwned::to_owned),
             attempt_id: None,
+            planned_repair_relays: Vec::new(),
+            blocked_relays: Vec::new(),
+            blocked_reason: None,
             relay_count,
             acknowledged_relay_count,
             relay_outcome_summary: relay_outcome_summary.into(),
@@ -96,6 +105,21 @@ impl MycOperationAuditRecord {
 
     pub fn with_attempt_id(mut self, attempt_id: impl Into<String>) -> Self {
         self.attempt_id = Some(attempt_id.into());
+        self
+    }
+
+    pub fn with_planned_repair_relays(mut self, planned_repair_relays: Vec<String>) -> Self {
+        self.planned_repair_relays = planned_repair_relays;
+        self
+    }
+
+    pub fn with_blocked_relays(
+        mut self,
+        blocked_reason: impl Into<String>,
+        blocked_relays: Vec<String>,
+    ) -> Self {
+        self.blocked_reason = Some(blocked_reason.into());
+        self.blocked_relays = blocked_relays;
         self
     }
 }
@@ -542,7 +566,12 @@ mod tests {
                     0,
                     "first attempt rejected",
                 )
-                .with_attempt_id("attempt-1"),
+                .with_attempt_id("attempt-1")
+                .with_planned_repair_relays(vec!["wss://relay-a.example.com".to_owned()])
+                .with_blocked_relays(
+                    "unavailable_relays",
+                    vec!["wss://relay-b.example.com".to_owned()],
+                ),
             )
             .expect("append first attempt");
         store
@@ -583,6 +612,18 @@ mod tests {
             attempt_records
                 .iter()
                 .all(|record| record.attempt_id.as_deref() == Some("attempt-1"))
+        );
+        assert_eq!(
+            attempt_records[0].planned_repair_relays,
+            vec!["wss://relay-a.example.com".to_owned()]
+        );
+        assert_eq!(
+            attempt_records[0].blocked_relays,
+            vec!["wss://relay-b.example.com".to_owned()]
+        );
+        assert_eq!(
+            attempt_records[0].blocked_reason.as_deref(),
+            Some("unavailable_relays")
         );
         assert_eq!(
             store
