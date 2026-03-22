@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
-use crate::config::{DEFAULT_CONFIG_PATH, MycConfig};
+use crate::config::{DEFAULT_ENV_PATH, MycConfig};
 use crate::control::{accept_client_uri, authorize_auth_challenge, parse_permission_values};
 use crate::discovery::{
     MycDiscoveryContext, MycDiscoveryRepairSummary, diff_live_nip89, fetch_live_nip89,
@@ -24,8 +24,8 @@ use crate::logging;
 #[command(name = "myc")]
 #[command(about = "Mycorrhiza NIP-46 signer service")]
 pub struct MycCli {
-    #[arg(long, global = true)]
-    config: Option<PathBuf>,
+    #[arg(long = "env-file", global = true)]
+    env_file: Option<PathBuf>,
     #[command(subcommand)]
     command: Option<MycCommand>,
 }
@@ -257,7 +257,7 @@ pub enum MycDiscoveryRepairAttemptOutput {
 
 pub async fn run_from_env() -> Result<(), MycError> {
     let cli = MycCli::parse();
-    let config = load_config(cli.config.as_deref())?;
+    let config = load_config(cli.env_file.as_deref())?;
 
     match cli.command.unwrap_or(MycCommand::Run) {
         MycCommand::Run => {
@@ -433,8 +433,8 @@ pub async fn run_from_env() -> Result<(), MycError> {
 
 fn load_config(path: Option<&Path>) -> Result<MycConfig, MycError> {
     match path {
-        Some(path) => MycConfig::load_from_path_if_exists(path),
-        None => MycConfig::load_from_path_if_exists(DEFAULT_CONFIG_PATH),
+        Some(path) => MycConfig::load_from_env_path(path),
+        None => MycConfig::load_from_env_path(DEFAULT_ENV_PATH),
     }
 }
 

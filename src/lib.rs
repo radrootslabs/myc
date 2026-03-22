@@ -16,7 +16,7 @@ pub use audit::{
     MycOperationAuditStore,
 };
 pub use config::{
-    DEFAULT_CONFIG_PATH, MycAuditConfig, MycConfig, MycConnectionApproval, MycDiscoveryConfig,
+    DEFAULT_ENV_PATH, MycAuditConfig, MycConfig, MycConnectionApproval, MycDiscoveryConfig,
     MycDiscoveryMetadataConfig, MycLoggingConfig, MycPathsConfig, MycPolicyConfig,
     MycServiceConfig, MycTransportConfig,
 };
@@ -36,7 +36,7 @@ pub use error::MycError;
 pub use transport::{MycNostrTransport, MycRelayPublishResult, MycTransportSnapshot};
 
 pub async fn run() -> Result<(), MycError> {
-    let config = MycConfig::load_from_default_path_if_exists()?;
+    let config = MycConfig::load_from_default_env_path()?;
     logging::init_logging(&config.logging)?;
     MycApp::bootstrap(config)?.run().await
 }

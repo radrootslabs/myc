@@ -14,11 +14,11 @@ pub enum MycError {
         #[source]
         source: std::io::Error,
     },
-    #[error("config parse error at {path}: {source}")]
+    #[error("config parse error at {path}:{line_number}: {message}")]
     ConfigParse {
         path: PathBuf,
-        #[source]
-        source: toml::de::Error,
+        line_number: usize,
+        message: String,
     },
     #[error("invalid config: {0}")]
     InvalidConfig(String),

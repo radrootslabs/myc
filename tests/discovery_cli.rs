@@ -308,7 +308,7 @@ fn write_identity(path: &Path, secret_key: &str) {
         .expect("save identity");
 }
 
-fn write_config(
+fn write_env_file(
     path: &Path,
     state_dir: &Path,
     signer_identity_path: &Path,
@@ -316,52 +316,33 @@ fn write_config(
     app_identity_path: &Path,
     relay_urls: &[&str],
 ) {
-    let relay_list = relay_urls
-        .iter()
-        .map(|relay| format!("\"{relay}\""))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let config = format!(
-        r#"[service]
-instance_name = "myc"
-
-[logging]
-filter = "info,myc=info"
-
-[paths]
-state_dir = "{state_dir}"
-signer_identity_path = "{signer_identity_path}"
-user_identity_path = "{user_identity_path}"
-
-[audit]
-default_read_limit = 200
-max_active_file_bytes = 262144
-max_archived_files = 8
-
-[discovery]
-enabled = true
-domain = "signer.example.com"
-handler_identifier = "myc"
-app_identity_path = "{app_identity_path}"
-public_relays = [{relay_list}]
-publish_relays = [{relay_list}]
-nostrconnect_url_template = "https://signer.example.com/connect?uri=<nostrconnect>"
-nip05_output_path = "{nip05_output_path}"
-
-[discovery.metadata]
-name = "myc"
-display_name = "Mycorrhiza"
-about = "NIP-46 signer"
-website = "https://signer.example.com"
-picture = "https://signer.example.com/logo.png"
-
-[policy]
-connection_approval = "explicit_user"
-
-[transport]
-enabled = false
-connect_timeout_secs = 10
-relays = []
+    let relay_list = relay_urls.join(",");
+    let env_file = format!(
+        r#"MYC_SERVICE_INSTANCE_NAME=myc
+MYC_LOGGING_FILTER=info,myc=info
+MYC_PATHS_STATE_DIR={state_dir}
+MYC_PATHS_SIGNER_IDENTITY_PATH={signer_identity_path}
+MYC_PATHS_USER_IDENTITY_PATH={user_identity_path}
+MYC_AUDIT_DEFAULT_READ_LIMIT=200
+MYC_AUDIT_MAX_ACTIVE_FILE_BYTES=262144
+MYC_AUDIT_MAX_ARCHIVED_FILES=8
+MYC_DISCOVERY_ENABLED=true
+MYC_DISCOVERY_DOMAIN=signer.example.com
+MYC_DISCOVERY_HANDLER_IDENTIFIER=myc
+MYC_DISCOVERY_APP_IDENTITY_PATH={app_identity_path}
+MYC_DISCOVERY_PUBLIC_RELAYS={relay_list}
+MYC_DISCOVERY_PUBLISH_RELAYS={relay_list}
+MYC_DISCOVERY_NOSTRCONNECT_URL_TEMPLATE=https://signer.example.com/connect?uri=<nostrconnect>
+MYC_DISCOVERY_NIP05_OUTPUT_PATH={nip05_output_path}
+MYC_DISCOVERY_METADATA_NAME=myc
+MYC_DISCOVERY_METADATA_DISPLAY_NAME=Mycorrhiza
+MYC_DISCOVERY_METADATA_ABOUT=NIP-46 signer
+MYC_DISCOVERY_METADATA_WEBSITE=https://signer.example.com
+MYC_DISCOVERY_METADATA_PICTURE=https://signer.example.com/logo.png
+MYC_POLICY_CONNECTION_APPROVAL=explicit_user
+MYC_TRANSPORT_ENABLED=false
+MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=10
+MYC_TRANSPORT_RELAYS=
 "#,
         state_dir = state_dir.display(),
         signer_identity_path = signer_identity_path.display(),
@@ -370,13 +351,13 @@ relays = []
         relay_list = relay_list,
         nip05_output_path = state_dir.join("public/.well-known/nostr.json").display(),
     );
-    fs::write(path, config).expect("write config");
+    fs::write(path, env_file).expect("write env file");
 }
 
-fn run_myc(config_path: &Path, args: &[&str]) -> TestResult<Output> {
+fn run_myc(env_path: &Path, args: &[&str]) -> TestResult<Output> {
     Ok(Command::new(env!("CARGO_BIN_EXE_myc"))
-        .arg("--config")
-        .arg(config_path)
+        .arg("--env-file")
+        .arg(env_path)
         .args(args)
         .output()?)
 }
@@ -425,7 +406,7 @@ async fn publish_handler_event(
 #[test]
 fn export_bundle_and_verify_bundle_work_through_the_cli() -> TestResult<()> {
     let temp = tempfile::tempdir()?;
-    let config_path = temp.path().join("config.toml");
+    let env_path = temp.path().join(".env");
     let state_dir = temp.path().join("state");
     let signer_identity_path = temp.path().join("signer.json");
     let user_identity_path = temp.path().join("user.json");
@@ -444,8 +425,8 @@ fn export_bundle_and_verify_bundle_work_through_the_cli() -> TestResult<()> {
         &app_identity_path,
         "3333333333333333333333333333333333333333333333333333333333333333",
     );
-    write_config(
-        &config_path,
+    write_env_file(
+        &env_path,
         &state_dir,
         &signer_identity_path,
         &user_identity_path,
@@ -454,7 +435,7 @@ fn export_bundle_and_verify_bundle_work_through_the_cli() -> TestResult<()> {
     );
 
     let export = run_myc(
-        &config_path,
+        &env_path,
         &[
             "discovery",
             "export-bundle",
@@ -475,7 +456,7 @@ fn export_bundle_and_verify_bundle_work_through_the_cli() -> TestResult<()> {
     assert!(bundle_dir.join("nip89-handler.json").exists());
 
     let verify = run_myc(
-        &config_path,
+        &env_path,
         &[
             "discovery",
             "verify-bundle",
@@ -507,7 +488,7 @@ fn export_bundle_and_verify_bundle_work_through_the_cli() -> TestResult<()> {
 async fn discovery_sync_commands_work_through_the_cli() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let temp = tempfile::tempdir()?;
-    let config_path = temp.path().join("config.toml");
+    let env_path = temp.path().join(".env");
     let state_dir = temp.path().join("state");
     let signer_identity_path = temp.path().join("signer.json");
     let user_identity_path = temp.path().join("user.json");
@@ -525,8 +506,8 @@ async fn discovery_sync_commands_work_through_the_cli() -> TestResult<()> {
         "2222222222222222222222222222222222222222222222222222222222222222",
     );
     app_identity.save_json(&app_identity_path)?;
-    write_config(
-        &config_path,
+    write_env_file(
+        &env_path,
         &state_dir,
         &signer_identity_path,
         &user_identity_path,
@@ -534,7 +515,7 @@ async fn discovery_sync_commands_work_through_the_cli() -> TestResult<()> {
         &[relay.url()],
     );
 
-    let inspect_missing = run_myc(&config_path, &["discovery", "inspect-live-nip89"])?;
+    let inspect_missing = run_myc(&env_path, &["discovery", "inspect-live-nip89"])?;
     assert!(
         inspect_missing.status.success(),
         "inspect-live-nip89 failed: {}",
@@ -556,7 +537,7 @@ async fn discovery_sync_commands_work_through_the_cli() -> TestResult<()> {
         1
     );
 
-    let refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
+    let refresh = run_myc(&env_path, &["discovery", "refresh-nip89"])?;
     assert!(
         refresh.status.success(),
         "refresh-nip89 failed: {}",
@@ -570,7 +551,7 @@ async fn discovery_sync_commands_work_through_the_cli() -> TestResult<()> {
         .wait_for_published_events_by_author(app_identity.public_key(), 1)
         .await?;
 
-    let inspect_live = run_myc(&config_path, &["discovery", "inspect-live-nip89"])?;
+    let inspect_live = run_myc(&env_path, &["discovery", "inspect-live-nip89"])?;
     assert!(
         inspect_live.status.success(),
         "inspect-live-nip89 after refresh failed: {}",
@@ -589,7 +570,7 @@ async fn discovery_sync_commands_work_through_the_cli() -> TestResult<()> {
         1
     );
 
-    let diff = run_myc(&config_path, &["discovery", "diff-live-nip89"])?;
+    let diff = run_myc(&env_path, &["discovery", "diff-live-nip89"])?;
     assert!(
         diff.status.success(),
         "diff-live-nip89 failed: {}",
@@ -621,7 +602,7 @@ async fn discovery_sync_commands_work_through_the_cli() -> TestResult<()> {
 async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let temp = tempfile::tempdir()?;
-    let config_path = temp.path().join("config.toml");
+    let env_path = temp.path().join(".env");
     let state_dir = temp.path().join("state");
     let signer_identity_path = temp.path().join("signer.json");
     let user_identity_path = temp.path().join("user.json");
@@ -639,8 +620,8 @@ async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
         "2222222222222222222222222222222222222222222222222222222222222222",
     );
     app_identity.save_json(&app_identity_path)?;
-    write_config(
-        &config_path,
+    write_env_file(
+        &env_path,
         &state_dir,
         &signer_identity_path,
         &user_identity_path,
@@ -665,7 +646,7 @@ async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
         .wait_for_published_events_by_author(app_identity.public_key(), 2)
         .await?;
 
-    let diff = run_myc(&config_path, &["discovery", "diff-live-nip89"])?;
+    let diff = run_myc(&env_path, &["discovery", "diff-live-nip89"])?;
     assert!(
         diff.status.success(),
         "diff-live-nip89 failed: {}",
@@ -688,7 +669,7 @@ async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
             .is_empty()
     );
 
-    let refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
+    let refresh = run_myc(&env_path, &["discovery", "refresh-nip89"])?;
     assert!(
         !refresh.status.success(),
         "refresh-nip89 unexpectedly succeeded: {}",
@@ -716,7 +697,7 @@ async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
         ])
     );
     let attempt = run_myc(
-        &config_path,
+        &env_path,
         &[
             "audit",
             "discovery-repair-attempt",
@@ -755,7 +736,7 @@ async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
         Value::Array(vec![Value::String(relay.url().to_owned())])
     );
 
-    let forced_refresh = run_myc(&config_path, &["discovery", "refresh-nip89", "--force"])?;
+    let forced_refresh = run_myc(&env_path, &["discovery", "refresh-nip89", "--force"])?;
     assert!(
         forced_refresh.status.success(),
         "refresh-nip89 --force failed: {}",
@@ -773,7 +754,7 @@ async fn refresh_reports_partial_repair_and_audit_summary_through_the_cli() -> T
     let relay_a = TestRelay::spawn().await?;
     let relay_b = TestRelay::spawn().await?;
     let temp = tempfile::tempdir()?;
-    let config_path = temp.path().join("config.toml");
+    let env_path = temp.path().join(".env");
     let state_dir = temp.path().join("state");
     let signer_identity_path = temp.path().join("signer.json");
     let user_identity_path = temp.path().join("user.json");
@@ -791,8 +772,8 @@ async fn refresh_reports_partial_repair_and_audit_summary_through_the_cli() -> T
         "2222222222222222222222222222222222222222222222222222222222222222",
     );
     app_identity.save_json(&app_identity_path)?;
-    write_config(
-        &config_path,
+    write_env_file(
+        &env_path,
         &state_dir,
         &signer_identity_path,
         &user_identity_path,
@@ -807,7 +788,7 @@ async fn refresh_reports_partial_repair_and_audit_summary_through_the_cli() -> T
         .queue_publish_outcomes(app_identity.public_key(), &[false])
         .await;
 
-    let refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
+    let refresh = run_myc(&env_path, &["discovery", "refresh-nip89"])?;
     assert!(
         refresh.status.success(),
         "refresh-nip89 failed: {}",
@@ -839,7 +820,7 @@ async fn refresh_reports_partial_repair_and_audit_summary_through_the_cli() -> T
         0
     );
 
-    let audit_summary = run_myc(&config_path, &["audit", "summary", "--scope", "operation"])?;
+    let audit_summary = run_myc(&env_path, &["audit", "summary", "--scope", "operation"])?;
     assert!(
         audit_summary.status.success(),
         "audit summary failed: {}",
@@ -874,7 +855,7 @@ async fn refresh_reports_partial_repair_and_audit_summary_through_the_cli() -> T
 async fn failed_refresh_publish_surfaces_attempt_id_and_exact_audit_lookup() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let temp = tempfile::tempdir()?;
-    let config_path = temp.path().join("config.toml");
+    let env_path = temp.path().join(".env");
     let state_dir = temp.path().join("state");
     let signer_identity_path = temp.path().join("signer.json");
     let user_identity_path = temp.path().join("user.json");
@@ -892,8 +873,8 @@ async fn failed_refresh_publish_surfaces_attempt_id_and_exact_audit_lookup() -> 
         "2222222222222222222222222222222222222222222222222222222222222222",
     );
     app_identity.save_json(&app_identity_path)?;
-    write_config(
-        &config_path,
+    write_env_file(
+        &env_path,
         &state_dir,
         &signer_identity_path,
         &user_identity_path,
@@ -905,7 +886,7 @@ async fn failed_refresh_publish_surfaces_attempt_id_and_exact_audit_lookup() -> 
         .queue_publish_outcomes(app_identity.public_key(), &[false])
         .await;
 
-    let refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
+    let refresh = run_myc(&env_path, &["discovery", "refresh-nip89"])?;
     assert!(
         !refresh.status.success(),
         "refresh-nip89 unexpectedly succeeded: {}",
@@ -924,7 +905,7 @@ async fn failed_refresh_publish_surfaces_attempt_id_and_exact_audit_lookup() -> 
     );
 
     let attempt = run_myc(
-        &config_path,
+        &env_path,
         &[
             "audit",
             "discovery-repair-attempt",
@@ -973,7 +954,7 @@ async fn discovery_repair_attempt_commands_correlate_multiple_refresh_runs() -> 
     let relay_a = TestRelay::spawn().await?;
     let relay_b = TestRelay::spawn().await?;
     let temp = tempfile::tempdir()?;
-    let config_path = temp.path().join("config.toml");
+    let env_path = temp.path().join(".env");
     let state_dir = temp.path().join("state");
     let signer_identity_path = temp.path().join("signer.json");
     let user_identity_path = temp.path().join("user.json");
@@ -991,8 +972,8 @@ async fn discovery_repair_attempt_commands_correlate_multiple_refresh_runs() -> 
         "2222222222222222222222222222222222222222222222222222222222222222",
     );
     app_identity.save_json(&app_identity_path)?;
-    write_config(
-        &config_path,
+    write_env_file(
+        &env_path,
         &state_dir,
         &signer_identity_path,
         &user_identity_path,
@@ -1007,7 +988,7 @@ async fn discovery_repair_attempt_commands_correlate_multiple_refresh_runs() -> 
         .queue_publish_outcomes(app_identity.public_key(), &[false, true])
         .await;
 
-    let first_refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
+    let first_refresh = run_myc(&env_path, &["discovery", "refresh-nip89"])?;
     assert!(
         first_refresh.status.success(),
         "first refresh-nip89 failed: {}",
@@ -1029,7 +1010,7 @@ async fn discovery_repair_attempt_commands_correlate_multiple_refresh_runs() -> 
         .wait_for_published_events_by_author(app_identity.public_key(), 1)
         .await?;
 
-    let second_refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
+    let second_refresh = run_myc(&env_path, &["discovery", "refresh-nip89"])?;
     assert!(
         second_refresh.status.success(),
         "second refresh-nip89 failed: {}",
@@ -1049,7 +1030,7 @@ async fn discovery_repair_attempt_commands_correlate_multiple_refresh_runs() -> 
         Value::Array(vec![])
     );
 
-    let latest_attempt = run_myc(&config_path, &["audit", "latest-discovery-repair"])?;
+    let latest_attempt = run_myc(&env_path, &["audit", "latest-discovery-repair"])?;
     assert!(
         latest_attempt.status.success(),
         "latest-discovery-repair failed: {}",
@@ -1077,7 +1058,7 @@ async fn discovery_repair_attempt_commands_correlate_multiple_refresh_runs() -> 
     );
 
     let first_attempt_summary = run_myc(
-        &config_path,
+        &env_path,
         &[
             "audit",
             "discovery-repair-attempt",
@@ -1115,7 +1096,7 @@ async fn discovery_repair_attempt_commands_correlate_multiple_refresh_runs() -> 
     );
 
     let first_attempt_records = run_myc(
-        &config_path,
+        &env_path,
         &[
             "audit",
             "discovery-repair-attempt",
@@ -1153,7 +1134,7 @@ async fn discovery_diff_surfaces_relay_provenance_through_the_cli() -> TestResul
     let relay_a = TestRelay::spawn().await?;
     let relay_b = TestRelay::spawn().await?;
     let temp = tempfile::tempdir()?;
-    let config_path = temp.path().join("config.toml");
+    let env_path = temp.path().join(".env");
     let state_dir = temp.path().join("state");
     let signer_identity_path = temp.path().join("signer.json");
     let user_identity_path = temp.path().join("user.json");
@@ -1174,8 +1155,8 @@ async fn discovery_diff_surfaces_relay_provenance_through_the_cli() -> TestResul
         "2222222222222222222222222222222222222222222222222222222222222222",
     );
     app_identity.save_json(&app_identity_path)?;
-    write_config(
-        &config_path,
+    write_env_file(
+        &env_path,
         &state_dir,
         &signer_identity_path,
         &user_identity_path,
@@ -1224,7 +1205,7 @@ async fn discovery_diff_surfaces_relay_provenance_through_the_cli() -> TestResul
         .wait_for_published_events_by_author(app_identity.public_key(), 1)
         .await?;
 
-    let inspect = run_myc(&config_path, &["discovery", "inspect-live-nip89"])?;
+    let inspect = run_myc(&env_path, &["discovery", "inspect-live-nip89"])?;
     assert!(
         inspect.status.success(),
         "inspect-live-nip89 failed: {}",
@@ -1257,7 +1238,7 @@ async fn discovery_diff_surfaces_relay_provenance_through_the_cli() -> TestResul
             .any(|relays| relays == &vec![relay_b.url().to_owned()])
     );
 
-    let diff = run_myc(&config_path, &["discovery", "diff-live-nip89"])?;
+    let diff = run_myc(&env_path, &["discovery", "diff-live-nip89"])?;
     assert!(
         diff.status.success(),
         "diff-live-nip89 failed: {}",
@@ -1295,7 +1276,7 @@ async fn refresh_requires_force_when_a_discovery_relay_is_unavailable_through_th
     let relay = TestRelay::spawn().await?;
     let unavailable_relay = unavailable_relay_url()?;
     let temp = tempfile::tempdir()?;
-    let config_path = temp.path().join("config.toml");
+    let env_path = temp.path().join(".env");
     let state_dir = temp.path().join("state");
     let signer_identity_path = temp.path().join("signer.json");
     let user_identity_path = temp.path().join("user.json");
@@ -1313,8 +1294,8 @@ async fn refresh_requires_force_when_a_discovery_relay_is_unavailable_through_th
         "2222222222222222222222222222222222222222222222222222222222222222",
     );
     app_identity.save_json(&app_identity_path)?;
-    write_config(
-        &config_path,
+    write_env_file(
+        &env_path,
         &state_dir,
         &signer_identity_path,
         &user_identity_path,
@@ -1322,7 +1303,7 @@ async fn refresh_requires_force_when_a_discovery_relay_is_unavailable_through_th
         &[relay.url(), unavailable_relay.as_str()],
     );
 
-    let inspect = run_myc(&config_path, &["discovery", "inspect-live-nip89"])?;
+    let inspect = run_myc(&env_path, &["discovery", "inspect-live-nip89"])?;
     assert!(
         inspect.status.success(),
         "inspect-live-nip89 failed: {}",
@@ -1344,7 +1325,7 @@ async fn refresh_requires_force_when_a_discovery_relay_is_unavailable_through_th
             })
     );
 
-    let refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
+    let refresh = run_myc(&env_path, &["discovery", "refresh-nip89"])?;
     assert!(
         !refresh.status.success(),
         "refresh-nip89 unexpectedly succeeded: {}",
@@ -1363,7 +1344,7 @@ async fn refresh_requires_force_when_a_discovery_relay_is_unavailable_through_th
         Value::String(attempt_id.to_owned())
     );
     let attempt = run_myc(
-        &config_path,
+        &env_path,
         &[
             "audit",
             "discovery-repair-attempt",
@@ -1402,7 +1383,7 @@ async fn refresh_requires_force_when_a_discovery_relay_is_unavailable_through_th
         Value::Array(vec![Value::String(relay.url().to_owned())])
     );
 
-    let forced_refresh = run_myc(&config_path, &["discovery", "refresh-nip89", "--force"])?;
+    let forced_refresh = run_myc(&env_path, &["discovery", "refresh-nip89", "--force"])?;
     assert!(
         forced_refresh.status.success(),
         "refresh-nip89 --force failed: {}",
@@ -1424,7 +1405,7 @@ async fn refresh_surfaces_blocked_summary_when_all_discovery_relays_are_unavaila
 -> TestResult<()> {
     let unavailable_relay = unavailable_relay_url()?;
     let temp = tempfile::tempdir()?;
-    let config_path = temp.path().join("config.toml");
+    let env_path = temp.path().join(".env");
     let state_dir = temp.path().join("state");
     let signer_identity_path = temp.path().join("signer.json");
     let user_identity_path = temp.path().join("user.json");
@@ -1442,8 +1423,8 @@ async fn refresh_surfaces_blocked_summary_when_all_discovery_relays_are_unavaila
         &app_identity_path,
         "3333333333333333333333333333333333333333333333333333333333333333",
     );
-    write_config(
-        &config_path,
+    write_env_file(
+        &env_path,
         &state_dir,
         &signer_identity_path,
         &user_identity_path,
@@ -1451,7 +1432,7 @@ async fn refresh_surfaces_blocked_summary_when_all_discovery_relays_are_unavaila
         &[unavailable_relay.as_str()],
     );
 
-    let refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
+    let refresh = run_myc(&env_path, &["discovery", "refresh-nip89"])?;
     assert!(
         !refresh.status.success(),
         "refresh-nip89 unexpectedly succeeded: {}",
@@ -1470,7 +1451,7 @@ async fn refresh_surfaces_blocked_summary_when_all_discovery_relays_are_unavaila
     );
 
     let attempt = run_myc(
-        &config_path,
+        &env_path,
         &[
             "audit",
             "discovery-repair-attempt",
