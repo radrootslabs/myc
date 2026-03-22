@@ -1,0 +1,40 @@
+[service]
+instance_name = "myc"
+
+[logging]
+filter = "info,myc=info"
+
+[paths]
+state_dir = "var"
+signer_identity_path = "identity.json"
+user_identity_path = "user-identity.json"
+
+[audit]
+default_read_limit = 200
+max_active_file_bytes = 262144
+max_archived_files = 8
+
+[discovery]
+enabled = true
+domain = "signer.example.com"
+handler_identifier = "myc"
+app_identity_path = "app-identity.json"
+public_relays = ["wss://relay.example.com"]
+publish_relays = ["wss://relay.example.com"]
+nostrconnect_url_template = "https://signer.example.com/connect?uri=<nostrconnect>"
+nip05_output_path = "public/.well-known/nostr.json"
+
+[discovery.metadata]
+name = "myc"
+display_name = "Mycorrhiza"
+about = "NIP-46 signer"
+website = "https://signer.example.com"
+picture = "https://signer.example.com/logo.png"
+
+[policy]
+connection_approval = "explicit_user"
+
+[transport]
+enabled = true
+connect_timeout_secs = 10
+relays = ["wss://relay.example.com"]

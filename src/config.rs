@@ -475,6 +475,8 @@ fn validate_nostrconnect_url_template(template: &str) -> Result<(), MycError> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[test]
@@ -684,6 +686,28 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("discovery.nostrconnect_url_template")
+        );
+    }
+
+    #[test]
+    fn example_config_parses_and_validates() {
+        let example = fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config.example.toml"),
+        )
+        .expect("read example config");
+
+        let config = MycConfig::from_toml_str(&example).expect("example config");
+
+        assert_eq!(config.service.instance_name, "myc");
+        assert!(config.discovery.enabled);
+        assert_eq!(
+            config.discovery.domain.as_deref(),
+            Some("signer.example.com")
+        );
+        assert_eq!(config.discovery.handler_identifier, "myc");
+        assert_eq!(
+            config.discovery.nip05_output_path,
+            Some(PathBuf::from("public/.well-known/nostr.json"))
         );
     }
 }
