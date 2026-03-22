@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::net::TcpListener as StdTcpListener;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -6,8 +7,9 @@ use futures_util::{SinkExt, StreamExt};
 use myc::control;
 use myc::{
     MycConfig, MycConnectionApproval, MycDiscoveryContext, MycDiscoveryLiveStatus,
-    MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime,
-    diff_live_nip89, fetch_live_nip89, publish_nip89_event, refresh_nip89,
+    MycDiscoveryRelayFetchStatus, MycOperationAuditKind, MycOperationAuditOutcome,
+    MycOperationAuditRecord, MycRuntime, diff_live_nip89, fetch_live_nip89, publish_nip89_event,
+    refresh_nip89,
 };
 use nostr::filter::MatchEventOptions;
 use nostr::nips::nip44;
@@ -414,6 +416,13 @@ fn write_identity(path: &std::path::Path, secret_key: &str) {
 
 fn identity(secret_key: &str) -> RadrootsIdentity {
     RadrootsIdentity::from_secret_key_str(secret_key).expect("identity")
+}
+
+fn unavailable_relay_url() -> TestResult<String> {
+    let listener = StdTcpListener::bind("127.0.0.1:0")?;
+    let addr = listener.local_addr()?;
+    drop(listener);
+    Ok(format!("ws://{addr}"))
 }
 
 async fn publish_handler_event(
@@ -1129,6 +1138,43 @@ async fn fetch_live_nip89_reports_missing_when_handler_is_unpublished() -> TestR
     assert_eq!(output.handler_identifier, "myc");
     assert_eq!(output.publish_relays, vec![relay.url().to_owned()]);
     assert!(output.live_groups.is_empty());
+    assert_eq!(output.relay_states.len(), 1);
+    assert_eq!(
+        output.relay_states[0].fetch_status,
+        MycDiscoveryRelayFetchStatus::Available
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fetch_live_nip89_fails_when_all_discovery_relays_are_unavailable() -> TestResult<()> {
+    let unavailable_a = unavailable_relay_url()?;
+    let unavailable_b = unavailable_relay_url()?;
+    let test_runtime = MycTestRuntime::new_with_discovery_relays(
+        &[unavailable_a.as_str(), unavailable_b.as_str()],
+        MycConnectionApproval::ExplicitUser,
+    );
+
+    let error = fetch_live_nip89(&test_runtime.runtime)
+        .await
+        .expect_err("all-unavailable discovery fetch should fail");
+    assert!(
+        error
+            .to_string()
+            .contains("failed to fetch discovery state from all configured relays")
+    );
+
+    let audit = wait_for_operation_audit_count(&test_runtime.runtime, 1).await?;
+    assert_eq!(
+        audit[0].operation,
+        MycOperationAuditKind::DiscoveryHandlerFetch
+    );
+    assert_eq!(audit[0].outcome, MycOperationAuditOutcome::Unavailable);
+    assert_eq!(audit[0].relay_count, 2);
+    assert_eq!(audit[0].acknowledged_relay_count, 0);
+    assert!(audit[0].relay_outcome_summary.contains(&unavailable_a));
+    assert!(audit[0].relay_outcome_summary.contains(&unavailable_b));
 
     Ok(())
 }
@@ -1410,6 +1456,7 @@ async fn diff_live_nip89_surfaces_relay_divergence_with_provenance() -> TestResu
         diff.relay_summary.drifted_relays,
         vec![relay_b.url().to_owned()]
     );
+    assert!(diff.relay_summary.unavailable_relays.is_empty());
     assert!(diff.relay_summary.missing_relays.is_empty());
     assert!(diff.relay_summary.conflicted_relays.is_empty());
 
@@ -1418,7 +1465,14 @@ async fn diff_live_nip89_surfaces_relay_divergence_with_provenance() -> TestResu
         .iter()
         .find(|relay_state| relay_state.relay_url == relay_a.url())
         .expect("matched relay");
-    assert_eq!(matched_relay.status, MycDiscoveryLiveStatus::Matched);
+    assert_eq!(
+        matched_relay.fetch_status,
+        MycDiscoveryRelayFetchStatus::Available
+    );
+    assert_eq!(
+        matched_relay.live_status,
+        Some(MycDiscoveryLiveStatus::Matched)
+    );
     assert_eq!(matched_relay.live_groups.len(), 1);
     assert_eq!(
         matched_relay.live_groups[0].source_relays,
@@ -1430,7 +1484,14 @@ async fn diff_live_nip89_surfaces_relay_divergence_with_provenance() -> TestResu
         .iter()
         .find(|relay_state| relay_state.relay_url == relay_b.url())
         .expect("drifted relay");
-    assert_eq!(drifted_relay.status, MycDiscoveryLiveStatus::Drifted);
+    assert_eq!(
+        drifted_relay.fetch_status,
+        MycDiscoveryRelayFetchStatus::Available
+    );
+    assert_eq!(
+        drifted_relay.live_status,
+        Some(MycDiscoveryLiveStatus::Drifted)
+    );
     assert_eq!(drifted_relay.live_groups.len(), 1);
     assert_eq!(
         drifted_relay.live_groups[0].source_relays,
@@ -1444,6 +1505,88 @@ async fn diff_live_nip89_surfaces_relay_divergence_with_provenance() -> TestResu
         .collect::<Vec<_>>();
     assert!(live_group_relays.contains(&vec![relay_a.url().to_owned()]));
     assert!(live_group_relays.contains(&vec![relay_b.url().to_owned()]));
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn refresh_nip89_requires_force_when_any_discovery_relay_is_unavailable() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let unavailable_relay = unavailable_relay_url()?;
+    let test_runtime = MycTestRuntime::new_with_discovery_relays(
+        &[relay.url(), unavailable_relay.as_str()],
+        MycConnectionApproval::ExplicitUser,
+    );
+    let runtime = test_runtime.runtime;
+    let app_identity = RadrootsIdentity::load_from_path_auto(
+        runtime
+            .config()
+            .discovery
+            .app_identity_path
+            .as_ref()
+            .expect("app identity path"),
+    )?;
+
+    let diff = diff_live_nip89(&runtime).await?;
+    assert_eq!(diff.status, MycDiscoveryLiveStatus::Missing);
+    assert_eq!(
+        diff.relay_summary.unavailable_relays,
+        vec![unavailable_relay.clone()]
+    );
+    assert_eq!(
+        diff.relay_summary.missing_relays,
+        vec![relay.url().to_owned()]
+    );
+
+    let unavailable_state = diff
+        .relay_states
+        .iter()
+        .find(|relay_state| relay_state.relay_url == unavailable_relay)
+        .expect("unavailable relay");
+    assert_eq!(
+        unavailable_state.fetch_status,
+        MycDiscoveryRelayFetchStatus::Unavailable
+    );
+    assert_eq!(unavailable_state.live_status, None);
+    assert!(unavailable_state.fetch_error.is_some());
+
+    let error = refresh_nip89(&runtime, false)
+        .await
+        .expect_err("refresh without force should fail when a relay is unavailable");
+    assert!(error.to_string().contains("unavailable"));
+
+    let audit = wait_for_operation_audit_count(&runtime, 4).await?;
+    assert_eq!(
+        audit[0].operation,
+        MycOperationAuditKind::DiscoveryHandlerFetch
+    );
+    assert_eq!(audit[0].outcome, MycOperationAuditOutcome::Unavailable);
+    assert_eq!(
+        audit[1].operation,
+        MycOperationAuditKind::DiscoveryHandlerFetch
+    );
+    assert_eq!(audit[1].outcome, MycOperationAuditOutcome::Unavailable);
+    assert_eq!(
+        audit[2].operation,
+        MycOperationAuditKind::DiscoveryHandlerCompare
+    );
+    assert_eq!(audit[2].outcome, MycOperationAuditOutcome::Missing);
+    assert_eq!(
+        audit[3].operation,
+        MycOperationAuditKind::DiscoveryHandlerRefresh
+    );
+    assert_eq!(audit[3].outcome, MycOperationAuditOutcome::Unavailable);
+
+    relay
+        .queue_publish_outcomes(app_identity.public_key(), &[true])
+        .await;
+    let refreshed = refresh_nip89(&runtime, true).await?;
+    assert_eq!(refreshed.status, MycDiscoveryLiveStatus::Missing);
+    assert_eq!(
+        refreshed.relay_summary.unavailable_relays,
+        vec![unavailable_relay.clone()]
+    );
+    assert!(refreshed.published.is_some());
 
     Ok(())
 }

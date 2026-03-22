@@ -172,6 +172,7 @@ pub struct MycOperationOutcomeCounts {
     pub succeeded: usize,
     pub rejected: usize,
     pub restored: usize,
+    pub unavailable: usize,
     pub missing: usize,
     pub matched: usize,
     pub drifted: usize,
@@ -188,6 +189,7 @@ pub struct MycAuditSummaryOutput {
     pub runtime_operation_outcomes: MycOperationOutcomeCounts,
     pub runtime_operation_by_kind: BTreeMap<String, MycOperationOutcomeCounts>,
     pub runtime_publish_rejection_count: usize,
+    pub runtime_unavailable_count: usize,
     pub runtime_replay_restore_count: usize,
 }
 
@@ -454,6 +456,7 @@ fn summarize_audit_output(
     let mut runtime_operation_outcomes = MycOperationOutcomeCounts::default();
     let mut runtime_operation_by_kind = BTreeMap::new();
     let mut runtime_publish_rejection_count = 0;
+    let mut runtime_unavailable_count = 0;
     let mut runtime_replay_restore_count = 0;
     for record in &audit.runtime_operation_audit {
         increment_outcome_counts(&mut runtime_operation_outcomes, record.outcome);
@@ -464,6 +467,9 @@ fn summarize_audit_output(
         );
         if record.outcome == MycOperationAuditOutcome::Rejected {
             runtime_publish_rejection_count += 1;
+        }
+        if record.outcome == MycOperationAuditOutcome::Unavailable {
+            runtime_unavailable_count += 1;
         }
         if record.operation == MycOperationAuditKind::AuthReplayRestore
             && record.outcome == MycOperationAuditOutcome::Restored
@@ -480,6 +486,7 @@ fn summarize_audit_output(
         runtime_operation_outcomes,
         runtime_operation_by_kind,
         runtime_publish_rejection_count,
+        runtime_unavailable_count,
         runtime_replay_restore_count,
     })
 }
@@ -496,6 +503,7 @@ fn increment_outcome_counts(
         MycOperationAuditOutcome::Succeeded => counts.succeeded += 1,
         MycOperationAuditOutcome::Rejected => counts.rejected += 1,
         MycOperationAuditOutcome::Restored => counts.restored += 1,
+        MycOperationAuditOutcome::Unavailable => counts.unavailable += 1,
         MycOperationAuditOutcome::Missing => counts.missing += 1,
         MycOperationAuditOutcome::Matched => counts.matched += 1,
         MycOperationAuditOutcome::Drifted => counts.drifted += 1,
@@ -510,6 +518,7 @@ fn operation_kind_label(kind: MycOperationAuditKind) -> String {
         MycOperationAuditKind::ConnectAcceptPublish => "connect_accept_publish".to_owned(),
         MycOperationAuditKind::AuthReplayPublish => "auth_replay_publish".to_owned(),
         MycOperationAuditKind::AuthReplayRestore => "auth_replay_restore".to_owned(),
+        MycOperationAuditKind::DiscoveryHandlerFetch => "discovery_handler_fetch".to_owned(),
         MycOperationAuditKind::DiscoveryHandlerPublish => "discovery_handler_publish".to_owned(),
         MycOperationAuditKind::DiscoveryHandlerCompare => "discovery_handler_compare".to_owned(),
         MycOperationAuditKind::DiscoveryHandlerRefresh => "discovery_handler_refresh".to_owned(),
@@ -698,6 +707,7 @@ mod tests {
         assert_eq!(summary.runtime_operation_outcomes.succeeded, 1);
         assert_eq!(summary.runtime_operation_outcomes.restored, 1);
         assert_eq!(summary.runtime_publish_rejection_count, 0);
+        assert_eq!(summary.runtime_unavailable_count, 0);
         assert_eq!(summary.runtime_replay_restore_count, 1);
         assert_eq!(
             summary

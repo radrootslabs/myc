@@ -5,10 +5,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{
-    RadrootsNostrApplicationHandlerSpec, RadrootsNostrClient, RadrootsNostrEvent,
-    RadrootsNostrFilter, RadrootsNostrKind, RadrootsNostrMetadata, RadrootsNostrRelayUrl,
-    radroots_nostr_build_application_handler_event, radroots_nostr_filter_tag,
-    radroots_nostr_metadata_has_fields, radroots_nostr_tag_first_value,
+    RadrootsNostrApplicationHandlerSpec, RadrootsNostrClient, RadrootsNostrError,
+    RadrootsNostrEvent, RadrootsNostrFilter, RadrootsNostrKind, RadrootsNostrMetadata,
+    RadrootsNostrRelayUrl, radroots_nostr_build_application_handler_event,
+    radroots_nostr_filter_tag, radroots_nostr_metadata_has_fields, radroots_nostr_tag_first_value,
 };
 use radroots_nostr_connect::prelude::{RadrootsNostrConnectBunkerUri, RadrootsNostrConnectUri};
 use serde::{Deserialize, Serialize};
@@ -118,13 +118,27 @@ pub struct MycLiveNip89Group {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycLiveNip89RelayState {
     pub relay_url: String,
+    pub fetch_status: MycDiscoveryRelayFetchStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fetch_error: Option<String>,
     pub live_groups: Vec<MycLiveNip89Group>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MycDiscoveryRelayFetchStatus {
+    Available,
+    Unavailable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycDiscoveryRelayState {
     pub relay_url: String,
-    pub status: MycDiscoveryLiveStatus,
+    pub fetch_status: MycDiscoveryRelayFetchStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fetch_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_status: Option<MycDiscoveryLiveStatus>,
     pub differing_fields: Vec<String>,
     pub live_groups: Vec<MycLiveNip89Group>,
 }
@@ -132,6 +146,7 @@ pub struct MycDiscoveryRelayState {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct MycDiscoveryRelaySummary {
     pub total_relays: usize,
+    pub unavailable_relays: Vec<String>,
     pub missing_relays: Vec<String>,
     pub matched_relays: Vec<String>,
     pub drifted_relays: Vec<String>,
@@ -504,7 +519,7 @@ pub async fn publish_nip89_event(
 
 pub async fn fetch_live_nip89(runtime: &MycRuntime) -> Result<MycFetchedLiveNip89Output, MycError> {
     let context = MycDiscoveryContext::from_runtime(runtime)?;
-    let fetched = fetch_live_nip89_state(&context).await?;
+    let fetched = fetch_live_nip89_state_for_runtime(runtime, &context).await?;
     Ok(MycFetchedLiveNip89Output {
         author_public_key_hex: context.app_identity().public_key_hex(),
         publish_relays: context
@@ -521,7 +536,7 @@ pub async fn fetch_live_nip89(runtime: &MycRuntime) -> Result<MycFetchedLiveNip8
 pub async fn diff_live_nip89(runtime: &MycRuntime) -> Result<MycDiscoveryDiffOutput, MycError> {
     let context = MycDiscoveryContext::from_runtime(runtime)?;
     let local_handler = context.render_normalized_nip89_handler();
-    let fetched = fetch_live_nip89_state(&context).await?;
+    let fetched = fetch_live_nip89_state_for_runtime(runtime, &context).await?;
     let relay_states = build_relay_diffs(&local_handler, &fetched.relay_states);
     let relay_summary = summarize_relay_diffs(&relay_states);
     let live_groups = fetched.live_groups;
@@ -542,7 +557,7 @@ pub async fn refresh_nip89(
 ) -> Result<MycRefreshedNip89Output, MycError> {
     let context = MycDiscoveryContext::from_runtime(runtime)?;
     let local_handler = context.render_normalized_nip89_handler();
-    let fetched = fetch_live_nip89_state(&context).await?;
+    let fetched = fetch_live_nip89_state_for_runtime(runtime, &context).await?;
     let relay_states = build_relay_diffs(&local_handler, &fetched.relay_states);
     let relay_summary = summarize_relay_diffs(&relay_states);
     let live_groups = fetched.live_groups;
@@ -558,9 +573,28 @@ pub async fn refresh_nip89(
         None,
         compare_request_id,
         relay_count,
-        relay_count,
+        relay_count.saturating_sub(relay_summary.unavailable_relays.len()),
         compare_summary,
     ));
+
+    if !relay_summary.unavailable_relays.is_empty() && !force {
+        runtime.record_operation_audit(&MycOperationAuditRecord::new(
+            MycOperationAuditKind::DiscoveryHandlerRefresh,
+            MycOperationAuditOutcome::Unavailable,
+            None,
+            compare_request_id,
+            relay_count,
+            relay_count.saturating_sub(relay_summary.unavailable_relays.len()),
+            format!(
+                "discovery relays were unavailable; rerun refresh with --force to override: {}",
+                relay_summary.unavailable_relays.join(", ")
+            ),
+        ));
+        return Err(MycError::InvalidOperation(format!(
+            "one or more discovery relays were unavailable; rerun `discovery refresh-nip89 --force` to override: {}",
+            relay_summary.unavailable_relays.join(", ")
+        )));
+    }
 
     if status == MycDiscoveryLiveStatus::Conflicted && !force {
         runtime.record_operation_audit(&MycOperationAuditRecord::new(
@@ -569,7 +603,7 @@ pub async fn refresh_nip89(
             None,
             compare_request_id,
             relay_count,
-            relay_count,
+            relay_count.saturating_sub(relay_summary.unavailable_relays.len()),
             "live discovery handler state is conflicted; rerun refresh with --force to override"
                 .to_owned(),
         ));
@@ -586,7 +620,7 @@ pub async fn refresh_nip89(
             None,
             compare_request_id,
             relay_count,
-            relay_count,
+            relay_count.saturating_sub(relay_summary.unavailable_relays.len()),
             "local discovery handler already matches live state".to_owned(),
         ));
         return Ok(MycRefreshedNip89Output {
@@ -610,6 +644,54 @@ pub async fn refresh_nip89(
         relay_summary,
         published: Some(published),
     })
+}
+
+async fn fetch_live_nip89_state_for_runtime(
+    runtime: &MycRuntime,
+    context: &MycDiscoveryContext,
+) -> Result<MycFetchedLiveNip89State, MycError> {
+    match fetch_live_nip89_state(context).await {
+        Ok(fetched) => {
+            let unavailable_relays = fetched
+                .relay_states
+                .iter()
+                .filter(|relay_state| {
+                    relay_state.fetch_status == MycDiscoveryRelayFetchStatus::Unavailable
+                })
+                .collect::<Vec<_>>();
+            if !unavailable_relays.is_empty() {
+                runtime.record_operation_audit(&MycOperationAuditRecord::new(
+                    MycOperationAuditKind::DiscoveryHandlerFetch,
+                    MycOperationAuditOutcome::Unavailable,
+                    None,
+                    latest_live_event_id(&fetched.live_groups),
+                    fetched.relay_states.len(),
+                    fetched.relay_states.len() - unavailable_relays.len(),
+                    summarize_unavailable_relays(&fetched.relay_states),
+                ));
+            }
+            Ok(fetched)
+        }
+        Err(MycError::DiscoveryFetchUnavailable {
+            relay_count,
+            details,
+        }) => {
+            runtime.record_operation_audit(&MycOperationAuditRecord::new(
+                MycOperationAuditKind::DiscoveryHandlerFetch,
+                MycOperationAuditOutcome::Unavailable,
+                None,
+                None,
+                relay_count,
+                0,
+                details.clone(),
+            ));
+            Err(MycError::DiscoveryFetchUnavailable {
+                relay_count,
+                details,
+            })
+        }
+        Err(error) => Err(error),
+    }
 }
 
 pub fn verify_bundle(output_dir: impl AsRef<Path>) -> Result<MycDiscoveryBundleOutput, MycError> {
@@ -642,11 +724,35 @@ async fn fetch_live_nip89_state(
 
     for relay in context.publish_relays() {
         let relay_url = relay.to_string();
-        let relay_events = fetch_live_nip89_events_for_relay(context, relay).await?;
-        all_events.extend(relay_events.iter().cloned());
-        relay_states.push(MycLiveNip89RelayState {
-            relay_url,
-            live_groups: group_live_nip89_events(relay_events)?,
+        match fetch_live_nip89_events_for_relay(context, relay).await {
+            Ok(relay_events) => {
+                all_events.extend(relay_events.iter().cloned());
+                relay_states.push(MycLiveNip89RelayState {
+                    relay_url,
+                    fetch_status: MycDiscoveryRelayFetchStatus::Available,
+                    fetch_error: None,
+                    live_groups: group_live_nip89_events(relay_events)?,
+                });
+            }
+            Err(error) => {
+                relay_states.push(MycLiveNip89RelayState {
+                    relay_url,
+                    fetch_status: MycDiscoveryRelayFetchStatus::Unavailable,
+                    fetch_error: Some(error.to_string()),
+                    live_groups: Vec::new(),
+                });
+            }
+        }
+    }
+
+    let available_relay_count = relay_states
+        .iter()
+        .filter(|relay_state| relay_state.fetch_status == MycDiscoveryRelayFetchStatus::Available)
+        .count();
+    if available_relay_count == 0 {
+        return Err(MycError::DiscoveryFetchUnavailable {
+            relay_count: relay_states.len(),
+            details: summarize_unavailable_relays(&relay_states),
         });
     }
 
@@ -662,10 +768,13 @@ async fn fetch_live_nip89_events_for_relay(
 ) -> Result<Vec<MycSourcedLiveNip89Event>, MycError> {
     let client = RadrootsNostrClient::from_identity(context.app_identity());
     let _ = client.add_relay(relay.as_str()).await?;
-    client.connect().await;
     client
-        .wait_for_connection(Duration::from_secs(context.connect_timeout_secs()))
-        .await;
+        .try_connect_relay(
+            relay.as_str(),
+            Duration::from_secs(context.connect_timeout_secs()),
+        )
+        .await
+        .map_err(RadrootsNostrError::from)?;
 
     let mut filter = RadrootsNostrFilter::new()
         .author(context.app_identity().public_key())
@@ -752,7 +861,7 @@ fn describe_compare_status(
     live_groups: &[MycLiveNip89Group],
     relay_summary: &MycDiscoveryRelaySummary,
 ) -> String {
-    match status {
+    let base = match status {
         MycDiscoveryLiveStatus::Missing => {
             "no live NIP-89 handler was found for the configured discovery identity".to_owned()
         }
@@ -775,6 +884,15 @@ fn describe_compare_status(
             relay_summary.missing_relays.len(),
             relay_summary.conflicted_relays.len(),
         ),
+    };
+
+    if relay_summary.unavailable_relays.is_empty() {
+        base
+    } else {
+        format!(
+            "{base}; unavailable relays: {}",
+            relay_summary.unavailable_relays.join(", ")
+        )
     }
 }
 
@@ -935,11 +1053,19 @@ fn build_relay_diffs(
     relay_states
         .iter()
         .map(|relay_state| {
-            let (status, differing_fields) =
-                compare_live_handler(local_handler, &relay_state.live_groups);
+            let (live_status, differing_fields) =
+                if relay_state.fetch_status == MycDiscoveryRelayFetchStatus::Unavailable {
+                    (None, Vec::new())
+                } else {
+                    let (status, differing_fields) =
+                        compare_live_handler(local_handler, &relay_state.live_groups);
+                    (Some(status), differing_fields)
+                };
             MycDiscoveryRelayState {
                 relay_url: relay_state.relay_url.clone(),
-                status,
+                fetch_status: relay_state.fetch_status,
+                fetch_error: relay_state.fetch_error.clone(),
+                live_status,
                 differing_fields,
                 live_groups: relay_state.live_groups.clone(),
             }
@@ -954,23 +1080,50 @@ fn summarize_relay_diffs(relay_states: &[MycDiscoveryRelayState]) -> MycDiscover
     };
 
     for relay_state in relay_states {
-        match relay_state.status {
-            MycDiscoveryLiveStatus::Missing => {
+        if relay_state.fetch_status == MycDiscoveryRelayFetchStatus::Unavailable {
+            summary
+                .unavailable_relays
+                .push(relay_state.relay_url.clone());
+            continue;
+        }
+        match relay_state.live_status {
+            Some(MycDiscoveryLiveStatus::Missing) => {
                 summary.missing_relays.push(relay_state.relay_url.clone())
             }
-            MycDiscoveryLiveStatus::Matched => {
+            Some(MycDiscoveryLiveStatus::Matched) => {
                 summary.matched_relays.push(relay_state.relay_url.clone())
             }
-            MycDiscoveryLiveStatus::Drifted => {
+            Some(MycDiscoveryLiveStatus::Drifted) => {
                 summary.drifted_relays.push(relay_state.relay_url.clone())
             }
-            MycDiscoveryLiveStatus::Conflicted => summary
+            Some(MycDiscoveryLiveStatus::Conflicted) => summary
                 .conflicted_relays
                 .push(relay_state.relay_url.clone()),
+            None => {}
         }
     }
 
     summary
+}
+
+fn summarize_unavailable_relays(relay_states: &[MycLiveNip89RelayState]) -> String {
+    let unavailable = relay_states
+        .iter()
+        .filter(|relay_state| relay_state.fetch_status == MycDiscoveryRelayFetchStatus::Unavailable)
+        .map(|relay_state| {
+            let details = relay_state
+                .fetch_error
+                .as_deref()
+                .unwrap_or("unknown relay fetch failure");
+            format!("{}: {details}", relay_state.relay_url)
+        })
+        .collect::<Vec<_>>();
+
+    if unavailable.is_empty() {
+        "all configured discovery relays were available".to_owned()
+    } else {
+        format!("unavailable discovery relays: {}", unavailable.join("; "))
+    }
 }
 
 fn latest_group_sort_key(group: &MycLiveNip89Group) -> (u64, &str) {

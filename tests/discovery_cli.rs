@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
+use std::net::TcpListener as StdTcpListener;
 use std::path::Path;
 use std::process::{Command, Output};
 use std::sync::Arc;
@@ -357,6 +358,13 @@ fn run_myc(config_path: &Path, args: &[&str]) -> TestResult<Output> {
         .output()?)
 }
 
+fn unavailable_relay_url() -> TestResult<String> {
+    let listener = StdTcpListener::bind("127.0.0.1:0")?;
+    let addr = listener.local_addr()?;
+    drop(listener);
+    Ok(format!("ws://{addr}"))
+}
+
 async fn publish_handler_event(
     relay_url: &str,
     identity: &RadrootsIdentity,
@@ -562,7 +570,11 @@ async fn discovery_sync_commands_work_through_the_cli() -> TestResult<()> {
         1
     );
     assert_eq!(
-        diff_output["relay_states"][0]["status"],
+        diff_output["relay_states"][0]["fetch_status"],
+        Value::String("available".to_owned())
+    );
+    assert_eq!(
+        diff_output["relay_states"][0]["live_status"],
         Value::String("matched".to_owned())
     );
 
@@ -632,6 +644,12 @@ async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
             .unwrap()
             .len(),
         1
+    );
+    assert!(
+        diff_output["relay_summary"]["unavailable_relays"]
+            .as_array()
+            .unwrap()
+            .is_empty()
     );
 
     let refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
@@ -789,6 +807,97 @@ async fn discovery_diff_surfaces_relay_provenance_through_the_cli() -> TestResul
         Value::Array(vec![])
     );
     assert_eq!(diff_output["relay_states"].as_array().unwrap().len(), 2);
+    for relay_state in diff_output["relay_states"].as_array().unwrap() {
+        assert_eq!(
+            relay_state["fetch_status"],
+            Value::String("available".to_owned())
+        );
+        assert!(relay_state["live_status"].is_string());
+    }
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn refresh_requires_force_when_a_discovery_relay_is_unavailable_through_the_cli()
+-> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let unavailable_relay = unavailable_relay_url()?;
+    let temp = tempfile::tempdir()?;
+    let config_path = temp.path().join("config.toml");
+    let state_dir = temp.path().join("state");
+    let signer_identity_path = temp.path().join("signer.json");
+    let user_identity_path = temp.path().join("user.json");
+    let app_identity_path = temp.path().join("app.json");
+    let app_identity = RadrootsIdentity::from_secret_key_str(
+        "3333333333333333333333333333333333333333333333333333333333333333",
+    )?;
+
+    write_identity(
+        &signer_identity_path,
+        "1111111111111111111111111111111111111111111111111111111111111111",
+    );
+    write_identity(
+        &user_identity_path,
+        "2222222222222222222222222222222222222222222222222222222222222222",
+    );
+    app_identity.save_json(&app_identity_path)?;
+    write_config(
+        &config_path,
+        &state_dir,
+        &signer_identity_path,
+        &user_identity_path,
+        &app_identity_path,
+        &[relay.url(), unavailable_relay.as_str()],
+    );
+
+    let inspect = run_myc(&config_path, &["discovery", "inspect-live-nip89"])?;
+    assert!(
+        inspect.status.success(),
+        "inspect-live-nip89 failed: {}",
+        String::from_utf8_lossy(&inspect.stderr)
+    );
+    let inspect_output: Value = serde_json::from_slice(&inspect.stdout)?;
+    assert_eq!(inspect_output["live_groups"].as_array().unwrap().len(), 0);
+    assert_eq!(inspect_output["relay_states"].as_array().unwrap().len(), 2);
+    assert!(
+        inspect_output["relay_states"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|relay_state| {
+                relay_state["relay_url"] == Value::String(unavailable_relay.clone())
+                    && relay_state["fetch_status"] == Value::String("unavailable".to_owned())
+                    && relay_state["live_status"].is_null()
+                    && relay_state["fetch_error"].is_string()
+            })
+    );
+
+    let refresh = run_myc(&config_path, &["discovery", "refresh-nip89"])?;
+    assert!(
+        !refresh.status.success(),
+        "refresh-nip89 unexpectedly succeeded: {}",
+        String::from_utf8_lossy(&refresh.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&refresh.stderr).contains("unavailable"),
+        "unexpected refresh stderr: {}",
+        String::from_utf8_lossy(&refresh.stderr)
+    );
+
+    let forced_refresh = run_myc(&config_path, &["discovery", "refresh-nip89", "--force"])?;
+    assert!(
+        forced_refresh.status.success(),
+        "refresh-nip89 --force failed: {}",
+        String::from_utf8_lossy(&forced_refresh.stderr)
+    );
+    let forced_refresh_output: Value = serde_json::from_slice(&forced_refresh.stdout)?;
+    assert_eq!(forced_refresh_output["status"], "missing");
+    assert_eq!(
+        forced_refresh_output["relay_summary"]["unavailable_relays"],
+        Value::Array(vec![Value::String(unavailable_relay.clone())])
+    );
+    assert!(forced_refresh_output["published"].is_object());
 
     Ok(())
 }

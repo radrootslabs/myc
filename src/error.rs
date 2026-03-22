@@ -73,6 +73,10 @@ pub enum MycError {
     InvalidDiscoveryBundle(String),
     #[error("invalid discovery event: {0}")]
     InvalidDiscoveryEvent(String),
+    #[error(
+        "failed to fetch discovery state from all configured relays ({relay_count}): {details}"
+    )]
+    DiscoveryFetchUnavailable { relay_count: usize, details: String },
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error(transparent)]
