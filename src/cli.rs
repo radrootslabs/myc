@@ -265,10 +265,13 @@ async fn replay_authorized_request(
         )
     })?;
     let handler = MycNip46Handler::new(runtime.signer_context(), transport.relays().to_vec());
-    let response = handler.handle_request(
+    let handled_request = handler.handle_request(
         outcome.connection.client_public_key,
         pending_request.request_message.clone(),
     )?;
+    let Some((response, consume_connect_secret_for)) = handled_request.into_publish_parts() else {
+        return Ok(None);
+    };
     let event = handler.build_response_event(
         outcome.connection.client_public_key,
         pending_request.request_message.id.clone(),
@@ -286,6 +289,11 @@ async fn replay_authorized_request(
         event,
     )
     .await?;
+    if let Some(connection_id) = consume_connect_secret_for {
+        runtime
+            .signer_manager()?
+            .mark_connect_secret_consumed(&connection_id)?;
+    }
     Ok(Some(pending_request.request_message.id.clone()))
 }
 
@@ -320,30 +328,37 @@ async fn accept_client_uri(
         requested_permissions: client_uri.metadata.requested_permissions.clone(),
     };
     let manager = runtime.signer_manager()?;
-    let proposal = match manager.evaluate_connect_request(client_uri.client_public_key, request)? {
-        radroots_nostr_signer::prelude::RadrootsNostrSignerConnectEvaluation::ExistingConnection(_) => {
-            return Err(MycError::InvalidOperation(
-                "connect secret is already bound to an existing connection".to_owned(),
-            ));
+    let connection = match manager.evaluate_connect_request(client_uri.client_public_key, request)? {
+        radroots_nostr_signer::prelude::RadrootsNostrSignerConnectEvaluation::ExistingConnection(
+            connection,
+        ) => {
+            if connection.connect_secret_is_consumed() {
+                return Err(MycError::InvalidOperation(
+                    "connect secret has already been consumed by a successful connection"
+                        .to_owned(),
+                ));
+            }
+            connection
         }
         radroots_nostr_signer::prelude::RadrootsNostrSignerConnectEvaluation::RegistrationRequired(
             proposal,
-        ) => proposal,
+        ) => {
+            let draft = proposal
+                .into_connection_draft(runtime.user_public_identity())
+                .with_relays(preferred_relays.clone())
+                .with_approval_requirement(runtime.signer_context().connection_approval_requirement());
+            let connection = manager.register_connection(draft)?;
+            if runtime.signer_context().connection_approval_requirement()
+                == RadrootsNostrSignerApprovalRequirement::NotRequired
+            {
+                let _ = manager.set_granted_permissions(
+                    &connection.connection_id,
+                    connection.requested_permissions.clone(),
+                )?;
+            }
+            connection
+        }
     };
-
-    let draft = proposal
-        .into_connection_draft(runtime.user_public_identity())
-        .with_relays(preferred_relays.clone())
-        .with_approval_requirement(runtime.signer_context().connection_approval_requirement());
-    let connection = manager.register_connection(draft)?;
-    if runtime.signer_context().connection_approval_requirement()
-        == RadrootsNostrSignerApprovalRequirement::NotRequired
-    {
-        let _ = manager.set_granted_permissions(
-            &connection.connection_id,
-            connection.requested_permissions.clone(),
-        )?;
-    }
 
     let handler = MycNip46Handler::new(runtime.signer_context(), preferred_relays.clone());
     let response_request_id = RadrootsNostrSignerRequestId::new_v7().into_string();
@@ -360,6 +375,7 @@ async fn accept_client_uri(
         event,
     )
     .await?;
+    let _ = manager.mark_connect_secret_consumed(&connection.connection_id)?;
 
     Ok(MycAcceptedConnectionOutput {
         connection: runtime

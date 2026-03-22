@@ -11,9 +11,9 @@ use radroots_nostr_connect::prelude::{
     RadrootsNostrConnectRequestMessage, RadrootsNostrConnectResponse,
 };
 use radroots_nostr_signer::prelude::{
-    RadrootsNostrSignerConnectEvaluation, RadrootsNostrSignerConnectionRecord,
-    RadrootsNostrSignerRequestAction, RadrootsNostrSignerRequestResponseHint,
-    RadrootsNostrSignerSessionLookup,
+    RadrootsNostrSignerConnectEvaluation, RadrootsNostrSignerConnectionId,
+    RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerRequestAction,
+    RadrootsNostrSignerRequestResponseHint, RadrootsNostrSignerSessionLookup,
 };
 use tokio::sync::broadcast;
 
@@ -30,6 +30,15 @@ pub struct MycNip46Handler {
 pub struct MycNip46Service {
     handler: MycNip46Handler,
     transport: MycNostrTransport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum MycNip46HandledRequest {
+    Respond {
+        response: RadrootsNostrConnectResponse,
+        consume_connect_secret_for: Option<RadrootsNostrSignerConnectionId>,
+    },
+    Ignore,
 }
 
 impl MycNip46Handler {
@@ -88,11 +97,11 @@ impl MycNip46Handler {
         .tags(vec![RadrootsNostrTag::public_key(client_public_key)]))
     }
 
-    pub fn handle_request(
+    pub(crate) fn handle_request(
         &self,
         client_public_key: RadrootsNostrPublicKey,
         request_message: RadrootsNostrConnectRequestMessage,
-    ) -> Result<RadrootsNostrConnectResponse, MycError> {
+    ) -> Result<MycNip46HandledRequest, MycError> {
         match request_message.request.clone() {
             RadrootsNostrConnectRequest::Connect { secret, .. } => {
                 self.handle_connect_request(client_public_key, request_message.request, secret)
@@ -111,13 +120,29 @@ impl MycNip46Handler {
             | RadrootsNostrConnectRequest::SwitchRelays => {
                 self.handle_base_request(client_public_key, request_message)
             }
-            _ => Ok(RadrootsNostrConnectResponse::Error {
-                result: None,
-                error: format!(
-                    "method `{}` is not implemented yet",
-                    request_message.request.method()
-                ),
-            }),
+            _ => Ok(MycNip46HandledRequest::respond(
+                RadrootsNostrConnectResponse::Error {
+                    result: None,
+                    error: format!(
+                        "method `{}` is not implemented yet",
+                        request_message.request.method()
+                    ),
+                },
+            )),
+        }
+    }
+
+    #[cfg(test)]
+    fn handle_request_response(
+        &self,
+        client_public_key: RadrootsNostrPublicKey,
+        request_message: RadrootsNostrConnectRequestMessage,
+    ) -> Result<RadrootsNostrConnectResponse, MycError> {
+        match self.handle_request(client_public_key, request_message)? {
+            MycNip46HandledRequest::Respond { response, .. } => Ok(response),
+            MycNip46HandledRequest::Ignore => Err(MycError::InvalidOperation(
+                "request was ignored without a response".to_owned(),
+            )),
         }
     }
 
@@ -126,13 +151,20 @@ impl MycNip46Handler {
         client_public_key: RadrootsNostrPublicKey,
         request: RadrootsNostrConnectRequest,
         secret: Option<String>,
-    ) -> Result<RadrootsNostrConnectResponse, MycError> {
+    ) -> Result<MycNip46HandledRequest, MycError> {
         let manager = self.signer.load_signer_manager()?;
         let evaluation = manager.evaluate_connect_request(client_public_key, request)?;
 
         match evaluation {
-            RadrootsNostrSignerConnectEvaluation::ExistingConnection(_) => {
-                Ok(connect_response(secret))
+            RadrootsNostrSignerConnectEvaluation::ExistingConnection(connection) => {
+                if secret.is_some() && connection.connect_secret_is_consumed() {
+                    tracing::debug!(
+                        connection_id = %connection.connection_id,
+                        "ignoring reused consumed NIP-46 connect secret"
+                    );
+                    return Ok(MycNip46HandledRequest::Ignore);
+                }
+                Ok(connect_response_outcome(&connection, secret))
             }
             RadrootsNostrSignerConnectEvaluation::RegistrationRequired(proposal) => {
                 let draft = proposal
@@ -150,7 +182,7 @@ impl MycNip46Handler {
                         granted_permissions,
                     )?;
                 }
-                Ok(connect_response(secret))
+                Ok(connect_response_outcome(&connection, secret))
             }
         }
     }
@@ -159,27 +191,30 @@ impl MycNip46Handler {
         &self,
         client_public_key: RadrootsNostrPublicKey,
         request_message: RadrootsNostrConnectRequestMessage,
-    ) -> Result<RadrootsNostrConnectResponse, MycError> {
+    ) -> Result<MycNip46HandledRequest, MycError> {
         let connection = match self.lookup_connection(client_public_key)? {
             Ok(connection) => connection,
-            Err(response) => return Ok(response),
+            Err(response) => return Ok(MycNip46HandledRequest::respond(response)),
         };
 
         let manager = self.signer.load_signer_manager()?;
         let evaluation = manager.evaluate_request(&connection.connection_id, request_message)?;
 
         match evaluation.action {
-            RadrootsNostrSignerRequestAction::Denied { reason } => {
-                Ok(RadrootsNostrConnectResponse::Error {
+            RadrootsNostrSignerRequestAction::Denied { reason } => Ok(
+                MycNip46HandledRequest::respond(RadrootsNostrConnectResponse::Error {
                     result: None,
                     error: reason,
-                })
-            }
-            RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => Ok(
-                RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
+                }),
             ),
+            RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
+                Ok(MycNip46HandledRequest::respond(
+                    RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
+                ))
+            }
             RadrootsNostrSignerRequestAction::Allowed { response_hint, .. } => {
                 response_from_hint(&evaluation.connection, response_hint)
+                    .map(MycNip46HandledRequest::respond)
             }
         }
     }
@@ -189,28 +224,30 @@ impl MycNip46Handler {
         client_public_key: RadrootsNostrPublicKey,
         request_message: RadrootsNostrConnectRequestMessage,
         unsigned_event: nostr::UnsignedEvent,
-    ) -> Result<RadrootsNostrConnectResponse, MycError> {
+    ) -> Result<MycNip46HandledRequest, MycError> {
         let connection = match self.lookup_connection(client_public_key)? {
             Ok(connection) => connection,
-            Err(response) => return Ok(response),
+            Err(response) => return Ok(MycNip46HandledRequest::respond(response)),
         };
 
         let manager = self.signer.load_signer_manager()?;
         let evaluation = manager.evaluate_request(&connection.connection_id, request_message)?;
 
         match evaluation.action {
-            RadrootsNostrSignerRequestAction::Denied { reason } => {
-                Ok(RadrootsNostrConnectResponse::Error {
+            RadrootsNostrSignerRequestAction::Denied { reason } => Ok(
+                MycNip46HandledRequest::respond(RadrootsNostrConnectResponse::Error {
                     result: None,
                     error: reason,
-                })
-            }
-            RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => Ok(
-                RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
+                }),
             ),
-            RadrootsNostrSignerRequestAction::Allowed { .. } => {
-                self.sign_event_response(unsigned_event)
+            RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
+                Ok(MycNip46HandledRequest::respond(
+                    RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
+                ))
             }
+            RadrootsNostrSignerRequestAction::Allowed { .. } => self
+                .sign_event_response(unsigned_event)
+                .map(MycNip46HandledRequest::respond),
         }
     }
 
@@ -218,27 +255,31 @@ impl MycNip46Handler {
         &self,
         client_public_key: RadrootsNostrPublicKey,
         request_message: RadrootsNostrConnectRequestMessage,
-    ) -> Result<RadrootsNostrConnectResponse, MycError> {
+    ) -> Result<MycNip46HandledRequest, MycError> {
         let request = request_message.request.clone();
         let connection = match self.lookup_connection(client_public_key)? {
             Ok(connection) => connection,
-            Err(response) => return Ok(response),
+            Err(response) => return Ok(MycNip46HandledRequest::respond(response)),
         };
 
         let manager = self.signer.load_signer_manager()?;
         let evaluation = manager.evaluate_request(&connection.connection_id, request_message)?;
 
         match evaluation.action {
-            RadrootsNostrSignerRequestAction::Denied { reason } => {
-                Ok(RadrootsNostrConnectResponse::Error {
+            RadrootsNostrSignerRequestAction::Denied { reason } => Ok(
+                MycNip46HandledRequest::respond(RadrootsNostrConnectResponse::Error {
                     result: None,
                     error: reason,
-                })
-            }
-            RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => Ok(
-                RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
+                }),
             ),
-            RadrootsNostrSignerRequestAction::Allowed { .. } => self.crypto_response(request),
+            RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
+                Ok(MycNip46HandledRequest::respond(
+                    RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
+                ))
+            }
+            RadrootsNostrSignerRequestAction::Allowed { .. } => self
+                .crypto_response(request)
+                .map(MycNip46HandledRequest::respond),
         }
     }
 
@@ -388,15 +429,24 @@ impl MycNip46Service {
             };
 
             let request_id = request_message.id.clone();
-            let response = match self.handler.handle_request(event.pubkey, request_message) {
-                Ok(response) => response,
+            let handled_request = match self.handler.handle_request(event.pubkey, request_message) {
+                Ok(handled_request) => handled_request,
                 Err(error) => {
                     tracing::warn!(error = %error, "failed to handle NIP-46 request");
-                    RadrootsNostrConnectResponse::Error {
+                    MycNip46HandledRequest::respond(RadrootsNostrConnectResponse::Error {
                         result: None,
                         error: error.to_string(),
-                    }
+                    })
                 }
+            };
+            let Some((response, consume_connect_secret_for)) = handled_request.into_publish_parts()
+            else {
+                tracing::debug!(
+                    request_id = %request_id,
+                    client_public_key = %event.pubkey,
+                    "ignoring NIP-46 request without response"
+                );
+                continue;
             };
 
             let response_event =
@@ -409,7 +459,46 @@ impl MycNip46Service {
                 .await
             {
                 tracing::warn!(error = %error, "failed to publish NIP-46 response");
+                continue;
             }
+            if let Some(connection_id) = consume_connect_secret_for {
+                if let Err(error) = self
+                    .handler
+                    .signer
+                    .load_signer_manager()?
+                    .mark_connect_secret_consumed(&connection_id)
+                {
+                    tracing::warn!(
+                        error = %error,
+                        connection_id = %connection_id,
+                        "failed to persist consumed NIP-46 connect secret"
+                    );
+                }
+            }
+        }
+    }
+}
+
+impl MycNip46HandledRequest {
+    fn respond(response: RadrootsNostrConnectResponse) -> Self {
+        Self::Respond {
+            response,
+            consume_connect_secret_for: None,
+        }
+    }
+
+    pub(crate) fn into_publish_parts(
+        self,
+    ) -> Option<(
+        RadrootsNostrConnectResponse,
+        Option<RadrootsNostrSignerConnectionId>,
+    )> {
+        match self {
+            Self::Respond {
+                response,
+                consume_connect_secret_for,
+            } => Some((response, consume_connect_secret_for)),
+            Self::Ignore => None,
         }
     }
 }
@@ -418,6 +507,17 @@ fn connect_response(secret: Option<String>) -> RadrootsNostrConnectResponse {
     match secret {
         Some(secret) => RadrootsNostrConnectResponse::ConnectSecretEcho(secret),
         None => RadrootsNostrConnectResponse::ConnectAcknowledged,
+    }
+}
+
+fn connect_response_outcome(
+    connection: &RadrootsNostrSignerConnectionRecord,
+    secret: Option<String>,
+) -> MycNip46HandledRequest {
+    let consume_connect_secret_for = secret.as_ref().map(|_| connection.connection_id.clone());
+    MycNip46HandledRequest::Respond {
+        response: connect_response(secret),
+        consume_connect_secret_for,
     }
 }
 
@@ -471,7 +571,7 @@ mod tests {
     use crate::app::MycRuntime;
     use crate::config::{MycConfig, MycConnectionApproval};
 
-    use super::MycNip46Handler;
+    use super::{MycNip46HandledRequest, MycNip46Handler};
 
     fn write_identity(path: &std::path::Path, secret_key: &str) {
         radroots_identity::RadrootsIdentity::from_secret_key_str(secret_key)
@@ -591,7 +691,7 @@ mod tests {
         requested_permissions: Vec<RadrootsNostrConnectPermission>,
     ) {
         handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
@@ -643,7 +743,7 @@ mod tests {
         let runtime = runtime();
         let handler = handler(&runtime);
         let response = handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
@@ -674,12 +774,111 @@ mod tests {
     }
 
     #[test]
+    fn existing_unconsumed_connect_secret_can_still_retry_after_failed_publish() {
+        let runtime = runtime();
+        let handler = handler(&runtime);
+
+        let first = handler
+            .handle_request_response(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect-1",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: Some("s3cr3t".to_owned()),
+                        requested_permissions: Default::default(),
+                    },
+                ),
+            )
+            .expect("first connect response");
+        let second = handler
+            .handle_request_response(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect-2",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: Some("s3cr3t".to_owned()),
+                        requested_permissions: Default::default(),
+                    },
+                ),
+            )
+            .expect("second connect response");
+
+        assert_eq!(
+            first,
+            RadrootsNostrConnectResponse::ConnectSecretEcho("s3cr3t".to_owned())
+        );
+        assert_eq!(second, first);
+    }
+
+    #[test]
+    fn consumed_connect_secret_is_ignored_on_reuse() {
+        let runtime = runtime();
+        let handler = handler(&runtime);
+        let response = handler
+            .handle_request_response(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: Some("s3cr3t".to_owned()),
+                        requested_permissions: Default::default(),
+                    },
+                ),
+            )
+            .expect("connect response");
+        assert_eq!(
+            response,
+            RadrootsNostrConnectResponse::ConnectSecretEcho("s3cr3t".to_owned())
+        );
+
+        let connection = runtime
+            .signer_manager()
+            .expect("manager")
+            .list_connections()
+            .expect("connections")
+            .into_iter()
+            .next()
+            .expect("connection");
+        runtime
+            .signer_manager()
+            .expect("manager")
+            .mark_connect_secret_consumed(&connection.connection_id)
+            .expect("consume connect secret");
+
+        let ignored = handler
+            .handle_request(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect-reused",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: Some("s3cr3t".to_owned()),
+                        requested_permissions: Default::default(),
+                    },
+                ),
+            )
+            .expect("ignored response");
+
+        assert_eq!(ignored, MycNip46HandledRequest::Ignore);
+        let connections = runtime
+            .signer_manager()
+            .expect("manager")
+            .list_connections()
+            .expect("connections");
+        assert_eq!(connections.len(), 1);
+        assert!(connections[0].connect_secret_is_consumed());
+    }
+
+    #[test]
     fn connect_preserves_pending_status_when_explicit_approval_is_required() {
         let runtime = runtime_with_explicit_approval();
         let handler = handler(&runtime);
 
         let response = handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
@@ -717,7 +916,7 @@ mod tests {
         let runtime = runtime();
         let handler = handler(&runtime);
         handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
@@ -734,7 +933,7 @@ mod tests {
             .expect("connect");
 
         let public_key = handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-pubkey",
@@ -748,7 +947,7 @@ mod tests {
         );
 
         let pong = handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-ping",
@@ -759,7 +958,7 @@ mod tests {
         assert_eq!(pong, RadrootsNostrConnectResponse::Pong);
 
         let relays = handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-switch",
@@ -780,7 +979,7 @@ mod tests {
         let runtime = runtime();
         let handler = handler(&runtime);
         handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
@@ -814,7 +1013,7 @@ mod tests {
         connect_with_permissions(&handler, &runtime, vec![sign_event_permission(1)]);
 
         let response = handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-sign",
@@ -843,7 +1042,7 @@ mod tests {
         connect_with_permissions(&handler, &runtime, Vec::new());
 
         let response = handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-sign",
@@ -872,7 +1071,7 @@ mod tests {
         connect_with_permissions(&handler, &runtime, vec![sign_event_permission(1)]);
 
         let response = handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-sign",
@@ -908,7 +1107,7 @@ mod tests {
         );
 
         let encrypt_response = handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-nip04-encrypt",
@@ -939,7 +1138,7 @@ mod tests {
         )
         .expect("client encrypt");
         let decrypt_response = handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-nip04-decrypt",
@@ -970,7 +1169,7 @@ mod tests {
         );
 
         let encrypt_response = handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-nip44-encrypt",
@@ -1002,7 +1201,7 @@ mod tests {
         )
         .expect("client encrypt");
         let decrypt_response = handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-nip44-decrypt",
@@ -1032,7 +1231,7 @@ mod tests {
         );
 
         let response = handler
-            .handle_request(
+            .handle_request_response(
                 client_keys().public_key(),
                 RadrootsNostrConnectRequestMessage::new(
                     "req-nip04-decrypt",
