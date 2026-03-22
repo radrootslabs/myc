@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -9,7 +10,7 @@ use radroots_nostr_signer::prelude::{
 use serde::Serialize;
 
 use crate::app::MycRuntime;
-use crate::audit::MycOperationAuditRecord;
+use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
 use crate::config::{DEFAULT_CONFIG_PATH, MycConfig};
 use crate::control::{accept_client_uri, authorize_auth_challenge, parse_permission_values};
 use crate::error::MycError;
@@ -61,6 +62,16 @@ pub enum MycAuditCommand {
         connection_id: Option<String>,
         #[arg(long, value_enum, default_value_t = MycAuditScope::All)]
         scope: MycAuditScope,
+        #[arg(long)]
+        limit: Option<usize>,
+    },
+    Summary {
+        #[arg(long)]
+        connection_id: Option<String>,
+        #[arg(long, value_enum, default_value_t = MycAuditScope::All)]
+        scope: MycAuditScope,
+        #[arg(long)]
+        limit: Option<usize>,
     },
 }
 
@@ -115,6 +126,32 @@ pub struct MycAuditListOutput {
     pub runtime_operation_audit: Vec<MycOperationAuditRecord>,
 }
 
+#[derive(Debug, Default, Serialize, PartialEq, Eq)]
+pub struct MycAuditDecisionCounts {
+    pub allowed: usize,
+    pub denied: usize,
+    pub challenged: usize,
+}
+
+#[derive(Debug, Default, Serialize, PartialEq, Eq)]
+pub struct MycOperationOutcomeCounts {
+    pub succeeded: usize,
+    pub rejected: usize,
+    pub restored: usize,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct MycAuditSummaryOutput {
+    pub record_limit: usize,
+    pub signer_request_total: usize,
+    pub signer_request_decisions: MycAuditDecisionCounts,
+    pub runtime_operation_total: usize,
+    pub runtime_operation_outcomes: MycOperationOutcomeCounts,
+    pub runtime_operation_by_kind: BTreeMap<String, MycOperationOutcomeCounts>,
+    pub runtime_publish_rejection_count: usize,
+    pub runtime_replay_restore_count: usize,
+}
+
 pub async fn run_from_env() -> Result<(), MycError> {
     let cli = MycCli::parse();
     let config = load_config(cli.config.as_deref())?;
@@ -164,9 +201,29 @@ pub async fn run_from_env() -> Result<(), MycError> {
                 MycAuditCommand::List {
                     connection_id,
                     scope,
+                    limit,
                 } => {
-                    let output =
-                        load_audit_output(&runtime, &manager, connection_id.as_deref(), scope)?;
+                    let output = load_audit_output(
+                        &runtime,
+                        &manager,
+                        connection_id.as_deref(),
+                        scope,
+                        limit,
+                    )?;
+                    print_json(&output)
+                }
+                MycAuditCommand::Summary {
+                    connection_id,
+                    scope,
+                    limit,
+                } => {
+                    let output = summarize_audit_output(
+                        &runtime,
+                        &manager,
+                        connection_id.as_deref(),
+                        scope,
+                        limit,
+                    )?;
                     print_json(&output)
                 }
             }
@@ -233,25 +290,124 @@ fn load_audit_output(
     manager: &radroots_nostr_signer::prelude::RadrootsNostrSignerManager,
     connection_id: Option<&str>,
     scope: MycAuditScope,
+    limit: Option<usize>,
 ) -> Result<MycAuditListOutput, MycError> {
+    let limit = audit_read_limit(runtime, limit);
     let connection_id = connection_id.map(parse_connection_id).transpose()?;
     let signer_request_audit = match (scope, connection_id.as_ref()) {
         (MycAuditScope::Operation, _) => Vec::new(),
-        (_, Some(connection_id)) => manager.audit_records_for_connection(connection_id)?,
-        (_, None) => manager.list_audit_records()?,
+        (_, Some(connection_id)) => manager
+            .audit_records_for_connection(connection_id)?
+            .into_iter()
+            .rev()
+            .take(limit)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect(),
+        (_, None) => manager
+            .list_audit_records()?
+            .into_iter()
+            .rev()
+            .take(limit)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect(),
     };
     let runtime_operation_audit = match (scope, connection_id.as_ref()) {
         (MycAuditScope::Request, _) => Vec::new(),
         (_, Some(connection_id)) => runtime
             .operation_audit_store()
-            .list_for_connection(connection_id)?,
-        (_, None) => runtime.operation_audit_store().list()?,
+            .list_for_connection_with_limit(connection_id, limit)?,
+        (_, None) => runtime.operation_audit_store().list_with_limit(limit)?,
     };
 
     Ok(MycAuditListOutput {
         signer_request_audit,
         runtime_operation_audit,
     })
+}
+
+fn summarize_audit_output(
+    runtime: &MycRuntime,
+    manager: &radroots_nostr_signer::prelude::RadrootsNostrSignerManager,
+    connection_id: Option<&str>,
+    scope: MycAuditScope,
+    limit: Option<usize>,
+) -> Result<MycAuditSummaryOutput, MycError> {
+    let record_limit = audit_read_limit(runtime, limit);
+    let audit = load_audit_output(runtime, manager, connection_id, scope, Some(record_limit))?;
+    let mut signer_request_decisions = MycAuditDecisionCounts::default();
+    for record in &audit.signer_request_audit {
+        match record.decision {
+            radroots_nostr_signer::prelude::RadrootsNostrSignerRequestDecision::Allowed => {
+                signer_request_decisions.allowed += 1;
+            }
+            radroots_nostr_signer::prelude::RadrootsNostrSignerRequestDecision::Denied => {
+                signer_request_decisions.denied += 1;
+            }
+            radroots_nostr_signer::prelude::RadrootsNostrSignerRequestDecision::Challenged => {
+                signer_request_decisions.challenged += 1;
+            }
+        }
+    }
+
+    let mut runtime_operation_outcomes = MycOperationOutcomeCounts::default();
+    let mut runtime_operation_by_kind = BTreeMap::new();
+    let mut runtime_publish_rejection_count = 0;
+    let mut runtime_replay_restore_count = 0;
+    for record in &audit.runtime_operation_audit {
+        increment_outcome_counts(&mut runtime_operation_outcomes, record.outcome);
+        let key = operation_kind_label(record.operation);
+        increment_outcome_counts(
+            runtime_operation_by_kind.entry(key).or_default(),
+            record.outcome,
+        );
+        if record.outcome == MycOperationAuditOutcome::Rejected {
+            runtime_publish_rejection_count += 1;
+        }
+        if record.operation == MycOperationAuditKind::AuthReplayRestore
+            && record.outcome == MycOperationAuditOutcome::Restored
+        {
+            runtime_replay_restore_count += 1;
+        }
+    }
+
+    Ok(MycAuditSummaryOutput {
+        record_limit,
+        signer_request_total: audit.signer_request_audit.len(),
+        signer_request_decisions,
+        runtime_operation_total: audit.runtime_operation_audit.len(),
+        runtime_operation_outcomes,
+        runtime_operation_by_kind,
+        runtime_publish_rejection_count,
+        runtime_replay_restore_count,
+    })
+}
+
+fn audit_read_limit(runtime: &MycRuntime, limit: Option<usize>) -> usize {
+    limit.unwrap_or(runtime.operation_audit_store().config().default_read_limit)
+}
+
+fn increment_outcome_counts(
+    counts: &mut MycOperationOutcomeCounts,
+    outcome: MycOperationAuditOutcome,
+) {
+    match outcome {
+        MycOperationAuditOutcome::Succeeded => counts.succeeded += 1,
+        MycOperationAuditOutcome::Rejected => counts.rejected += 1,
+        MycOperationAuditOutcome::Restored => counts.restored += 1,
+    }
+}
+
+fn operation_kind_label(kind: MycOperationAuditKind) -> String {
+    match kind {
+        MycOperationAuditKind::ListenerResponsePublish => "listener_response_publish".to_owned(),
+        MycOperationAuditKind::ConnectAcceptPublish => "connect_accept_publish".to_owned(),
+        MycOperationAuditKind::AuthReplayPublish => "auth_replay_publish".to_owned(),
+        MycOperationAuditKind::AuthReplayRestore => "auth_replay_restore".to_owned(),
+    }
 }
 
 fn print_json<T>(value: &T) -> Result<(), MycError>
@@ -266,14 +422,16 @@ where
 mod tests {
     use std::path::PathBuf;
 
+    use nostr::Timestamp;
     use radroots_identity::RadrootsIdentity;
     use radroots_nostr_connect::prelude::RadrootsNostrConnectRequest;
     use radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionDraft;
+    use serde_json::json;
 
     use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
     use crate::config::MycConfig;
 
-    use super::{MycAuditScope, load_audit_output};
+    use super::{MycAuditScope, load_audit_output, summarize_audit_output};
     use crate::app::MycRuntime;
 
     fn write_identity(path: &std::path::Path, secret_key: &str) {
@@ -286,6 +444,7 @@ mod tests {
     fn runtime() -> MycRuntime {
         let temp = tempfile::tempdir().expect("tempdir").keep();
         let mut config = MycConfig::default();
+        config.audit.default_read_limit = 2;
         config.paths.state_dir = PathBuf::from(&temp).join("state");
         config.paths.signer_identity_path = PathBuf::from(&temp).join("signer.json");
         config.paths.user_identity_path = PathBuf::from(&temp).join("user.json");
@@ -334,6 +493,7 @@ mod tests {
             &manager,
             Some(connection.connection_id.as_str()),
             MycAuditScope::All,
+            None,
         )
         .expect("load audit output");
 
@@ -343,5 +503,113 @@ mod tests {
             output.runtime_operation_audit[0].operation,
             MycOperationAuditKind::AuthReplayRestore
         );
+    }
+
+    #[test]
+    fn audit_summary_counts_recent_failures_and_restores() {
+        let runtime = runtime();
+        let manager = runtime.signer_manager().expect("manager");
+        let connection = manager
+            .register_connection(RadrootsNostrSignerConnectionDraft::new(
+                nostr::Keys::generate().public_key(),
+                runtime.user_public_identity(),
+            ))
+            .expect("register connection");
+
+        let denied = manager
+            .evaluate_request(
+                &connection.connection_id,
+                radroots_nostr_connect::prelude::RadrootsNostrConnectRequestMessage::new(
+                    "request-1",
+                    RadrootsNostrConnectRequest::SignEvent(
+                        serde_json::from_value(json!({
+                            "pubkey": runtime.user_identity().public_key().to_hex(),
+                            "created_at": Timestamp::from(1).as_secs(),
+                            "kind": 1,
+                            "tags": [],
+                            "content": "hello"
+                        }))
+                        .expect("unsigned event"),
+                    ),
+                ),
+            )
+            .expect("denied request");
+        let challenged = manager
+            .require_auth_challenge(&connection.connection_id, "https://auth.example")
+            .expect("require auth challenge");
+        let challenged_eval = manager
+            .evaluate_request(
+                &challenged.connection_id,
+                radroots_nostr_connect::prelude::RadrootsNostrConnectRequestMessage::new(
+                    "request-2",
+                    RadrootsNostrConnectRequest::Ping,
+                ),
+            )
+            .expect("challenged request");
+
+        runtime.record_operation_audit(&MycOperationAuditRecord::new(
+            MycOperationAuditKind::ListenerResponsePublish,
+            MycOperationAuditOutcome::Rejected,
+            Some(&connection.connection_id),
+            Some("request-1"),
+            1,
+            0,
+            "listener publish rejected",
+        ));
+        runtime.record_operation_audit(&MycOperationAuditRecord::new(
+            MycOperationAuditKind::AuthReplayRestore,
+            MycOperationAuditOutcome::Restored,
+            Some(&connection.connection_id),
+            Some("request-2"),
+            1,
+            0,
+            "restored pending auth challenge after replay failure",
+        ));
+        runtime.record_operation_audit(&MycOperationAuditRecord::new(
+            MycOperationAuditKind::ConnectAcceptPublish,
+            MycOperationAuditOutcome::Succeeded,
+            Some(&connection.connection_id),
+            Some("request-3"),
+            1,
+            1,
+            "publish succeeded",
+        ));
+
+        let summary = summarize_audit_output(
+            &runtime,
+            &manager,
+            Some(connection.connection_id.as_str()),
+            MycAuditScope::All,
+            None,
+        )
+        .expect("summary");
+
+        assert_eq!(summary.record_limit, 2);
+        assert_eq!(summary.signer_request_total, 2);
+        assert_eq!(summary.signer_request_decisions.denied, 1);
+        assert_eq!(summary.signer_request_decisions.challenged, 1);
+        assert_eq!(summary.runtime_operation_total, 2);
+        assert_eq!(summary.runtime_operation_outcomes.succeeded, 1);
+        assert_eq!(summary.runtime_operation_outcomes.restored, 1);
+        assert_eq!(summary.runtime_publish_rejection_count, 0);
+        assert_eq!(summary.runtime_replay_restore_count, 1);
+        assert_eq!(
+            summary
+                .runtime_operation_by_kind
+                .get("auth_replay_restore")
+                .expect("restore kind")
+                .restored,
+            1
+        );
+        assert_eq!(
+            summary
+                .runtime_operation_by_kind
+                .get("connect_accept_publish")
+                .expect("connect kind")
+                .succeeded,
+            1
+        );
+        assert_eq!(denied.audit.request_id.as_str(), "request-1");
+        assert_eq!(challenged_eval.audit.request_id.as_str(), "request-2");
     }
 }
