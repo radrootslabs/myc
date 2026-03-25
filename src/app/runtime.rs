@@ -1,10 +1,12 @@
 use std::fs;
 use std::future::Future;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use crate::audit::{MycOperationAuditRecord, MycOperationAuditStore};
 use crate::config::{MycAuditConfig, MycConfig};
 use crate::error::MycError;
+use crate::operability::server::run_observability_server;
 use crate::policy::MycPolicyContext;
 use crate::transport::{MycNip46Service, MycNostrTransport, MycTransportSnapshot};
 use radroots_identity::{RadrootsIdentity, RadrootsIdentityPublic};
@@ -28,6 +30,8 @@ pub struct MycRuntimePaths {
 pub struct MycStartupSnapshot {
     pub instance_name: String,
     pub log_filter: String,
+    pub observability_enabled: bool,
+    pub observability_bind_addr: SocketAddr,
     pub state_dir: PathBuf,
     pub audit_dir: PathBuf,
     pub signer_identity_path: PathBuf,
@@ -130,6 +134,8 @@ impl MycRuntime {
         MycStartupSnapshot {
             instance_name: self.config.service.instance_name.clone(),
             log_filter: self.config.logging.filter.clone(),
+            observability_enabled: self.config.observability.enabled,
+            observability_bind_addr: self.config.observability.bind_addr,
             state_dir: self.paths.state_dir.clone(),
             audit_dir: self.paths.audit_dir.clone(),
             signer_identity_path: self.paths.signer_identity_path.clone(),
@@ -167,18 +173,49 @@ impl MycRuntime {
             signer_public_key_hex = %snapshot.signer_public_key_hex,
             user_identity_id = %snapshot.user_identity_id,
             user_public_key_hex = %snapshot.user_public_key_hex,
+            observability_enabled = snapshot.observability_enabled,
+            observability_bind_addr = %snapshot.observability_bind_addr,
             transport_enabled = snapshot.transport.enabled,
             transport_relay_count = snapshot.transport.relay_count,
             transport_connect_timeout_secs = snapshot.transport.connect_timeout_secs,
             "myc runtime bootstrapped"
         );
+        let mut tasks = tokio::task::JoinSet::new();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         if let Some(transport) = self.transport.clone() {
             let service = MycNip46Service::new(self.signer_context(), transport);
-            return service.run_until(shutdown).await;
+            let shutdown = observe_shutdown_signal(shutdown_rx.clone());
+            tasks.spawn(async move { service.run_until(shutdown).await });
         }
+        if self.config.observability.enabled {
+            let runtime = self.clone();
+            let shutdown = observe_shutdown_signal(shutdown_rx);
+            tasks.spawn(async move { run_observability_server(runtime, shutdown).await });
+        }
+
         tokio::pin!(shutdown);
-        shutdown.await;
-        Ok(())
+        if tasks.is_empty() {
+            shutdown.await;
+            return Ok(());
+        }
+
+        tokio::select! {
+            _ = &mut shutdown => {
+                let _ = shutdown_tx.send(true);
+                drain_runtime_tasks(tasks).await
+            }
+            joined = tasks.join_next() => {
+                let _ = shutdown_tx.send(true);
+                let first_result = match joined {
+                    Some(result) => result.map_err(|error| {
+                        MycError::InvalidOperation(format!("myc runtime task failed: {error}"))
+                    })?,
+                    None => Ok(()),
+                };
+                let remaining = drain_runtime_tasks(tasks).await;
+                first_result.and(remaining)
+            }
+        }
     }
 
     fn prepare_filesystem_for(paths: &MycRuntimePaths) -> Result<(), MycError> {
@@ -191,6 +228,45 @@ impl MycRuntime {
             source,
         })?;
         Ok(())
+    }
+}
+
+async fn drain_runtime_tasks(
+    mut tasks: tokio::task::JoinSet<Result<(), MycError>>,
+) -> Result<(), MycError> {
+    let mut first_error = None;
+    while let Some(joined) = tasks.join_next().await {
+        match joined {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
+            Err(error) => {
+                if first_error.is_none() {
+                    first_error = Some(MycError::InvalidOperation(format!(
+                        "myc runtime task failed: {error}"
+                    )));
+                }
+            }
+        }
+    }
+
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
+async fn observe_shutdown_signal(mut shutdown_rx: tokio::sync::watch::Receiver<bool>) {
+    loop {
+        if *shutdown_rx.borrow() {
+            break;
+        }
+        if shutdown_rx.changed().await.is_err() {
+            break;
+        }
     }
 }
 

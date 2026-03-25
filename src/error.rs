@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use radroots_identity::IdentityError;
@@ -37,6 +38,18 @@ pub enum MycError {
     #[error("failed to create directory {path}: {source}")]
     CreateDir {
         path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to bind observability server at {bind_addr}: {source}")]
+    ObservabilityBind {
+        bind_addr: SocketAddr,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("observability server failed at {bind_addr}: {source}")]
+    ObservabilityServe {
+        bind_addr: SocketAddr,
         #[source]
         source: std::io::Error,
     },

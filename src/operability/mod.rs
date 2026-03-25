@@ -1,3 +1,5 @@
+pub mod server;
+
 use std::collections::BTreeMap;
 use std::time::Duration;
 

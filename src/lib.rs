@@ -19,8 +19,8 @@ pub use audit::{
 };
 pub use config::{
     DEFAULT_ENV_PATH, MycAuditConfig, MycConfig, MycConnectionApproval, MycDiscoveryConfig,
-    MycDiscoveryMetadataConfig, MycLoggingConfig, MycPathsConfig, MycPolicyConfig,
-    MycServiceConfig, MycTransportConfig, MycTransportDeliveryPolicy,
+    MycDiscoveryMetadataConfig, MycLoggingConfig, MycObservabilityConfig, MycPathsConfig,
+    MycPolicyConfig, MycServiceConfig, MycTransportConfig, MycTransportDeliveryPolicy,
 };
 pub use control::{MycAcceptedConnectionOutput, MycAuthorizedReplayOutput};
 pub use discovery::{

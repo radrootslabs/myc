@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::fs;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use nostr::PublicKey;
@@ -21,6 +22,7 @@ pub struct MycConfig {
     pub logging: MycLoggingConfig,
     pub paths: MycPathsConfig,
     pub audit: MycAuditConfig,
+    pub observability: MycObservabilityConfig,
     pub discovery: MycDiscoveryConfig,
     pub policy: MycPolicyConfig,
     pub transport: MycTransportConfig,
@@ -54,6 +56,13 @@ pub struct MycAuditConfig {
     pub default_read_limit: usize,
     pub max_active_file_bytes: u64,
     pub max_archived_files: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MycObservabilityConfig {
+    pub enabled: bool,
+    pub bind_addr: SocketAddr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,6 +139,7 @@ impl Default for MycConfig {
             logging: MycLoggingConfig::default(),
             paths: MycPathsConfig::default(),
             audit: MycAuditConfig::default(),
+            observability: MycObservabilityConfig::default(),
             discovery: MycDiscoveryConfig::default(),
             policy: MycPolicyConfig::default(),
             transport: MycTransportConfig::default(),
@@ -186,6 +196,17 @@ impl Default for MycAuditConfig {
             default_read_limit: 200,
             max_active_file_bytes: 262_144,
             max_archived_files: 8,
+        }
+    }
+}
+
+impl Default for MycObservabilityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind_addr: "127.0.0.1:9460"
+                .parse()
+                .expect("default observability bind addr"),
         }
     }
 }
@@ -326,6 +347,12 @@ impl MycConfig {
         if self.audit.max_active_file_bytes == 0 {
             return Err(MycError::InvalidConfig(
                 "audit.max_active_file_bytes must be greater than zero".to_owned(),
+            ));
+        }
+
+        if !self.observability.bind_addr.ip().is_loopback() {
+            return Err(MycError::InvalidConfig(
+                "observability.bind_addr must use a loopback address".to_owned(),
             ));
         }
 
@@ -555,6 +582,12 @@ fn apply_env_entry(
         "MYC_AUDIT_MAX_ARCHIVED_FILES" => {
             config.audit.max_archived_files = parse_usize_env(key, value, path, line_number)?;
         }
+        "MYC_OBSERVABILITY_ENABLED" => {
+            config.observability.enabled = parse_bool_env(key, value, path, line_number)?;
+        }
+        "MYC_OBSERVABILITY_BIND_ADDR" => {
+            config.observability.bind_addr = parse_socket_addr_env(key, value, path, line_number)?;
+        }
         "MYC_DISCOVERY_ENABLED" => {
             config.discovery.enabled = parse_bool_env(key, value, path, line_number)?;
         }
@@ -702,6 +735,21 @@ fn parse_u64_env(key: &str, value: &str, path: &Path, line_number: usize) -> Res
             path,
             line_number,
             format!("{key} must be an unsigned integer"),
+        )
+    })
+}
+
+fn parse_socket_addr_env(
+    key: &str,
+    value: &str,
+    path: &Path,
+    line_number: usize,
+) -> Result<SocketAddr, MycError> {
+    value.parse::<SocketAddr>().map_err(|error| {
+        config_parse_error(
+            path,
+            line_number,
+            format!("{key} must be a socket address: {error}"),
         )
     })
 }
@@ -1029,6 +1077,13 @@ mod tests {
         assert_eq!(config.audit.default_read_limit, 200);
         assert_eq!(config.audit.max_active_file_bytes, 262_144);
         assert_eq!(config.audit.max_archived_files, 8);
+        assert!(!config.observability.enabled);
+        assert_eq!(
+            config.observability.bind_addr,
+            "127.0.0.1:9460"
+                .parse()
+                .expect("default observability bind addr")
+        );
         assert!(!config.discovery.enabled);
         assert_eq!(config.discovery.handler_identifier, "myc");
         assert!(config.discovery.domain.is_none());
@@ -1063,6 +1118,8 @@ MYC_PATHS_USER_IDENTITY_PATH=/tmp/myc-user.json
 MYC_AUDIT_DEFAULT_READ_LIMIT=50
 MYC_AUDIT_MAX_ACTIVE_FILE_BYTES=4096
 MYC_AUDIT_MAX_ARCHIVED_FILES=3
+MYC_OBSERVABILITY_ENABLED=true
+MYC_OBSERVABILITY_BIND_ADDR=127.0.0.1:9550
 MYC_DISCOVERY_ENABLED=true
 MYC_DISCOVERY_DOMAIN=myc.example.com
 MYC_DISCOVERY_HANDLER_IDENTIFIER=myc-main
@@ -1116,6 +1173,11 @@ MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS=800
         assert_eq!(config.audit.default_read_limit, 50);
         assert_eq!(config.audit.max_active_file_bytes, 4096);
         assert_eq!(config.audit.max_archived_files, 3);
+        assert!(config.observability.enabled);
+        assert_eq!(
+            config.observability.bind_addr,
+            "127.0.0.1:9550".parse().expect("observability bind addr")
+        );
         assert!(config.discovery.enabled);
         assert_eq!(config.discovery.domain.as_deref(), Some("myc.example.com"));
         assert_eq!(config.discovery.handler_identifier, "myc-main");
@@ -1225,6 +1287,23 @@ MYC_UNKNOWN=nope
 
         let err = config.validate().expect_err("invalid audit read limit");
         assert!(err.to_string().contains("audit.default_read_limit"));
+    }
+
+    #[test]
+    fn validate_rejects_non_loopback_observability_bind_addr() {
+        let mut config = MycConfig::default();
+        config.observability.enabled = true;
+        config.observability.bind_addr = "0.0.0.0:9460"
+            .parse()
+            .expect("non-loopback observability bind addr");
+
+        let err = config
+            .validate()
+            .expect_err("non-loopback observability bind addr should be rejected");
+        assert!(
+            err.to_string()
+                .contains("observability.bind_addr must use a loopback address")
+        );
     }
 
     #[test]
