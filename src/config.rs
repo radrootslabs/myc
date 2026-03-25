@@ -2,8 +2,10 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use nostr::PublicKey;
 use radroots_identity::DEFAULT_IDENTITY_PATH;
 use radroots_nostr::prelude::RadrootsNostrRelayUrl;
+use radroots_nostr_connect::prelude::RadrootsNostrConnectPermissions;
 use radroots_nostr_signer::prelude::RadrootsNostrSignerApprovalRequirement;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
@@ -96,6 +98,7 @@ pub struct MycTransportConfig {
 pub enum MycConnectionApproval {
     NotRequired,
     ExplicitUser,
+    Deny,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,6 +113,14 @@ pub enum MycTransportDeliveryPolicy {
 #[serde(default, deny_unknown_fields)]
 pub struct MycPolicyConfig {
     pub connection_approval: MycConnectionApproval,
+    pub trusted_client_pubkeys: Vec<String>,
+    pub denied_client_pubkeys: Vec<String>,
+    pub permission_ceiling: RadrootsNostrConnectPermissions,
+    pub allowed_sign_event_kinds: Vec<u16>,
+    pub auth_url: Option<String>,
+    pub auth_pending_ttl_secs: u64,
+    pub auth_authorized_ttl_secs: Option<u64>,
+    pub reauth_after_inactivity_secs: Option<u64>,
 }
 
 impl Default for MycConfig {
@@ -211,6 +222,14 @@ impl Default for MycPolicyConfig {
     fn default() -> Self {
         Self {
             connection_approval: MycConnectionApproval::ExplicitUser,
+            trusted_client_pubkeys: Vec::new(),
+            denied_client_pubkeys: Vec::new(),
+            permission_ceiling: RadrootsNostrConnectPermissions::default(),
+            allowed_sign_event_kinds: Vec::new(),
+            auth_url: None,
+            auth_pending_ttl_secs: 900,
+            auth_authorized_ttl_secs: None,
+            reauth_after_inactivity_secs: None,
         }
     }
 }
@@ -219,7 +238,7 @@ impl MycConnectionApproval {
     pub fn into_signer_approval_requirement(self) -> RadrootsNostrSignerApprovalRequirement {
         match self {
             Self::NotRequired => RadrootsNostrSignerApprovalRequirement::NotRequired,
-            Self::ExplicitUser => RadrootsNostrSignerApprovalRequirement::ExplicitUser,
+            Self::ExplicitUser | Self::Deny => RadrootsNostrSignerApprovalRequirement::ExplicitUser,
         }
     }
 }
@@ -342,6 +361,54 @@ impl MycConfig {
                 "transport.publish_max_backoff_millis must be greater than or equal to transport.publish_initial_backoff_millis"
                     .to_owned(),
             ));
+        }
+
+        if self.policy.auth_pending_ttl_secs == 0 {
+            return Err(MycError::InvalidConfig(
+                "policy.auth_pending_ttl_secs must be greater than zero".to_owned(),
+            ));
+        }
+        if self
+            .policy
+            .auth_authorized_ttl_secs
+            .is_some_and(|ttl| ttl == 0)
+        {
+            return Err(MycError::InvalidConfig(
+                "policy.auth_authorized_ttl_secs must be greater than zero when set".to_owned(),
+            ));
+        }
+        if self
+            .policy
+            .reauth_after_inactivity_secs
+            .is_some_and(|ttl| ttl == 0)
+        {
+            return Err(MycError::InvalidConfig(
+                "policy.reauth_after_inactivity_secs must be greater than zero when set".to_owned(),
+            ));
+        }
+        if (self.policy.auth_authorized_ttl_secs.is_some()
+            || self.policy.reauth_after_inactivity_secs.is_some())
+            && self.policy.auth_url.is_none()
+        {
+            return Err(MycError::InvalidConfig(
+                "policy.auth_url must be set when automatic auth TTL policy is configured"
+                    .to_owned(),
+            ));
+        }
+
+        let trusted_client_pubkeys =
+            normalize_policy_client_pubkeys(&self.policy.trusted_client_pubkeys)?;
+        let denied_client_pubkeys =
+            normalize_policy_client_pubkeys(&self.policy.denied_client_pubkeys)?;
+        let overlap = trusted_client_pubkeys
+            .intersection(&denied_client_pubkeys)
+            .cloned()
+            .collect::<Vec<_>>();
+        if !overlap.is_empty() {
+            return Err(MycError::InvalidConfig(format!(
+                "policy trusted and denied client pubkeys overlap: {}",
+                overlap.join(", ")
+            )));
         }
 
         match self.transport.delivery_policy {
@@ -531,6 +598,34 @@ fn apply_env_entry(
             config.policy.connection_approval =
                 parse_connection_approval_env(key, value, path, line_number)?;
         }
+        "MYC_POLICY_TRUSTED_CLIENT_PUBKEYS" => {
+            config.policy.trusted_client_pubkeys = parse_string_list_env(value);
+        }
+        "MYC_POLICY_DENIED_CLIENT_PUBKEYS" => {
+            config.policy.denied_client_pubkeys = parse_string_list_env(value);
+        }
+        "MYC_POLICY_PERMISSION_CEILING" => {
+            config.policy.permission_ceiling =
+                parse_permissions_env(key, value, path, line_number)?;
+        }
+        "MYC_POLICY_ALLOWED_SIGN_EVENT_KINDS" => {
+            config.policy.allowed_sign_event_kinds =
+                parse_u16_list_env(key, value, path, line_number)?;
+        }
+        "MYC_POLICY_AUTH_URL" => {
+            config.policy.auth_url = parse_optional_string_env(value);
+        }
+        "MYC_POLICY_AUTH_PENDING_TTL_SECS" => {
+            config.policy.auth_pending_ttl_secs = parse_u64_env(key, value, path, line_number)?;
+        }
+        "MYC_POLICY_AUTHORIZED_TTL_SECS" => {
+            config.policy.auth_authorized_ttl_secs =
+                Some(parse_u64_env(key, value, path, line_number)?);
+        }
+        "MYC_POLICY_REAUTH_AFTER_INACTIVITY_SECS" => {
+            config.policy.reauth_after_inactivity_secs =
+                Some(parse_u64_env(key, value, path, line_number)?);
+        }
         "MYC_TRANSPORT_ENABLED" => {
             config.transport.enabled = parse_bool_env(key, value, path, line_number)?;
         }
@@ -620,10 +715,11 @@ fn parse_connection_approval_env(
     match value {
         "not_required" => Ok(MycConnectionApproval::NotRequired),
         "explicit_user" => Ok(MycConnectionApproval::ExplicitUser),
+        "deny" => Ok(MycConnectionApproval::Deny),
         _ => Err(config_parse_error(
             path,
             line_number,
-            format!("{key} must be `not_required` or `explicit_user`"),
+            format!("{key} must be `not_required`, `explicit_user`, or `deny`"),
         )),
     }
 }
@@ -653,6 +749,55 @@ fn parse_optional_string_env(value: &str) -> Option<String> {
     } else {
         Some(value.to_owned())
     }
+}
+
+fn parse_permissions_env(
+    key: &str,
+    value: &str,
+    path: &Path,
+    line_number: usize,
+) -> Result<RadrootsNostrConnectPermissions, MycError> {
+    value
+        .parse::<RadrootsNostrConnectPermissions>()
+        .map_err(|error| {
+            config_parse_error(path, line_number, format!("{key} parse error: {error}"))
+        })
+}
+
+fn parse_u16_list_env(
+    key: &str,
+    value: &str,
+    path: &Path,
+    line_number: usize,
+) -> Result<Vec<u16>, MycError> {
+    parse_string_list_env(value)
+        .into_iter()
+        .map(|fragment| {
+            fragment.parse::<u16>().map_err(|_| {
+                config_parse_error(
+                    path,
+                    line_number,
+                    format!("{key} must contain only unsigned 16-bit integers"),
+                )
+            })
+        })
+        .collect()
+}
+
+fn normalize_policy_client_pubkeys(values: &[String]) -> Result<BTreeSet<String>, MycError> {
+    values
+        .iter()
+        .map(|value| {
+            let public_key = PublicKey::parse(value)
+                .or_else(|_| PublicKey::from_hex(value))
+                .map_err(|_| {
+                    MycError::InvalidConfig(format!(
+                        "policy client pubkey `{value}` is not a valid nostr public key"
+                    ))
+                })?;
+            Ok(public_key.to_hex())
+        })
+        .collect()
 }
 
 fn parse_optional_path_env(value: &str) -> Option<PathBuf> {
@@ -873,6 +1018,14 @@ mod tests {
             config.policy.connection_approval,
             MycConnectionApproval::ExplicitUser
         );
+        assert!(config.policy.trusted_client_pubkeys.is_empty());
+        assert!(config.policy.denied_client_pubkeys.is_empty());
+        assert!(config.policy.permission_ceiling.is_empty());
+        assert!(config.policy.allowed_sign_event_kinds.is_empty());
+        assert!(config.policy.auth_url.is_none());
+        assert_eq!(config.policy.auth_pending_ttl_secs, 900);
+        assert_eq!(config.policy.auth_authorized_ttl_secs, None);
+        assert_eq!(config.policy.reauth_after_inactivity_secs, None);
         assert_eq!(config.audit.default_read_limit, 200);
         assert_eq!(config.audit.max_active_file_bytes, 262_144);
         assert_eq!(config.audit.max_archived_files, 8);
@@ -924,6 +1077,14 @@ MYC_DISCOVERY_METADATA_ABOUT=NIP-46 signer
 MYC_DISCOVERY_METADATA_WEBSITE=https://myc.example.com
 MYC_DISCOVERY_METADATA_PICTURE=https://myc.example.com/logo.png
 MYC_POLICY_CONNECTION_APPROVAL=not_required
+MYC_POLICY_TRUSTED_CLIENT_PUBKEYS=1111111111111111111111111111111111111111111111111111111111111111
+MYC_POLICY_DENIED_CLIENT_PUBKEYS=2222222222222222222222222222222222222222222222222222222222222222
+MYC_POLICY_PERMISSION_CEILING=nip04_encrypt,sign_event:1
+MYC_POLICY_ALLOWED_SIGN_EVENT_KINDS=1,7
+MYC_POLICY_AUTH_URL=https://auth.example.com/challenge
+MYC_POLICY_AUTH_PENDING_TTL_SECS=300
+MYC_POLICY_AUTHORIZED_TTL_SECS=3600
+MYC_POLICY_REAUTH_AFTER_INACTIVITY_SECS=600
 MYC_TRANSPORT_ENABLED=true
 MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=15
 MYC_TRANSPORT_RELAYS=wss://relay.example.com,wss://relay2.example.com
@@ -987,6 +1148,26 @@ MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS=800
             config.policy.connection_approval,
             MycConnectionApproval::NotRequired
         );
+        assert_eq!(
+            config.policy.trusted_client_pubkeys,
+            vec!["1111111111111111111111111111111111111111111111111111111111111111".to_owned()]
+        );
+        assert_eq!(
+            config.policy.denied_client_pubkeys,
+            vec!["2222222222222222222222222222222222222222222222222222222222222222".to_owned()]
+        );
+        assert_eq!(
+            config.policy.permission_ceiling.to_string(),
+            "nip04_encrypt,sign_event:1"
+        );
+        assert_eq!(config.policy.allowed_sign_event_kinds, vec![1, 7]);
+        assert_eq!(
+            config.policy.auth_url.as_deref(),
+            Some("https://auth.example.com/challenge")
+        );
+        assert_eq!(config.policy.auth_pending_ttl_secs, 300);
+        assert_eq!(config.policy.auth_authorized_ttl_secs, Some(3600));
+        assert_eq!(config.policy.reauth_after_inactivity_secs, Some(600));
         assert!(config.transport.enabled);
         assert_eq!(config.transport.connect_timeout_secs, 15);
         assert_eq!(
@@ -1140,6 +1321,29 @@ MYC_UNKNOWN=nope
     }
 
     #[test]
+    fn validate_rejects_overlapping_policy_client_lists() {
+        let mut config = MycConfig::default();
+        config.policy.trusted_client_pubkeys =
+            vec!["1111111111111111111111111111111111111111111111111111111111111111".to_owned()];
+        config.policy.denied_client_pubkeys =
+            vec!["1111111111111111111111111111111111111111111111111111111111111111".to_owned()];
+
+        let err = config
+            .validate()
+            .expect_err("overlapping policy client lists");
+        assert!(err.to_string().contains("overlap"));
+    }
+
+    #[test]
+    fn validate_requires_auth_url_for_auth_ttl_policy() {
+        let mut config = MycConfig::default();
+        config.policy.auth_authorized_ttl_secs = Some(60);
+
+        let err = config.validate().expect_err("missing auth url");
+        assert!(err.to_string().contains("policy.auth_url"));
+    }
+
+    #[test]
     fn example_env_parses_and_validates() {
         let example =
             fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".env.example"))
@@ -1159,6 +1363,11 @@ MYC_UNKNOWN=nope
             config.transport.delivery_policy,
             MycTransportDeliveryPolicy::Any
         );
+        assert_eq!(
+            config.policy.connection_approval,
+            MycConnectionApproval::ExplicitUser
+        );
+        assert_eq!(config.policy.auth_pending_ttl_secs, 900);
         assert_eq!(config.transport.delivery_quorum, None);
         assert_eq!(config.transport.publish_max_attempts, 1);
         assert_eq!(config.transport.publish_initial_backoff_millis, 250);

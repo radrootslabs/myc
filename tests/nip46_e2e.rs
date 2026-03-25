@@ -680,6 +680,69 @@ async fn wait_for_operation_audit_count(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_listener_rejects_denied_clients_without_registering_connection() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let client_identity =
+        identity("7777777777777777777777777777777777777777777777777777777777777777");
+    let test_runtime = MycTestRuntime::new_with_transport_config(
+        &[relay.url()],
+        MycConnectionApproval::ExplicitUser,
+        |config| {
+            config.policy.denied_client_pubkeys = vec![client_identity.public_key().to_hex()];
+        },
+    );
+    let runtime = test_runtime.runtime.clone();
+    let signer_public_key = runtime.signer_identity().public_key();
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let service_runtime = runtime.clone();
+    let listener_task = tokio::spawn(async move {
+        service_runtime
+            .run_until(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
+
+    relay.wait_for_subscription_count(1).await?;
+
+    let request_event = build_request_event(
+        &client_identity,
+        signer_public_key,
+        connect_request_message("denied-connect", signer_public_key, "denied-secret"),
+        Timestamp::now().as_secs(),
+    );
+    publish_event(relay.url(), &request_event).await?;
+
+    let response_events = relay
+        .wait_for_published_events_by_author(signer_public_key, 1)
+        .await?;
+    let response = decrypt_response(&client_identity, signer_public_key, &response_events[0]);
+    assert_eq!(response.id, "denied-connect");
+    let parsed = radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::from_envelope(
+        &RadrootsNostrConnectRequest::Connect {
+            remote_signer_public_key: signer_public_key,
+            secret: Some("denied-secret".to_owned()),
+            requested_permissions: Default::default(),
+        }
+        .method(),
+        response,
+    )?;
+    assert_eq!(
+        parsed,
+        radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::Error {
+            result: None,
+            error: "client public key denied by policy".to_owned(),
+        }
+    );
+    assert!(runtime.signer_manager()?.list_connections()?.is_empty());
+
+    let _ = shutdown_tx.send(());
+    listener_task.await??;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn live_listener_consumes_connect_secret_only_after_successful_publish() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
@@ -805,6 +868,196 @@ async fn live_listener_consumes_connect_secret_only_after_successful_publish() -
         MycOperationAuditOutcome::Succeeded
     );
     assert_eq!(operation_audit[1].request_id.as_deref(), Some("connect-2"));
+
+    let _ = shutdown_tx.send(());
+    listener_task.await??;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn trusted_client_reauths_after_authorized_ttl() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let client_identity =
+        identity("7878787878787878787878787878787878787878787878787878787878787878");
+    let test_runtime = MycTestRuntime::new_with_transport_config(
+        &[relay.url()],
+        MycConnectionApproval::ExplicitUser,
+        |config| {
+            config.policy.trusted_client_pubkeys = vec![client_identity.public_key().to_hex()];
+            config.policy.permission_ceiling = "sign_event:1".parse().expect("permission ceiling");
+            config.policy.allowed_sign_event_kinds = vec![1];
+            config.policy.auth_url = Some("https://auth.example/challenge".to_owned());
+            config.policy.auth_authorized_ttl_secs = Some(1);
+        },
+    );
+    let runtime = test_runtime.runtime.clone();
+    let signer_public_key = runtime.signer_identity().public_key();
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let service_runtime = runtime.clone();
+    let listener_task = tokio::spawn(async move {
+        service_runtime
+            .run_until(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
+
+    relay.wait_for_subscription_count(1).await?;
+
+    let connect_request = build_request_event(
+        &client_identity,
+        signer_public_key,
+        RadrootsNostrConnectRequestMessage::new(
+            "trusted-connect",
+            RadrootsNostrConnectRequest::Connect {
+                remote_signer_public_key: signer_public_key,
+                secret: None,
+                requested_permissions: "sign_event:1".parse().expect("requested permissions"),
+            },
+        ),
+        Timestamp::now().as_secs(),
+    );
+    publish_event(relay.url(), &connect_request).await?;
+    let response_events = relay
+        .wait_for_published_events_by_author(signer_public_key, 1)
+        .await?;
+    let connect_response =
+        decrypt_response(&client_identity, signer_public_key, &response_events[0]);
+    let connect_parsed =
+        radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::from_envelope(
+            &RadrootsNostrConnectRequest::Connect {
+                remote_signer_public_key: signer_public_key,
+                secret: None,
+                requested_permissions: "sign_event:1".parse().expect("requested permissions"),
+            }
+            .method(),
+            connect_response,
+        )?;
+    assert_eq!(
+        connect_parsed,
+        radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::ConnectAcknowledged
+    );
+
+    let sign_request = |request_id: &str, created_at_unix| {
+        build_request_event(
+            &client_identity,
+            signer_public_key,
+            RadrootsNostrConnectRequestMessage::new(
+                request_id,
+                RadrootsNostrConnectRequest::SignEvent(
+                    serde_json::from_value(serde_json::json!({
+                        "pubkey": runtime.user_identity().public_key().to_hex(),
+                        "created_at": created_at_unix,
+                        "kind": 1,
+                        "tags": [],
+                        "content": request_id
+                    }))
+                    .expect("unsigned event"),
+                ),
+            ),
+            created_at_unix,
+        )
+    };
+
+    publish_event(
+        relay.url(),
+        &sign_request("trusted-sign-1", Timestamp::now().as_secs()),
+    )
+    .await?;
+    let response_events = relay
+        .wait_for_published_events_by_author(signer_public_key, 2)
+        .await?;
+    let first_auth = decrypt_response(&client_identity, signer_public_key, &response_events[1]);
+    let first_auth = radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::from_envelope(
+        &RadrootsNostrConnectRequest::SignEvent(
+            serde_json::from_value(serde_json::json!({
+                "pubkey": runtime.user_identity().public_key().to_hex(),
+                "created_at": Timestamp::from(1).as_secs(),
+                "kind": 1,
+                "tags": [],
+                "content": "trusted-sign-1"
+            }))
+            .expect("unsigned event"),
+        )
+        .method(),
+        first_auth,
+    )?;
+    assert_eq!(
+        first_auth,
+        radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::AuthUrl(
+            "https://auth.example/challenge".to_owned()
+        )
+    );
+
+    let connection = runtime
+        .signer_manager()?
+        .list_connections()?
+        .into_iter()
+        .next()
+        .expect("connection");
+    let replayed = control::authorize_auth_challenge(&runtime, &connection.connection_id).await?;
+    assert_eq!(
+        replayed.replayed_request_id.as_deref(),
+        Some("trusted-sign-1")
+    );
+
+    let response_events = relay
+        .wait_for_published_events_by_author(signer_public_key, 3)
+        .await?;
+    let replay_response =
+        decrypt_response(&client_identity, signer_public_key, &response_events[2]);
+    let replay_parsed =
+        radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::from_envelope(
+            &RadrootsNostrConnectRequest::SignEvent(
+                serde_json::from_value(serde_json::json!({
+                    "pubkey": runtime.user_identity().public_key().to_hex(),
+                    "created_at": Timestamp::from(1).as_secs(),
+                    "kind": 1,
+                    "tags": [],
+                    "content": "trusted-sign-1"
+                }))
+                .expect("unsigned event"),
+            )
+            .method(),
+            replay_response,
+        )?;
+    assert!(matches!(
+        replay_parsed,
+        radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::SignedEvent(_)
+    ));
+
+    sleep(Duration::from_secs(2)).await;
+
+    publish_event(
+        relay.url(),
+        &sign_request("trusted-sign-2", Timestamp::now().as_secs()),
+    )
+    .await?;
+    let response_events = relay
+        .wait_for_published_events_by_author(signer_public_key, 4)
+        .await?;
+    let second_auth = decrypt_response(&client_identity, signer_public_key, &response_events[3]);
+    let second_auth = radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::from_envelope(
+        &RadrootsNostrConnectRequest::SignEvent(
+            serde_json::from_value(serde_json::json!({
+                "pubkey": runtime.user_identity().public_key().to_hex(),
+                "created_at": Timestamp::from(1).as_secs(),
+                "kind": 1,
+                "tags": [],
+                "content": "trusted-sign-2"
+            }))
+            .expect("unsigned event"),
+        )
+        .method(),
+        second_auth,
+    )?;
+    assert_eq!(
+        second_auth,
+        radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::AuthUrl(
+            "https://auth.example/challenge".to_owned()
+        )
+    );
 
     let _ = shutdown_tx.send(());
     listener_task.await??;

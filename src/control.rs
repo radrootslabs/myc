@@ -33,9 +33,15 @@ pub async fn authorize_auth_challenge(
     runtime: &MycRuntime,
     connection_id: &RadrootsNostrSignerConnectionId,
 ) -> Result<MycAuthorizedReplayOutput, MycError> {
-    let outcome = runtime
-        .signer_manager()?
-        .authorize_auth_challenge(connection_id)?;
+    let manager = runtime.signer_manager()?;
+    let connection = manager.get_connection(connection_id)?.ok_or_else(|| {
+        MycError::InvalidOperation(format!("connection `{connection_id}` was not found"))
+    })?;
+    runtime
+        .signer_context()
+        .policy()
+        .ensure_authorize_auth_challenge_allowed(&connection)?;
+    let outcome = manager.authorize_auth_challenge(connection_id)?;
     let replayed_request_id = replay_authorized_request(runtime, &outcome).await?;
     Ok(MycAuthorizedReplayOutput {
         connection: outcome.connection,
@@ -74,6 +80,15 @@ pub async fn accept_client_uri(
         requested_permissions: client_uri.metadata.requested_permissions.clone(),
     };
     let manager = runtime.signer_manager()?;
+    let Some(approval_requirement) = runtime
+        .signer_context()
+        .policy()
+        .approval_requirement_for_client(&client_uri.client_public_key)
+    else {
+        return Err(MycError::InvalidOperation(
+            "client public key denied by policy".to_owned(),
+        ));
+    };
     let connection = match manager.evaluate_connect_request(client_uri.client_public_key, request)? {
         radroots_nostr_signer::prelude::RadrootsNostrSignerConnectEvaluation::ExistingConnection(
             connection,
@@ -84,22 +99,41 @@ pub async fn accept_client_uri(
                         .to_owned(),
                 ));
             }
+            if runtime
+                .signer_context()
+                .policy()
+                .approval_requirement_for_client(&connection.client_public_key)
+                .is_none()
+            {
+                return Err(MycError::InvalidOperation(
+                    "client public key denied by policy".to_owned(),
+                ));
+            }
             connection
         }
         radroots_nostr_signer::prelude::RadrootsNostrSignerConnectEvaluation::RegistrationRequired(
             proposal,
         ) => {
+            let requested_permissions = runtime
+                .signer_context()
+                .policy()
+                .filtered_requested_permissions(&proposal.requested_permissions);
             let draft = proposal
                 .into_connection_draft(runtime.user_public_identity())
+                .with_requested_permissions(requested_permissions)
                 .with_relays(preferred_relays.clone())
-                .with_approval_requirement(runtime.signer_context().connection_approval_requirement());
+                .with_approval_requirement(approval_requirement);
             let connection = manager.register_connection(draft)?;
-            if runtime.signer_context().connection_approval_requirement()
+            if approval_requirement
                 == RadrootsNostrSignerApprovalRequirement::NotRequired
             {
+                let granted_permissions = runtime
+                    .signer_context()
+                    .policy()
+                    .auto_granted_permissions(&connection.requested_permissions);
                 let _ = manager.set_granted_permissions(
                     &connection.connection_id,
-                    connection.requested_permissions.clone(),
+                    granted_permissions,
                 )?;
             }
             connection
@@ -415,4 +449,102 @@ fn merge_relays(
     relays.sort_by(|left, right| left.as_str().cmp(right.as_str()));
     relays.dedup_by(|left, right| left.as_str() == right.as_str());
     relays
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{accept_client_uri, authorize_auth_challenge};
+    use crate::app::MycRuntime;
+    use crate::config::{MycConfig, MycConnectionApproval};
+    use radroots_identity::RadrootsIdentity;
+    use radroots_nostr_connect::prelude::{
+        RadrootsNostrConnectClientMetadata, RadrootsNostrConnectClientUri, RadrootsNostrConnectUri,
+    };
+    use std::path::PathBuf;
+    use std::thread;
+    use std::time::Duration;
+
+    fn write_identity(path: &std::path::Path, secret_key: &str) {
+        RadrootsIdentity::from_secret_key_str(secret_key)
+            .expect("identity")
+            .save_json(path)
+            .expect("save identity");
+    }
+
+    fn runtime_with_config<F>(approval: MycConnectionApproval, configure: F) -> MycRuntime
+    where
+        F: FnOnce(&mut MycConfig),
+    {
+        let temp = tempfile::tempdir().expect("tempdir").keep();
+        let mut config = MycConfig::default();
+        config.paths.state_dir = PathBuf::from(&temp).join("state");
+        config.paths.signer_identity_path = PathBuf::from(&temp).join("signer.json");
+        config.paths.user_identity_path = PathBuf::from(&temp).join("user.json");
+        config.policy.connection_approval = approval;
+        config.transport.enabled = true;
+        config.transport.relays = vec!["ws://127.0.0.1:65500".to_owned()];
+        configure(&mut config);
+        write_identity(
+            &config.paths.signer_identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
+        MycRuntime::bootstrap(config).expect("runtime")
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn authorize_auth_challenge_rejects_expired_pending_challenge() {
+        let runtime = runtime_with_config(MycConnectionApproval::ExplicitUser, |config| {
+            config.policy.auth_pending_ttl_secs = 1;
+        });
+        let manager = runtime.signer_manager().expect("manager");
+        let connection = manager
+            .register_connection(
+                radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionDraft::new(
+                    nostr::Keys::generate().public_key(),
+                    runtime.user_public_identity(),
+                ),
+            )
+            .expect("register connection");
+        manager
+            .require_auth_challenge(&connection.connection_id, "https://auth.example")
+            .expect("require auth challenge");
+
+        thread::sleep(Duration::from_secs(2));
+
+        let error = authorize_auth_challenge(&runtime, &connection.connection_id)
+            .await
+            .expect_err("expired auth challenge should be rejected");
+        assert!(error.to_string().contains("auth challenge expired"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn accept_client_uri_rejects_denied_client_pubkeys() {
+        let denied_identity = RadrootsIdentity::from_secret_key_str(
+            "3333333333333333333333333333333333333333333333333333333333333333",
+        )
+        .expect("identity");
+        let runtime = runtime_with_config(MycConnectionApproval::ExplicitUser, |config| {
+            config.policy.denied_client_pubkeys = vec![denied_identity.public_key().to_hex()];
+        });
+        let uri = RadrootsNostrConnectUri::Client(RadrootsNostrConnectClientUri {
+            client_public_key: denied_identity.public_key(),
+            relays: vec![nostr::RelayUrl::parse("ws://127.0.0.1:65500").expect("relay")],
+            secret: "client-secret".to_owned(),
+            metadata: RadrootsNostrConnectClientMetadata::default(),
+        })
+        .to_string();
+
+        let error = accept_client_uri(&runtime, &uri)
+            .await
+            .expect_err("denied client should be rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("client public key denied by policy")
+        );
+    }
 }

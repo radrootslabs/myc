@@ -281,6 +281,7 @@ pub async fn run_from_env() -> Result<(), MycError> {
                     let connection_id = parse_connection_id(&args.connection_id)?;
                     let manager = runtime.signer_manager()?;
                     let granted_permissions = granted_permissions_for_approval(
+                        runtime.signer_context().policy(),
                         &manager.list_connections()?,
                         &connection_id,
                         &args.grants,
@@ -449,12 +450,13 @@ fn parse_connection_id(value: &str) -> Result<RadrootsNostrSignerConnectionId, M
 }
 
 fn granted_permissions_for_approval(
+    policy: &crate::policy::MycPolicyContext,
     connections: &[RadrootsNostrSignerConnectionRecord],
     connection_id: &RadrootsNostrSignerConnectionId,
     grants: &[String],
 ) -> Result<RadrootsNostrConnectPermissions, MycError> {
     if !grants.is_empty() {
-        return parse_permission_values(grants);
+        return policy.validate_operator_grants(parse_permission_values(grants)?);
     }
 
     let connection = connections
@@ -463,7 +465,7 @@ fn granted_permissions_for_approval(
         .ok_or_else(|| {
             MycError::InvalidOperation(format!("connection `{connection_id}` was not found"))
         })?;
-    Ok(connection.requested_permissions.clone())
+    policy.validate_operator_grants(connection.requested_permissions.clone())
 }
 
 fn load_audit_output(
@@ -817,7 +819,9 @@ mod tests {
     use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
     use crate::config::MycConfig;
 
-    use super::{MycAuditScope, load_audit_output, summarize_audit_output};
+    use super::{
+        MycAuditScope, granted_permissions_for_approval, load_audit_output, summarize_audit_output,
+    };
     use crate::app::MycRuntime;
 
     fn write_identity(path: &std::path::Path, secret_key: &str) {
@@ -828,12 +832,20 @@ mod tests {
     }
 
     fn runtime() -> MycRuntime {
+        runtime_with_config(|_| {})
+    }
+
+    fn runtime_with_config<F>(configure: F) -> MycRuntime
+    where
+        F: FnOnce(&mut MycConfig),
+    {
         let temp = tempfile::tempdir().expect("tempdir").keep();
         let mut config = MycConfig::default();
         config.audit.default_read_limit = 2;
         config.paths.state_dir = PathBuf::from(&temp).join("state");
         config.paths.signer_identity_path = PathBuf::from(&temp).join("signer.json");
         config.paths.user_identity_path = PathBuf::from(&temp).join("user.json");
+        configure(&mut config);
         write_identity(
             &config.paths.signer_identity_path,
             "1111111111111111111111111111111111111111111111111111111111111111",
@@ -843,6 +855,39 @@ mod tests {
             "2222222222222222222222222222222222222222222222222222222222222222",
         );
         MycRuntime::bootstrap(config).expect("runtime")
+    }
+
+    #[test]
+    fn granted_permissions_for_approval_respects_policy_ceiling() {
+        let runtime = runtime_with_config(|config| {
+            config.policy.permission_ceiling = "nip04_encrypt".parse().expect("permission ceiling");
+        });
+        let manager = runtime.signer_manager().expect("manager");
+        let connection = manager
+            .register_connection(
+                RadrootsNostrSignerConnectionDraft::new(
+                    nostr::Keys::generate().public_key(),
+                    runtime.user_public_identity(),
+                )
+                .with_requested_permissions(
+                    "nip44_encrypt".parse().expect("requested permissions"),
+                ),
+            )
+            .expect("register connection");
+
+        let error = granted_permissions_for_approval(
+            runtime.signer_context().policy(),
+            &manager.list_connections().expect("connections"),
+            &connection.connection_id,
+            &[],
+        )
+        .expect_err("requested permissions outside policy should be rejected");
+
+        assert!(
+            error
+                .to_string()
+                .contains("granted permissions exceed the configured policy ceiling")
+        );
     }
 
     #[test]

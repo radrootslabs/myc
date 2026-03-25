@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::audit::{MycOperationAuditRecord, MycOperationAuditStore};
 use crate::config::{MycAuditConfig, MycConfig};
 use crate::error::MycError;
+use crate::policy::MycPolicyContext;
 use crate::transport::{MycNip46Service, MycNostrTransport, MycTransportSnapshot};
 use radroots_identity::{RadrootsIdentity, RadrootsIdentityPublic};
 use radroots_nostr_signer::prelude::{
@@ -45,6 +46,7 @@ pub struct MycSignerContext {
     signer_state_path: PathBuf,
     audit_dir: PathBuf,
     audit_config: MycAuditConfig,
+    policy: MycPolicyContext,
     connection_approval_requirement: RadrootsNostrSignerApprovalRequirement,
 }
 
@@ -65,10 +67,7 @@ impl MycRuntime {
         let signer = MycSignerContext::bootstrap(
             &paths,
             config.audit.clone(),
-            config
-                .policy
-                .connection_approval
-                .into_signer_approval_requirement(),
+            MycPolicyContext::from_config(&config.policy)?,
         )?;
         let transport = MycNostrTransport::bootstrap(&config.transport, &signer.signer_identity)?;
         let runtime = Self {
@@ -258,10 +257,14 @@ impl MycSignerContext {
         self.connection_approval_requirement
     }
 
+    pub fn policy(&self) -> &MycPolicyContext {
+        &self.policy
+    }
+
     fn bootstrap(
         paths: &MycRuntimePaths,
         audit_config: MycAuditConfig,
-        connection_approval_requirement: RadrootsNostrSignerApprovalRequirement,
+        policy: MycPolicyContext,
     ) -> Result<Self, MycError> {
         let signer_identity = RadrootsIdentity::load_from_path_auto(&paths.signer_identity_path)?;
         let user_identity = RadrootsIdentity::load_from_path_auto(&paths.user_identity_path)?;
@@ -287,7 +290,8 @@ impl MycSignerContext {
             signer_state_path: paths.signer_state_path.clone(),
             audit_dir: paths.audit_dir.clone(),
             audit_config,
-            connection_approval_requirement,
+            connection_approval_requirement: policy.default_approval_requirement(),
+            policy,
         })
     }
 

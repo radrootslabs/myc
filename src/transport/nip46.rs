@@ -9,13 +9,14 @@ use radroots_nostr::prelude::{
     RadrootsNostrTag, RadrootsNostrTimestamp, radroots_nostr_filter_tag, radroots_nostr_kind,
 };
 use radroots_nostr_connect::prelude::{
-    RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectPermissions, RadrootsNostrConnectRequest,
+    RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectRequest,
     RadrootsNostrConnectRequestMessage, RadrootsNostrConnectResponse,
 };
 use radroots_nostr_signer::prelude::{
     RadrootsNostrSignerConnectEvaluation, RadrootsNostrSignerConnectionId,
     RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerRequestAction,
-    RadrootsNostrSignerRequestResponseHint, RadrootsNostrSignerSessionLookup,
+    RadrootsNostrSignerRequestEvaluation, RadrootsNostrSignerRequestResponseHint,
+    RadrootsNostrSignerSessionLookup,
 };
 use tokio::sync::broadcast;
 
@@ -43,6 +44,11 @@ pub(crate) enum MycNip46HandledRequest {
         consume_connect_secret_for: Option<RadrootsNostrSignerConnectionId>,
     },
     Ignore,
+}
+
+enum MycPreparedRequestEvaluation {
+    Denied(String),
+    Evaluation(RadrootsNostrSignerRequestEvaluation),
 }
 
 impl MycNip46Handler {
@@ -157,6 +163,7 @@ impl MycNip46Handler {
         secret: Option<String>,
     ) -> Result<MycNip46HandledRequest, MycError> {
         let manager = self.signer.load_signer_manager()?;
+        let connect_decision = self.signer.policy().connect_decision(&client_public_key);
         if let Some(connect_secret) = secret.as_deref() {
             if let Some(connection) = manager.find_connection_by_connect_secret(connect_secret)? {
                 if connection.connect_secret_is_consumed() {
@@ -179,19 +186,46 @@ impl MycNip46Handler {
                     );
                     return Ok(MycNip46HandledRequest::Ignore);
                 }
+                if matches!(connect_decision, crate::policy::MycConnectDecision::Deny) {
+                    return Ok(MycNip46HandledRequest::respond(
+                        RadrootsNostrConnectResponse::Error {
+                            result: None,
+                            error: "client public key denied by policy".to_owned(),
+                        },
+                    ));
+                }
                 Ok(connect_response_outcome(&connection, secret))
             }
             RadrootsNostrSignerConnectEvaluation::RegistrationRequired(proposal) => {
+                let requested_permissions = self
+                    .signer
+                    .policy()
+                    .filtered_requested_permissions(&proposal.requested_permissions);
+                let Some(approval_requirement) = self
+                    .signer
+                    .policy()
+                    .approval_requirement_for_client(&client_public_key)
+                else {
+                    return Ok(MycNip46HandledRequest::respond(
+                        RadrootsNostrConnectResponse::Error {
+                            result: None,
+                            error: "client public key denied by policy".to_owned(),
+                        },
+                    ));
+                };
                 let draft = proposal
                     .into_connection_draft(self.signer.user_public_identity())
+                    .with_requested_permissions(requested_permissions)
                     .with_relays(self.relays.clone())
-                    .with_approval_requirement(self.signer.connection_approval_requirement());
+                    .with_approval_requirement(approval_requirement);
                 let connection = manager.register_connection(draft)?;
-                if self.signer.connection_approval_requirement()
+                if approval_requirement
                     == radroots_nostr_signer::prelude::RadrootsNostrSignerApprovalRequirement::NotRequired
                 {
-                    let granted_permissions =
-                        grant_permissions_for_new_connection(connection.requested_permissions.clone());
+                    let granted_permissions = self
+                        .signer
+                        .policy()
+                        .auto_granted_permissions(&connection.requested_permissions);
                     let _ = manager.set_granted_permissions(
                         &connection.connection_id,
                         granted_permissions,
@@ -212,11 +246,8 @@ impl MycNip46Handler {
             Err(response) => return Ok(MycNip46HandledRequest::respond(response)),
         };
 
-        let manager = self.signer.load_signer_manager()?;
-        let evaluation = manager.evaluate_request(&connection.connection_id, request_message)?;
-
-        match evaluation.action {
-            RadrootsNostrSignerRequestAction::Denied { reason } => {
+        match self.evaluate_request_with_policy(&connection, request_message)? {
+            MycPreparedRequestEvaluation::Denied(reason) => {
                 Ok(MycNip46HandledRequest::respond_for_connection(
                     Some(connection.connection_id.clone()),
                     RadrootsNostrConnectResponse::Error {
@@ -225,20 +256,31 @@ impl MycNip46Handler {
                     },
                 ))
             }
-            RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
-                Ok(MycNip46HandledRequest::respond_for_connection(
-                    Some(connection.connection_id.clone()),
-                    RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
-                ))
-            }
-            RadrootsNostrSignerRequestAction::Allowed { response_hint, .. } => {
-                response_from_hint(&evaluation.connection, response_hint).map(|response| {
-                    MycNip46HandledRequest::respond_for_connection(
-                        Some(evaluation.connection.connection_id.clone()),
-                        response,
-                    )
-                })
-            }
+            MycPreparedRequestEvaluation::Evaluation(evaluation) => match evaluation.action {
+                RadrootsNostrSignerRequestAction::Denied { reason } => {
+                    Ok(MycNip46HandledRequest::respond_for_connection(
+                        Some(connection.connection_id.clone()),
+                        RadrootsNostrConnectResponse::Error {
+                            result: None,
+                            error: reason,
+                        },
+                    ))
+                }
+                RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
+                    Ok(MycNip46HandledRequest::respond_for_connection(
+                        Some(connection.connection_id.clone()),
+                        RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
+                    ))
+                }
+                RadrootsNostrSignerRequestAction::Allowed { response_hint, .. } => {
+                    response_from_hint(&evaluation.connection, response_hint).map(|response| {
+                        MycNip46HandledRequest::respond_for_connection(
+                            Some(evaluation.connection.connection_id.clone()),
+                            response,
+                        )
+                    })
+                }
+            },
         }
     }
 
@@ -253,11 +295,8 @@ impl MycNip46Handler {
             Err(response) => return Ok(MycNip46HandledRequest::respond(response)),
         };
 
-        let manager = self.signer.load_signer_manager()?;
-        let evaluation = manager.evaluate_request(&connection.connection_id, request_message)?;
-
-        match evaluation.action {
-            RadrootsNostrSignerRequestAction::Denied { reason } => {
+        match self.evaluate_request_with_policy(&connection, request_message)? {
+            MycPreparedRequestEvaluation::Denied(reason) => {
                 Ok(MycNip46HandledRequest::respond_for_connection(
                     Some(connection.connection_id.clone()),
                     RadrootsNostrConnectResponse::Error {
@@ -266,20 +305,31 @@ impl MycNip46Handler {
                     },
                 ))
             }
-            RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
-                Ok(MycNip46HandledRequest::respond_for_connection(
-                    Some(connection.connection_id.clone()),
-                    RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
-                ))
-            }
-            RadrootsNostrSignerRequestAction::Allowed { .. } => {
-                self.sign_event_response(unsigned_event).map(|response| {
-                    MycNip46HandledRequest::respond_for_connection(
+            MycPreparedRequestEvaluation::Evaluation(evaluation) => match evaluation.action {
+                RadrootsNostrSignerRequestAction::Denied { reason } => {
+                    Ok(MycNip46HandledRequest::respond_for_connection(
                         Some(connection.connection_id.clone()),
-                        response,
-                    )
-                })
-            }
+                        RadrootsNostrConnectResponse::Error {
+                            result: None,
+                            error: reason,
+                        },
+                    ))
+                }
+                RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
+                    Ok(MycNip46HandledRequest::respond_for_connection(
+                        Some(connection.connection_id.clone()),
+                        RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
+                    ))
+                }
+                RadrootsNostrSignerRequestAction::Allowed { .. } => {
+                    self.sign_event_response(unsigned_event).map(|response| {
+                        MycNip46HandledRequest::respond_for_connection(
+                            Some(connection.connection_id.clone()),
+                            response,
+                        )
+                    })
+                }
+            },
         }
     }
 
@@ -294,11 +344,8 @@ impl MycNip46Handler {
             Err(response) => return Ok(MycNip46HandledRequest::respond(response)),
         };
 
-        let manager = self.signer.load_signer_manager()?;
-        let evaluation = manager.evaluate_request(&connection.connection_id, request_message)?;
-
-        match evaluation.action {
-            RadrootsNostrSignerRequestAction::Denied { reason } => {
+        match self.evaluate_request_with_policy(&connection, request_message)? {
+            MycPreparedRequestEvaluation::Denied(reason) => {
                 Ok(MycNip46HandledRequest::respond_for_connection(
                     Some(connection.connection_id.clone()),
                     RadrootsNostrConnectResponse::Error {
@@ -307,21 +354,57 @@ impl MycNip46Handler {
                     },
                 ))
             }
-            RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
-                Ok(MycNip46HandledRequest::respond_for_connection(
-                    Some(connection.connection_id.clone()),
-                    RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
-                ))
-            }
-            RadrootsNostrSignerRequestAction::Allowed { .. } => {
-                self.crypto_response(request).map(|response| {
-                    MycNip46HandledRequest::respond_for_connection(
+            MycPreparedRequestEvaluation::Evaluation(evaluation) => match evaluation.action {
+                RadrootsNostrSignerRequestAction::Denied { reason } => {
+                    Ok(MycNip46HandledRequest::respond_for_connection(
                         Some(connection.connection_id.clone()),
-                        response,
-                    )
-                })
-            }
+                        RadrootsNostrConnectResponse::Error {
+                            result: None,
+                            error: reason,
+                        },
+                    ))
+                }
+                RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
+                    Ok(MycNip46HandledRequest::respond_for_connection(
+                        Some(connection.connection_id.clone()),
+                        RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
+                    ))
+                }
+                RadrootsNostrSignerRequestAction::Allowed { .. } => {
+                    self.crypto_response(request).map(|response| {
+                        MycNip46HandledRequest::respond_for_connection(
+                            Some(connection.connection_id.clone()),
+                            response,
+                        )
+                    })
+                }
+            },
         }
+    }
+
+    fn evaluate_request_with_policy(
+        &self,
+        connection: &RadrootsNostrSignerConnectionRecord,
+        request_message: RadrootsNostrConnectRequestMessage,
+    ) -> Result<MycPreparedRequestEvaluation, MycError> {
+        let manager = self.signer.load_signer_manager()?;
+        if let Some(reason) =
+            self.signer
+                .policy()
+                .prepare_request(&manager, connection, &request_message)?
+        {
+            let reason = self.signer.policy().record_policy_denied_request(
+                &manager,
+                connection,
+                &request_message,
+                reason,
+            )?;
+            return Ok(MycPreparedRequestEvaluation::Denied(reason));
+        }
+
+        Ok(MycPreparedRequestEvaluation::Evaluation(
+            manager.evaluate_request(&connection.connection_id, request_message)?,
+        ))
     }
 
     fn lookup_connection(
@@ -656,15 +739,6 @@ fn connect_response_outcome(
     }
 }
 
-fn grant_permissions_for_new_connection(
-    requested_permissions: RadrootsNostrConnectPermissions,
-) -> RadrootsNostrConnectPermissions {
-    let mut granted = requested_permissions.into_vec();
-    granted.sort();
-    granted.dedup();
-    granted.into()
-}
-
 fn response_from_hint(
     connection: &RadrootsNostrSignerConnectionRecord,
     hint: RadrootsNostrSignerRequestResponseHint,
@@ -701,6 +775,7 @@ mod tests {
         RadrootsNostrConnectRequestMessage, RadrootsNostrConnectResponse,
         RadrootsNostrConnectResponseEnvelope,
     };
+    use radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionRecord;
     use serde_json::json;
 
     use crate::app::MycRuntime;
@@ -716,15 +791,23 @@ mod tests {
     }
 
     fn runtime() -> MycRuntime {
+        runtime_with_config(MycConnectionApproval::NotRequired, |_| {})
+    }
+
+    fn runtime_with_config<F>(approval: MycConnectionApproval, configure: F) -> MycRuntime
+    where
+        F: FnOnce(&mut MycConfig),
+    {
         let temp = tempfile::tempdir().expect("tempdir").keep();
         let mut config = MycConfig::default();
         config.paths.state_dir = temp.join("state");
         config.paths.signer_identity_path = temp.join("signer.json");
         config.paths.user_identity_path = temp.join("user.json");
-        config.policy.connection_approval = MycConnectionApproval::NotRequired;
+        config.policy.connection_approval = approval;
         config.transport.enabled = true;
         config.transport.connect_timeout_secs = 15;
         config.transport.relays = vec!["wss://relay.example.com".to_owned()];
+        configure(&mut config);
         write_identity(
             &config.paths.signer_identity_path,
             "1111111111111111111111111111111111111111111111111111111111111111",
@@ -737,24 +820,7 @@ mod tests {
     }
 
     fn runtime_with_explicit_approval() -> MycRuntime {
-        let temp = tempfile::tempdir().expect("tempdir").keep();
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.join("state");
-        config.paths.signer_identity_path = temp.join("signer.json");
-        config.paths.user_identity_path = temp.join("user.json");
-        config.policy.connection_approval = MycConnectionApproval::ExplicitUser;
-        config.transport.enabled = true;
-        config.transport.connect_timeout_secs = 15;
-        config.transport.relays = vec!["wss://relay.example.com".to_owned()];
-        write_identity(
-            &config.paths.signer_identity_path,
-            "1111111111111111111111111111111111111111111111111111111111111111",
-        );
-        write_identity(
-            &config.paths.user_identity_path,
-            "2222222222222222222222222222222222222222222222222222222222222222",
-        );
-        MycRuntime::bootstrap(config).expect("runtime")
+        runtime_with_config(MycConnectionApproval::ExplicitUser, |_| {})
     }
 
     fn handler(runtime: &MycRuntime) -> MycNip46Handler {
@@ -765,9 +831,11 @@ mod tests {
     }
 
     fn client_keys() -> Keys {
-        let secret =
-            SecretKey::from_hex("3333333333333333333333333333333333333333333333333333333333333333")
-                .expect("secret");
+        client_keys_from_hex("3333333333333333333333333333333333333333333333333333333333333333")
+    }
+
+    fn client_keys_from_hex(secret_key: &str) -> Keys {
+        let secret = SecretKey::from_hex(secret_key).expect("secret");
         Keys::new(secret)
     }
 
@@ -775,7 +843,14 @@ mod tests {
         handler: &MycNip46Handler,
         request: RadrootsNostrConnectRequestMessage,
     ) -> nostr::Event {
-        let client_keys = client_keys();
+        request_event_with_client_keys(handler, request, &client_keys())
+    }
+
+    fn request_event_with_client_keys(
+        handler: &MycNip46Handler,
+        request: RadrootsNostrConnectRequestMessage,
+        client_keys: &Keys,
+    ) -> nostr::Event {
         let payload = serde_json::to_string(&request).expect("serialize request");
         let ciphertext = nip44::encrypt(
             client_keys.secret_key(),
@@ -798,7 +873,7 @@ mod tests {
         .tags(vec![RadrootsNostrTag::public_key(
             handler.signer.signer_identity().public_key(),
         )])
-        .sign_with_keys(&client_keys)
+        .sign_with_keys(client_keys)
         .expect("sign request")
     }
 
@@ -838,6 +913,20 @@ mod tests {
                 ),
             )
             .expect("connect");
+    }
+
+    fn connection_for(
+        runtime: &MycRuntime,
+        client_public_key: PublicKey,
+    ) -> RadrootsNostrSignerConnectionRecord {
+        runtime
+            .signer_manager()
+            .expect("manager")
+            .find_connections_by_client_public_key(&client_public_key)
+            .expect("connections")
+            .into_iter()
+            .next()
+            .expect("connection")
     }
 
     #[test]
@@ -906,6 +995,47 @@ mod tests {
             runtime.user_public_identity().id.to_string()
         );
         assert_eq!(connections[0].relays.len(), 1);
+    }
+
+    #[test]
+    fn denied_clients_are_rejected_without_registration() {
+        let denied_client_keys = client_keys_from_hex(
+            "4444444444444444444444444444444444444444444444444444444444444444",
+        );
+        let runtime = runtime_with_config(MycConnectionApproval::ExplicitUser, |config| {
+            config.policy.denied_client_pubkeys = vec![denied_client_keys.public_key().to_hex()];
+        });
+        let handler = handler(&runtime);
+
+        let response = handler
+            .handle_request_response(
+                denied_client_keys.public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: None,
+                        requested_permissions: Default::default(),
+                    },
+                ),
+            )
+            .expect("connect response");
+
+        assert_eq!(
+            response,
+            RadrootsNostrConnectResponse::Error {
+                result: None,
+                error: "client public key denied by policy".to_owned(),
+            }
+        );
+        assert!(
+            runtime
+                .signer_manager()
+                .expect("manager")
+                .list_connections()
+                .expect("connections")
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1044,6 +1174,223 @@ mod tests {
             radroots_nostr_signer::prelude::RadrootsNostrSignerApprovalState::Pending
         );
         assert!(connection.granted_permissions().as_slice().is_empty());
+    }
+
+    #[test]
+    fn trusted_clients_auto_grant_only_policy_allowed_permissions() {
+        let trusted_client_keys = client_keys_from_hex(
+            "4545454545454545454545454545454545454545454545454545454545454545",
+        );
+        let runtime = runtime_with_config(MycConnectionApproval::ExplicitUser, |config| {
+            config.policy.trusted_client_pubkeys = vec![trusted_client_keys.public_key().to_hex()];
+            config.policy.permission_ceiling = vec![
+                RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip04Encrypt),
+                sign_event_permission(1),
+            ]
+            .into();
+            config.policy.allowed_sign_event_kinds = vec![1];
+        });
+        let handler = handler(&runtime);
+
+        let response = handler
+            .handle_request_response(
+                trusted_client_keys.public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: None,
+                        requested_permissions: vec![
+                            RadrootsNostrConnectPermission::new(
+                                RadrootsNostrConnectMethod::Nip04Encrypt,
+                            ),
+                            RadrootsNostrConnectPermission::new(
+                                RadrootsNostrConnectMethod::SignEvent,
+                            ),
+                            sign_event_permission(7),
+                        ]
+                        .into(),
+                    },
+                ),
+            )
+            .expect("connect response");
+
+        assert_eq!(response, RadrootsNostrConnectResponse::ConnectAcknowledged);
+        let connection = connection_for(&runtime, trusted_client_keys.public_key());
+        assert_eq!(
+            connection.granted_permissions().to_string(),
+            "sign_event:kind:1,nip04_encrypt"
+        );
+        assert_eq!(
+            connection.requested_permissions.to_string(),
+            "sign_event:kind:1,nip04_encrypt"
+        );
+    }
+
+    #[test]
+    fn trusted_client_requires_auth_again_after_authorized_ttl() {
+        let trusted_client_keys = client_keys_from_hex(
+            "5656565656565656565656565656565656565656565656565656565656565656",
+        );
+        let runtime = runtime_with_config(MycConnectionApproval::ExplicitUser, |config| {
+            config.policy.trusted_client_pubkeys = vec![trusted_client_keys.public_key().to_hex()];
+            config.policy.permission_ceiling = vec![sign_event_permission(1)].into();
+            config.policy.allowed_sign_event_kinds = vec![1];
+            config.policy.auth_url = Some("https://auth.example/challenge".to_owned());
+            config.policy.auth_authorized_ttl_secs = Some(1);
+        });
+        let handler = handler(&runtime);
+
+        let _ = handler
+            .handle_request_response(
+                trusted_client_keys.public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: None,
+                        requested_permissions: vec![sign_event_permission(1)].into(),
+                    },
+                ),
+            )
+            .expect("connect");
+
+        let first = handler
+            .handle_request_response(
+                trusted_client_keys.public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-sign-1",
+                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                        runtime.user_identity().public_key(),
+                        1,
+                        "first",
+                    )),
+                ),
+            )
+            .expect("first sign request");
+        assert_eq!(
+            first,
+            RadrootsNostrConnectResponse::AuthUrl("https://auth.example/challenge".to_owned())
+        );
+
+        let connection = connection_for(&runtime, trusted_client_keys.public_key());
+        runtime
+            .signer_manager()
+            .expect("manager")
+            .authorize_auth_challenge(&connection.connection_id)
+            .expect("authorize auth challenge");
+
+        let second = handler
+            .handle_request_response(
+                trusted_client_keys.public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-sign-2",
+                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                        runtime.user_identity().public_key(),
+                        1,
+                        "second",
+                    )),
+                ),
+            )
+            .expect("second sign request");
+        assert!(matches!(
+            second,
+            RadrootsNostrConnectResponse::SignedEvent(_)
+        ));
+
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        let third = handler
+            .handle_request_response(
+                trusted_client_keys.public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-sign-3",
+                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                        runtime.user_identity().public_key(),
+                        1,
+                        "third",
+                    )),
+                ),
+            )
+            .expect("third sign request");
+        assert_eq!(
+            third,
+            RadrootsNostrConnectResponse::AuthUrl("https://auth.example/challenge".to_owned())
+        );
+    }
+
+    #[test]
+    fn trusted_client_requires_auth_again_after_inactivity() {
+        let trusted_client_keys = client_keys_from_hex(
+            "5757575757575757575757575757575757575757575757575757575757575757",
+        );
+        let runtime = runtime_with_config(MycConnectionApproval::ExplicitUser, |config| {
+            config.policy.trusted_client_pubkeys = vec![trusted_client_keys.public_key().to_hex()];
+            config.policy.permission_ceiling = vec![sign_event_permission(1)].into();
+            config.policy.allowed_sign_event_kinds = vec![1];
+            config.policy.auth_url = Some("https://auth.example/challenge".to_owned());
+            config.policy.reauth_after_inactivity_secs = Some(1);
+        });
+        let handler = handler(&runtime);
+
+        let _ = handler
+            .handle_request_response(
+                trusted_client_keys.public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: None,
+                        requested_permissions: vec![sign_event_permission(1)].into(),
+                    },
+                ),
+            )
+            .expect("connect");
+
+        let first = handler
+            .handle_request_response(
+                trusted_client_keys.public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-sign-1",
+                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                        runtime.user_identity().public_key(),
+                        1,
+                        "first",
+                    )),
+                ),
+            )
+            .expect("first sign request");
+        assert_eq!(
+            first,
+            RadrootsNostrConnectResponse::AuthUrl("https://auth.example/challenge".to_owned())
+        );
+
+        let connection = connection_for(&runtime, trusted_client_keys.public_key());
+        runtime
+            .signer_manager()
+            .expect("manager")
+            .authorize_auth_challenge(&connection.connection_id)
+            .expect("authorize auth challenge");
+
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        let second = handler
+            .handle_request_response(
+                trusted_client_keys.public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-sign-2",
+                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                        runtime.user_identity().public_key(),
+                        1,
+                        "second",
+                    )),
+                ),
+            )
+            .expect("second sign request");
+        assert_eq!(
+            second,
+            RadrootsNostrConnectResponse::AuthUrl("https://auth.example/challenge".to_owned())
+        );
     }
 
     #[test]

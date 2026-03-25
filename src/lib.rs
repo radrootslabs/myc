@@ -8,6 +8,7 @@ pub mod control;
 pub mod discovery;
 pub mod error;
 pub mod logging;
+pub mod policy;
 pub mod transport;
 
 pub use app::{MycApp, MycRuntime, MycRuntimePaths, MycSignerContext, MycStartupSnapshot};
@@ -33,6 +34,7 @@ pub use discovery::{
     render_nip05_output, verify_bundle,
 };
 pub use error::MycError;
+pub use policy::{MycConnectDecision, MycPolicyContext};
 pub use transport::{MycNostrTransport, MycRelayPublishResult, MycTransportSnapshot};
 
 pub async fn run() -> Result<(), MycError> {
