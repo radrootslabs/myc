@@ -22,7 +22,7 @@ use tokio::sync::broadcast;
 use crate::app::MycSignerContext;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
 use crate::error::MycError;
-use crate::transport::{MycNostrTransport, ensure_publish_confirmed};
+use crate::transport::MycNostrTransport;
 
 #[derive(Clone)]
 pub struct MycNip46Handler {
@@ -157,6 +157,17 @@ impl MycNip46Handler {
         secret: Option<String>,
     ) -> Result<MycNip46HandledRequest, MycError> {
         let manager = self.signer.load_signer_manager()?;
+        if let Some(connect_secret) = secret.as_deref() {
+            if let Some(connection) = manager.find_connection_by_connect_secret(connect_secret)? {
+                if connection.connect_secret_is_consumed() {
+                    tracing::debug!(
+                        connection_id = %connection.connection_id,
+                        "ignoring reused consumed NIP-46 connect secret"
+                    );
+                    return Ok(MycNip46HandledRequest::Ignore);
+                }
+            }
+        }
         let evaluation = manager.evaluate_connect_request(client_public_key, request)?;
 
         match evaluation {
@@ -496,36 +507,32 @@ impl MycNip46Service {
             let response_event =
                 self.handler
                     .build_response_event(event.pubkey, request_id.as_str(), response)?;
-            let publish_output = match self
+            let response_event =
+                match response_event.sign_with_keys(self.handler.signer.signer_identity().keys()) {
+                    Ok(event) => event,
+                    Err(error) => {
+                        self.handler
+                            .signer
+                            .record_operation_audit(&MycOperationAuditRecord::new(
+                                MycOperationAuditKind::ListenerResponsePublish,
+                                MycOperationAuditOutcome::Rejected,
+                                connection_id.as_ref(),
+                                Some(request_id.as_str()),
+                                self.transport.relays().len(),
+                                0,
+                                format!("failed to sign NIP-46 response event: {error}"),
+                            ));
+                        continue;
+                    }
+                };
+            let publish_outcome = match self
                 .transport
-                .client()
-                .send_event_builder(response_event)
+                .publish_event("NIP-46 response publish", &response_event)
                 .await
             {
-                Ok(output) => output,
+                Ok(publish_outcome) => publish_outcome,
                 Err(error) => {
-                    self.handler
-                        .signer
-                        .record_operation_audit(&MycOperationAuditRecord::new(
-                            MycOperationAuditKind::ListenerResponsePublish,
-                            MycOperationAuditOutcome::Rejected,
-                            connection_id.as_ref(),
-                            Some(request_id.as_str()),
-                            self.transport.relays().len(),
-                            0,
-                            error.to_string(),
-                        ));
-                    continue;
-                }
-            };
-            if let Err(error) = ensure_publish_confirmed(
-                self.transport.relays(),
-                publish_output,
-                "NIP-46 response publish",
-            ) {
-                self.handler
-                    .signer
-                    .record_operation_audit(&MycOperationAuditRecord::new(
+                    let mut record = MycOperationAuditRecord::new(
                         MycOperationAuditKind::ListenerResponsePublish,
                         MycOperationAuditOutcome::Rejected,
                         connection_id.as_ref(),
@@ -542,9 +549,42 @@ impl MycNip46Service {
                             .publish_rejection_details()
                             .map(ToOwned::to_owned)
                             .unwrap_or_else(|| error.to_string()),
-                    ));
-                continue;
-            }
+                    );
+                    if let (
+                        Some(delivery_policy),
+                        Some(required_acknowledged_relay_count),
+                        Some(attempt_count),
+                    ) = (
+                        error.publish_delivery_policy(),
+                        error.publish_required_acknowledged_relay_count(),
+                        error.publish_attempt_count(),
+                    ) {
+                        record = record.with_delivery_details(
+                            delivery_policy,
+                            required_acknowledged_relay_count,
+                            attempt_count,
+                        );
+                    }
+                    self.handler.signer.record_operation_audit(&record);
+                    continue;
+                }
+            };
+            self.handler.signer.record_operation_audit(
+                &MycOperationAuditRecord::new(
+                    MycOperationAuditKind::ListenerResponsePublish,
+                    MycOperationAuditOutcome::Succeeded,
+                    connection_id.as_ref(),
+                    Some(request_id.as_str()),
+                    publish_outcome.relay_count,
+                    publish_outcome.acknowledged_relay_count,
+                    publish_outcome.relay_outcome_summary.clone(),
+                )
+                .with_delivery_details(
+                    publish_outcome.delivery_policy,
+                    publish_outcome.required_acknowledged_relay_count,
+                    publish_outcome.attempt_count,
+                ),
+            );
             if let Some(connection_id) = consume_connect_secret_for {
                 if let Err(error) = self
                     .handler

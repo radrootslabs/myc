@@ -8,6 +8,7 @@ use radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionId;
 use serde::{Deserialize, Serialize};
 
 use crate::config::MycAuditConfig;
+use crate::config::MycTransportDeliveryPolicy;
 use crate::error::MycError;
 
 const MYC_OPERATION_AUDIT_FILE_NAME: &str = "operations.jsonl";
@@ -66,6 +67,12 @@ pub struct MycOperationAuditRecord {
     pub blocked_relays: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery_policy: Option<MycTransportDeliveryPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_acknowledged_relay_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish_attempt_count: Option<usize>,
     pub relay_count: usize,
     pub acknowledged_relay_count: usize,
     pub relay_outcome_summary: String,
@@ -103,6 +110,9 @@ impl MycOperationAuditRecord {
             planned_repair_relays: Vec::new(),
             blocked_relays: Vec::new(),
             blocked_reason: None,
+            delivery_policy: None,
+            required_acknowledged_relay_count: None,
+            publish_attempt_count: None,
             relay_count,
             acknowledged_relay_count,
             relay_outcome_summary: relay_outcome_summary.into(),
@@ -131,6 +141,18 @@ impl MycOperationAuditRecord {
     ) -> Self {
         self.blocked_reason = Some(blocked_reason.into());
         self.blocked_relays = blocked_relays;
+        self
+    }
+
+    pub fn with_delivery_details(
+        mut self,
+        delivery_policy: MycTransportDeliveryPolicy,
+        required_acknowledged_relay_count: usize,
+        publish_attempt_count: usize,
+    ) -> Self {
+        self.delivery_policy = Some(delivery_policy);
+        self.required_acknowledged_relay_count = Some(required_acknowledged_relay_count);
+        self.publish_attempt_count = Some(publish_attempt_count);
         self
     }
 }

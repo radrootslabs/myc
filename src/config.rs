@@ -84,6 +84,11 @@ pub struct MycTransportConfig {
     pub enabled: bool,
     pub connect_timeout_secs: u64,
     pub relays: Vec<String>,
+    pub delivery_policy: MycTransportDeliveryPolicy,
+    pub delivery_quorum: Option<usize>,
+    pub publish_max_attempts: usize,
+    pub publish_initial_backoff_millis: u64,
+    pub publish_max_backoff_millis: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,6 +96,14 @@ pub struct MycTransportConfig {
 pub enum MycConnectionApproval {
     NotRequired,
     ExplicitUser,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MycTransportDeliveryPolicy {
+    Any,
+    Quorum,
+    All,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -147,6 +160,11 @@ impl Default for MycTransportConfig {
             enabled: false,
             connect_timeout_secs: 10,
             relays: Vec::new(),
+            delivery_policy: MycTransportDeliveryPolicy::Any,
+            delivery_quorum: None,
+            publish_max_attempts: 1,
+            publish_initial_backoff_millis: 250,
+            publish_max_backoff_millis: 2_000,
         }
     }
 }
@@ -202,6 +220,16 @@ impl MycConnectionApproval {
         match self {
             Self::NotRequired => RadrootsNostrSignerApprovalRequirement::NotRequired,
             Self::ExplicitUser => RadrootsNostrSignerApprovalRequirement::ExplicitUser,
+        }
+    }
+}
+
+impl MycTransportDeliveryPolicy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Any => "any",
+            Self::Quorum => "quorum",
+            Self::All => "all",
         }
     }
 }
@@ -288,6 +316,56 @@ impl MycConfig {
             return Err(MycError::InvalidConfig(
                 "transport.connect_timeout_secs must be greater than zero".to_owned(),
             ));
+        }
+
+        if self.transport.publish_max_attempts == 0 {
+            return Err(MycError::InvalidConfig(
+                "transport.publish_max_attempts must be greater than zero".to_owned(),
+            ));
+        }
+
+        if self.transport.publish_initial_backoff_millis == 0 {
+            return Err(MycError::InvalidConfig(
+                "transport.publish_initial_backoff_millis must be greater than zero".to_owned(),
+            ));
+        }
+
+        if self.transport.publish_max_backoff_millis == 0 {
+            return Err(MycError::InvalidConfig(
+                "transport.publish_max_backoff_millis must be greater than zero".to_owned(),
+            ));
+        }
+
+        if self.transport.publish_initial_backoff_millis > self.transport.publish_max_backoff_millis
+        {
+            return Err(MycError::InvalidConfig(
+                "transport.publish_max_backoff_millis must be greater than or equal to transport.publish_initial_backoff_millis"
+                    .to_owned(),
+            ));
+        }
+
+        match self.transport.delivery_policy {
+            MycTransportDeliveryPolicy::Quorum => {
+                let Some(delivery_quorum) = self.transport.delivery_quorum else {
+                    return Err(MycError::InvalidConfig(
+                        "transport.delivery_quorum must be set when transport.delivery_policy is `quorum`"
+                            .to_owned(),
+                    ));
+                };
+                if delivery_quorum == 0 {
+                    return Err(MycError::InvalidConfig(
+                        "transport.delivery_quorum must be greater than zero".to_owned(),
+                    ));
+                }
+            }
+            MycTransportDeliveryPolicy::Any | MycTransportDeliveryPolicy::All => {
+                if self.transport.delivery_quorum.is_some() {
+                    return Err(MycError::InvalidConfig(
+                        "transport.delivery_quorum is only valid when transport.delivery_policy is `quorum`"
+                            .to_owned(),
+                    ));
+                }
+            }
         }
 
         let parsed_relays = self.transport.parse_relays()?;
@@ -462,6 +540,25 @@ fn apply_env_entry(
         "MYC_TRANSPORT_RELAYS" => {
             config.transport.relays = parse_string_list_env(value);
         }
+        "MYC_TRANSPORT_DELIVERY_POLICY" => {
+            config.transport.delivery_policy =
+                parse_delivery_policy_env(key, value, path, line_number)?;
+        }
+        "MYC_TRANSPORT_DELIVERY_QUORUM" => {
+            config.transport.delivery_quorum =
+                Some(parse_usize_env(key, value, path, line_number)?);
+        }
+        "MYC_TRANSPORT_PUBLISH_MAX_ATTEMPTS" => {
+            config.transport.publish_max_attempts = parse_usize_env(key, value, path, line_number)?;
+        }
+        "MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MILLIS" => {
+            config.transport.publish_initial_backoff_millis =
+                parse_u64_env(key, value, path, line_number)?;
+        }
+        "MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS" => {
+            config.transport.publish_max_backoff_millis =
+                parse_u64_env(key, value, path, line_number)?;
+        }
         _ => {
             return Err(config_parse_error(
                 path,
@@ -527,6 +624,24 @@ fn parse_connection_approval_env(
             path,
             line_number,
             format!("{key} must be `not_required` or `explicit_user`"),
+        )),
+    }
+}
+
+fn parse_delivery_policy_env(
+    key: &str,
+    value: &str,
+    path: &Path,
+    line_number: usize,
+) -> Result<MycTransportDeliveryPolicy, MycError> {
+    match value {
+        "any" => Ok(MycTransportDeliveryPolicy::Any),
+        "quorum" => Ok(MycTransportDeliveryPolicy::Quorum),
+        "all" => Ok(MycTransportDeliveryPolicy::All),
+        _ => Err(config_parse_error(
+            path,
+            line_number,
+            format!("{key} must be `any`, `quorum`, or `all`"),
         )),
     }
 }
@@ -771,6 +886,14 @@ mod tests {
         assert!(!config.transport.enabled);
         assert_eq!(config.transport.connect_timeout_secs, 10);
         assert!(config.transport.relays.is_empty());
+        assert_eq!(
+            config.transport.delivery_policy,
+            MycTransportDeliveryPolicy::Any
+        );
+        assert_eq!(config.transport.delivery_quorum, None);
+        assert_eq!(config.transport.publish_max_attempts, 1);
+        assert_eq!(config.transport.publish_initial_backoff_millis, 250);
+        assert_eq!(config.transport.publish_max_backoff_millis, 2_000);
     }
 
     #[test]
@@ -804,6 +927,11 @@ MYC_POLICY_CONNECTION_APPROVAL=not_required
 MYC_TRANSPORT_ENABLED=true
 MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=15
 MYC_TRANSPORT_RELAYS=wss://relay.example.com,wss://relay2.example.com
+MYC_TRANSPORT_DELIVERY_POLICY=quorum
+MYC_TRANSPORT_DELIVERY_QUORUM=2
+MYC_TRANSPORT_PUBLISH_MAX_ATTEMPTS=4
+MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MILLIS=100
+MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS=800
             "#,
         )
         .expect("config");
@@ -868,6 +996,14 @@ MYC_TRANSPORT_RELAYS=wss://relay.example.com,wss://relay2.example.com
                 "wss://relay2.example.com".to_owned()
             ]
         );
+        assert_eq!(
+            config.transport.delivery_policy,
+            MycTransportDeliveryPolicy::Quorum
+        );
+        assert_eq!(config.transport.delivery_quorum, Some(2));
+        assert_eq!(config.transport.publish_max_attempts, 4);
+        assert_eq!(config.transport.publish_initial_backoff_millis, 100);
+        assert_eq!(config.transport.publish_max_backoff_millis, 800);
     }
 
     #[test]
@@ -954,6 +1090,56 @@ MYC_UNKNOWN=nope
     }
 
     #[test]
+    fn validate_rejects_invalid_delivery_policy_settings() {
+        let mut config = MycConfig::default();
+        config.transport.enabled = true;
+        config.transport.relays = vec!["wss://relay.example.com".to_owned()];
+        config.transport.delivery_policy = MycTransportDeliveryPolicy::Quorum;
+
+        let err = config
+            .validate()
+            .expect_err("missing quorum should be rejected");
+        assert!(err.to_string().contains("transport.delivery_quorum"));
+
+        config.transport.delivery_quorum = Some(0);
+        let err = config
+            .validate()
+            .expect_err("zero quorum should be rejected");
+        assert!(err.to_string().contains("greater than zero"));
+
+        config.transport.delivery_policy = MycTransportDeliveryPolicy::Any;
+        config.transport.delivery_quorum = Some(1);
+        let err = config
+            .validate()
+            .expect_err("quorum on non-quorum policy should be rejected");
+        assert!(err.to_string().contains("only valid"));
+    }
+
+    #[test]
+    fn validate_rejects_invalid_publish_retry_settings() {
+        let mut config = MycConfig::default();
+        config.transport.publish_max_attempts = 0;
+        let err = config.validate().expect_err("zero attempts");
+        assert!(err.to_string().contains("publish_max_attempts"));
+
+        config.transport.publish_max_attempts = 1;
+        config.transport.publish_initial_backoff_millis = 0;
+        let err = config.validate().expect_err("zero initial backoff");
+        assert!(err.to_string().contains("publish_initial_backoff_millis"));
+
+        config.transport.publish_initial_backoff_millis = 10;
+        config.transport.publish_max_backoff_millis = 0;
+        let err = config.validate().expect_err("zero max backoff");
+        assert!(err.to_string().contains("publish_max_backoff_millis"));
+
+        config.transport.publish_max_backoff_millis = 5;
+        let err = config
+            .validate()
+            .expect_err("max backoff less than initial");
+        assert!(err.to_string().contains("greater than or equal"));
+    }
+
+    #[test]
     fn example_env_parses_and_validates() {
         let example =
             fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".env.example"))
@@ -969,6 +1155,14 @@ MYC_UNKNOWN=nope
             config.logging.output_dir,
             Some(PathBuf::from("/var/log/radroots/services/myc"))
         );
+        assert_eq!(
+            config.transport.delivery_policy,
+            MycTransportDeliveryPolicy::Any
+        );
+        assert_eq!(config.transport.delivery_quorum, None);
+        assert_eq!(config.transport.publish_max_attempts, 1);
+        assert_eq!(config.transport.publish_initial_backoff_millis, 250);
+        assert_eq!(config.transport.publish_max_backoff_millis, 2_000);
         assert_eq!(
             config.discovery.nip05_output_path,
             Some(PathBuf::from("/var/lib/myc/public/.well-known/nostr.json"))

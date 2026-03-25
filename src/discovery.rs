@@ -518,7 +518,8 @@ async fn publish_nip89_event_to_relays(
     let publish_outcome = match MycNostrTransport::publish_event_once(
         context.app_identity(),
         relays,
-        context.connect_timeout_secs(),
+        &runtime.config().transport,
+        "discovery handler publish",
         &event,
     )
     .await
@@ -543,6 +544,21 @@ async fn publish_nip89_event_to_relays(
                     .map(ToOwned::to_owned)
                     .unwrap_or_else(|| error.to_string()),
             );
+            if let (
+                Some(delivery_policy),
+                Some(required_acknowledged_relay_count),
+                Some(attempt_count),
+            ) = (
+                error.publish_delivery_policy(),
+                error.publish_required_acknowledged_relay_count(),
+                error.publish_attempt_count(),
+            ) {
+                record = record.with_delivery_details(
+                    delivery_policy,
+                    required_acknowledged_relay_count,
+                    attempt_count,
+                );
+            }
             if let Some(attempt_id) = attempt_id {
                 record = record.with_attempt_id(attempt_id);
             }
@@ -559,6 +575,11 @@ async fn publish_nip89_event_to_relays(
         publish_outcome.relay_count,
         publish_outcome.acknowledged_relay_count,
         publish_outcome.relay_outcome_summary.clone(),
+    )
+    .with_delivery_details(
+        publish_outcome.delivery_policy,
+        publish_outcome.required_acknowledged_relay_count,
+        publish_outcome.attempt_count,
     );
     if let Some(attempt_id) = attempt_id {
         record = record.with_attempt_id(attempt_id);

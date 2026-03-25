@@ -8,8 +8,8 @@ use myc::control;
 use myc::{
     MycConfig, MycConnectionApproval, MycDiscoveryContext, MycDiscoveryLiveStatus,
     MycDiscoveryRelayFetchStatus, MycDiscoveryRepairOutcome, MycOperationAuditKind,
-    MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime, diff_live_nip89,
-    fetch_live_nip89, publish_nip89_event, refresh_nip89,
+    MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime, MycTransportDeliveryPolicy,
+    diff_live_nip89, fetch_live_nip89, publish_nip89_event, refresh_nip89,
 };
 use nostr::filter::MatchEventOptions;
 use nostr::nips::nip44;
@@ -386,6 +386,21 @@ struct MycTestRuntime {
 
 impl MycTestRuntime {
     fn new(relay_url: &str, approval: MycConnectionApproval) -> Self {
+        Self::new_with_transport_relays(&[relay_url], approval)
+    }
+
+    fn new_with_transport_relays(relay_urls: &[&str], approval: MycConnectionApproval) -> Self {
+        Self::new_with_transport_config(relay_urls, approval, |_| {})
+    }
+
+    fn new_with_transport_config<F>(
+        relay_urls: &[&str],
+        approval: MycConnectionApproval,
+        configure: F,
+    ) -> Self
+    where
+        F: FnOnce(&mut MycConfig),
+    {
         let temp = tempfile::tempdir().expect("tempdir");
         let mut config = MycConfig::default();
         config.paths.state_dir = temp.path().join("state");
@@ -394,7 +409,8 @@ impl MycTestRuntime {
         config.policy.connection_approval = approval;
         config.transport.enabled = true;
         config.transport.connect_timeout_secs = 1;
-        config.transport.relays = vec![relay_url.to_owned()];
+        config.transport.relays = relay_urls.iter().map(|relay| (*relay).to_owned()).collect();
+        configure(&mut config);
         write_identity(
             &config.paths.signer_identity_path,
             "1111111111111111111111111111111111111111111111111111111111111111",
@@ -778,7 +794,17 @@ async fn live_listener_consumes_connect_secret_only_after_successful_publish() -
             .len(),
         1
     );
-    assert_eq!(runtime.operation_audit_store().list()?.len(), 1);
+    let operation_audit = runtime.operation_audit_store().list()?;
+    assert_eq!(operation_audit.len(), 2);
+    assert_eq!(
+        operation_audit[1].operation,
+        MycOperationAuditKind::ListenerResponsePublish
+    );
+    assert_eq!(
+        operation_audit[1].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
+    assert_eq!(operation_audit[1].request_id.as_deref(), Some("connect-2"));
 
     let _ = shutdown_tx.send(());
     listener_task.await??;
@@ -895,6 +921,254 @@ async fn connect_accept_retries_without_consuming_secret_until_publish_succeeds(
             .contains("connect secret has already been consumed")
     );
 
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn connect_accept_succeeds_with_any_delivery_policy_when_one_relay_acknowledges()
+-> TestResult<()> {
+    let relay_a = TestRelay::spawn().await?;
+    let relay_b = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new_with_transport_config(
+        &[relay_a.url(), relay_b.url()],
+        MycConnectionApproval::NotRequired,
+        |config| {
+            config.transport.delivery_policy = MycTransportDeliveryPolicy::Any;
+            config.transport.publish_max_attempts = 1;
+        },
+    );
+    let runtime = test_runtime.runtime;
+    let signer_public_key = runtime.signer_identity().public_key();
+    let client_identity =
+        identity("5555555555555555555555555555555555555555555555555555555555555555");
+
+    relay_a
+        .queue_publish_outcomes(signer_public_key, &[false])
+        .await;
+    relay_b
+        .queue_publish_outcomes(signer_public_key, &[true])
+        .await;
+
+    let client_uri = RadrootsNostrConnectUri::Client(RadrootsNostrConnectClientUri {
+        client_public_key: client_identity.public_key(),
+        relays: vec![
+            nostr::RelayUrl::parse(relay_a.url())?,
+            nostr::RelayUrl::parse(relay_b.url())?,
+        ],
+        secret: "delivery-any-secret".to_owned(),
+        metadata: RadrootsNostrConnectClientMetadata::default(),
+    })
+    .to_string();
+
+    let accepted = control::accept_client_uri(&runtime, &client_uri).await?;
+    assert_eq!(accepted.response_relays.len(), 2);
+    let stored = runtime
+        .signer_manager()?
+        .list_connections()?
+        .into_iter()
+        .find(|connection| connection.connection_id == accepted.connection.connection_id)
+        .expect("stored connection");
+    assert!(stored.connect_secret_is_consumed());
+
+    let operation_audit = wait_for_operation_audit_count(&runtime, 1).await?;
+    assert_eq!(
+        operation_audit[0].operation,
+        MycOperationAuditKind::ConnectAcceptPublish
+    );
+    assert_eq!(
+        operation_audit[0].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
+    assert_eq!(operation_audit[0].relay_count, 2);
+    assert_eq!(operation_audit[0].acknowledged_relay_count, 1);
+    assert_eq!(
+        operation_audit[0].delivery_policy,
+        Some(MycTransportDeliveryPolicy::Any)
+    );
+    assert_eq!(
+        operation_audit[0].required_acknowledged_relay_count,
+        Some(1)
+    );
+    assert_eq!(operation_audit[0].publish_attempt_count, Some(1));
+    assert!(
+        operation_audit[0]
+            .relay_outcome_summary
+            .contains("delivery policy any")
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn connect_accept_rejects_when_quorum_delivery_policy_is_not_met() -> TestResult<()> {
+    let relay_a = TestRelay::spawn().await?;
+    let relay_b = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new_with_transport_config(
+        &[relay_a.url(), relay_b.url()],
+        MycConnectionApproval::NotRequired,
+        |config| {
+            config.transport.delivery_policy = MycTransportDeliveryPolicy::Quorum;
+            config.transport.delivery_quorum = Some(2);
+            config.transport.publish_max_attempts = 1;
+        },
+    );
+    let runtime = test_runtime.runtime;
+    let signer_public_key = runtime.signer_identity().public_key();
+    let client_identity =
+        identity("6666666666666666666666666666666666666666666666666666666666666665");
+
+    relay_a
+        .queue_publish_outcomes(signer_public_key, &[true])
+        .await;
+    relay_b
+        .queue_publish_outcomes(signer_public_key, &[false])
+        .await;
+
+    let client_uri = RadrootsNostrConnectUri::Client(RadrootsNostrConnectClientUri {
+        client_public_key: client_identity.public_key(),
+        relays: vec![
+            nostr::RelayUrl::parse(relay_a.url())?,
+            nostr::RelayUrl::parse(relay_b.url())?,
+        ],
+        secret: "delivery-quorum-secret".to_owned(),
+        metadata: RadrootsNostrConnectClientMetadata::default(),
+    })
+    .to_string();
+
+    let error = control::accept_client_uri(&runtime, &client_uri)
+        .await
+        .expect_err("quorum publish should fail");
+    assert!(
+        error
+            .to_string()
+            .contains("delivery policy quorum requiring 2 acknowledgements")
+    );
+    assert_eq!(
+        error.publish_delivery_policy(),
+        Some(MycTransportDeliveryPolicy::Quorum)
+    );
+    assert_eq!(error.publish_required_acknowledged_relay_count(), Some(2));
+    assert_eq!(error.publish_attempt_count(), Some(1));
+
+    let stored = runtime
+        .signer_manager()?
+        .list_connections()?
+        .into_iter()
+        .next()
+        .expect("stored connection");
+    assert!(!stored.connect_secret_is_consumed());
+
+    let operation_audit = wait_for_operation_audit_count(&runtime, 1).await?;
+    assert_eq!(
+        operation_audit[0].operation,
+        MycOperationAuditKind::ConnectAcceptPublish
+    );
+    assert_eq!(
+        operation_audit[0].outcome,
+        MycOperationAuditOutcome::Rejected
+    );
+    assert_eq!(operation_audit[0].relay_count, 2);
+    assert_eq!(operation_audit[0].acknowledged_relay_count, 1);
+    assert_eq!(
+        operation_audit[0].delivery_policy,
+        Some(MycTransportDeliveryPolicy::Quorum)
+    );
+    assert_eq!(
+        operation_audit[0].required_acknowledged_relay_count,
+        Some(2)
+    );
+    assert_eq!(operation_audit[0].publish_attempt_count, Some(1));
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_listener_retries_until_all_delivery_policy_is_met() -> TestResult<()> {
+    let relay_a = TestRelay::spawn().await?;
+    let relay_b = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new_with_transport_config(
+        &[relay_a.url(), relay_b.url()],
+        MycConnectionApproval::NotRequired,
+        |config| {
+            config.transport.delivery_policy = MycTransportDeliveryPolicy::All;
+            config.transport.publish_max_attempts = 2;
+            config.transport.publish_initial_backoff_millis = 10;
+            config.transport.publish_max_backoff_millis = 10;
+        },
+    );
+    let runtime = test_runtime.runtime.clone();
+    let signer_public_key = runtime.signer_identity().public_key();
+    let client_identity =
+        identity("7777777777777777777777777777777777777777777777777777777777777777");
+    let base_created_at = Timestamp::now().as_secs();
+
+    relay_a
+        .queue_publish_outcomes(signer_public_key, &[true, true])
+        .await;
+    relay_b
+        .queue_publish_outcomes(signer_public_key, &[false, true])
+        .await;
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let service_runtime = runtime.clone();
+    let listener_task = tokio::spawn(async move {
+        service_runtime
+            .run_until(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
+
+    relay_a.wait_for_subscription_count(1).await?;
+    relay_b.wait_for_subscription_count(1).await?;
+
+    let request = build_request_event(
+        &client_identity,
+        signer_public_key,
+        connect_request_message("connect-all-1", signer_public_key, "shared-secret-all"),
+        base_created_at,
+    );
+    publish_event(relay_a.url(), &request).await?;
+
+    let response_events = relay_b
+        .wait_for_published_events_by_author(signer_public_key, 1)
+        .await?;
+    let response = decrypt_response(&client_identity, signer_public_key, &response_events[0]);
+    assert_eq!(response.id, "connect-all-1");
+    assert_eq!(
+        response.result,
+        Some(serde_json::Value::String("shared-secret-all".to_owned()))
+    );
+
+    wait_for_connect_secret_consumed(&runtime).await?;
+    let operation_audit = wait_for_operation_audit_count(&runtime, 1).await?;
+    assert_eq!(
+        operation_audit[0].operation,
+        MycOperationAuditKind::ListenerResponsePublish
+    );
+    assert_eq!(
+        operation_audit[0].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
+    assert_eq!(operation_audit[0].relay_count, 2);
+    assert_eq!(operation_audit[0].acknowledged_relay_count, 2);
+    assert_eq!(
+        operation_audit[0].delivery_policy,
+        Some(MycTransportDeliveryPolicy::All)
+    );
+    assert_eq!(
+        operation_audit[0].required_acknowledged_relay_count,
+        Some(2)
+    );
+    assert_eq!(operation_audit[0].publish_attempt_count, Some(2));
+    assert!(
+        operation_audit[0]
+            .relay_outcome_summary
+            .contains("attempt 1: 1/2 relays acknowledged publish")
+    );
+
+    let _ = shutdown_tx.send(());
+    listener_task.await??;
     Ok(())
 }
 

@@ -6,6 +6,8 @@ use radroots_nostr_connect::prelude::RadrootsNostrConnectError;
 use radroots_nostr_signer::prelude::RadrootsNostrSignerError;
 use thiserror::Error;
 
+use crate::config::MycTransportDeliveryPolicy;
+
 #[derive(Debug, Error)]
 pub enum MycError {
     #[error("config io error at {path}: {source}")]
@@ -99,11 +101,17 @@ pub enum MycError {
     Nip46Encrypt(String),
     #[error("NIP-46 listener notifications closed")]
     Nip46ListenerClosed,
-    #[error("Nostr publish failed for {operation}: {details}")]
+    #[error(
+        "Nostr publish failed for {operation} after {attempt_count} attempt(s) with delivery policy {} requiring {required_acknowledged_relay_count} acknowledgements: {details}",
+        delivery_policy.as_str()
+    )]
     PublishRejected {
         operation: String,
         relay_count: usize,
         acknowledged_relay_count: usize,
+        required_acknowledged_relay_count: usize,
+        delivery_policy: MycTransportDeliveryPolicy,
+        attempt_count: usize,
         details: String,
         rejected_relays: Vec<String>,
     },
@@ -165,10 +173,43 @@ impl MycError {
             _ => None,
         }
     }
+
+    pub fn publish_delivery_policy(&self) -> Option<MycTransportDeliveryPolicy> {
+        match self {
+            Self::PublishRejected {
+                delivery_policy, ..
+            } => Some(*delivery_policy),
+            Self::DiscoveryRefreshFailed { source, .. } => source.publish_delivery_policy(),
+            _ => None,
+        }
+    }
+
+    pub fn publish_attempt_count(&self) -> Option<usize> {
+        match self {
+            Self::PublishRejected { attempt_count, .. } => Some(*attempt_count),
+            Self::DiscoveryRefreshFailed { source, .. } => source.publish_attempt_count(),
+            _ => None,
+        }
+    }
+
+    pub fn publish_required_acknowledged_relay_count(&self) -> Option<usize> {
+        match self {
+            Self::PublishRejected {
+                required_acknowledged_relay_count,
+                ..
+            } => Some(*required_acknowledged_relay_count),
+            Self::DiscoveryRefreshFailed { source, .. } => {
+                source.publish_required_acknowledged_relay_count()
+            }
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::config::MycTransportDeliveryPolicy;
+
     use super::MycError;
 
     #[test]
@@ -177,6 +218,9 @@ mod tests {
             operation: "discovery refresh".to_owned(),
             relay_count: 2,
             acknowledged_relay_count: 0,
+            required_acknowledged_relay_count: 1,
+            delivery_policy: MycTransportDeliveryPolicy::Any,
+            attempt_count: 2,
             details: "relay-a: blocked".to_owned(),
             rejected_relays: vec!["wss://relay-a.example.com".to_owned()],
         }
@@ -192,5 +236,11 @@ mod tests {
             wrapped.publish_rejected_relays(),
             Some(["wss://relay-a.example.com".to_owned()].as_slice())
         );
+        assert_eq!(
+            wrapped.publish_delivery_policy(),
+            Some(MycTransportDeliveryPolicy::Any)
+        );
+        assert_eq!(wrapped.publish_required_acknowledged_relay_count(), Some(1));
+        assert_eq!(wrapped.publish_attempt_count(), Some(2));
     }
 }

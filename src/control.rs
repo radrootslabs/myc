@@ -117,24 +117,20 @@ pub async fn accept_client_uri(
     let publish_outcome = match MycNostrTransport::publish_once(
         runtime.signer_identity(),
         &response_relays,
-        transport.connect_timeout_secs(),
+        &runtime.config().transport,
+        "connect accept response publish",
         event,
     )
     .await
     {
         Ok(outcome) => outcome,
         Err(error) => {
-            runtime.record_operation_audit(&MycOperationAuditRecord::new(
+            runtime.record_operation_audit(&record_publish_failure(
                 MycOperationAuditKind::ConnectAcceptPublish,
-                MycOperationAuditOutcome::Rejected,
                 Some(&connection.connection_id),
                 Some(response_request_id.as_str()),
                 response_relays.len(),
-                error
-                    .publish_rejection_counts()
-                    .map(|(_, acknowledged)| acknowledged)
-                    .unwrap_or_default(),
-                publish_failure_summary(&error),
+                &error,
             ));
             return Err(error);
         }
@@ -252,24 +248,20 @@ async fn replay_authorized_request(
     let publish_outcome = match MycNostrTransport::publish_once(
         runtime.signer_identity(),
         &publish_relays,
-        transport.connect_timeout_secs(),
+        &runtime.config().transport,
+        "authorized auth replay publish",
         event,
     )
     .await
     {
         Ok(publish_outcome) => publish_outcome,
         Err(error) => {
-            runtime.record_operation_audit(&MycOperationAuditRecord::new(
+            runtime.record_operation_audit(&record_publish_failure(
                 MycOperationAuditKind::AuthReplayPublish,
-                MycOperationAuditOutcome::Rejected,
                 Some(&outcome.connection.connection_id),
                 Some(pending_request.request_message.id.as_str()),
                 publish_relays.len(),
-                error
-                    .publish_rejection_counts()
-                    .map(|(_, acknowledged)| acknowledged)
-                    .unwrap_or_default(),
-                publish_failure_summary(&error),
+                &error,
             ));
             return Err(restore_pending_auth_challenge_on_error(
                 runtime,
@@ -309,7 +301,7 @@ fn restore_pending_auth_challenge_on_error(
             .map_err(Into::into)
     }) {
         Ok(_) => {
-            runtime.record_operation_audit(&MycOperationAuditRecord::new(
+            let mut record = MycOperationAuditRecord::new(
                 MycOperationAuditKind::AuthReplayRestore,
                 MycOperationAuditOutcome::Restored,
                 Some(connection_id),
@@ -323,7 +315,23 @@ fn restore_pending_auth_challenge_on_error(
                     .map(|(_, acknowledged)| acknowledged)
                     .unwrap_or_default(),
                 format!("restored pending auth challenge after replay failure: {summary}"),
-            ));
+            );
+            if let (
+                Some(delivery_policy),
+                Some(required_acknowledged_relay_count),
+                Some(attempt_count),
+            ) = (
+                error.publish_delivery_policy(),
+                error.publish_required_acknowledged_relay_count(),
+                error.publish_attempt_count(),
+            ) {
+                record = record.with_delivery_details(
+                    delivery_policy,
+                    required_acknowledged_relay_count,
+                    attempt_count,
+                );
+            }
+            runtime.record_operation_audit(&record);
             error
         }
         Err(restore_error) => MycError::InvalidOperation(format!(
@@ -340,15 +348,22 @@ fn record_publish_audit(
     request_id: Option<&str>,
     publish_outcome: &MycPublishOutcome,
 ) {
-    runtime.record_operation_audit(&MycOperationAuditRecord::new(
-        operation,
-        outcome,
-        connection_id,
-        request_id,
-        publish_outcome.relay_count,
-        publish_outcome.acknowledged_relay_count,
-        publish_outcome.relay_outcome_summary.clone(),
-    ));
+    runtime.record_operation_audit(
+        &MycOperationAuditRecord::new(
+            operation,
+            outcome,
+            connection_id,
+            request_id,
+            publish_outcome.relay_count,
+            publish_outcome.acknowledged_relay_count,
+            publish_outcome.relay_outcome_summary.clone(),
+        )
+        .with_delivery_details(
+            publish_outcome.delivery_policy,
+            publish_outcome.required_acknowledged_relay_count,
+            publish_outcome.attempt_count,
+        ),
+    );
 }
 
 fn publish_failure_summary(error: &MycError) -> String {
@@ -356,6 +371,39 @@ fn publish_failure_summary(error: &MycError) -> String {
         .publish_rejection_details()
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| error.to_string())
+}
+
+fn record_publish_failure(
+    operation: MycOperationAuditKind,
+    connection_id: Option<&RadrootsNostrSignerConnectionId>,
+    request_id: Option<&str>,
+    relay_count: usize,
+    error: &MycError,
+) -> MycOperationAuditRecord {
+    let mut record = MycOperationAuditRecord::new(
+        operation,
+        MycOperationAuditOutcome::Rejected,
+        connection_id,
+        request_id,
+        relay_count,
+        error
+            .publish_rejection_counts()
+            .map(|(_, acknowledged)| acknowledged)
+            .unwrap_or_default(),
+        publish_failure_summary(error),
+    );
+    if let (Some(delivery_policy), Some(required_acknowledged_relay_count), Some(attempt_count)) = (
+        error.publish_delivery_policy(),
+        error.publish_required_acknowledged_relay_count(),
+        error.publish_attempt_count(),
+    ) {
+        record = record.with_delivery_details(
+            delivery_policy,
+            required_acknowledged_relay_count,
+            attempt_count,
+        );
+    }
+    record
 }
 
 fn merge_relays(

@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
-use crate::config::{DEFAULT_ENV_PATH, MycConfig};
+use crate::config::{DEFAULT_ENV_PATH, MycConfig, MycTransportDeliveryPolicy};
 use crate::control::{accept_client_uri, authorize_auth_challenge, parse_permission_values};
 use crate::discovery::{
     MycDiscoveryContext, MycDiscoveryRepairSummary, diff_live_nip89, fetch_live_nip89,
@@ -239,6 +239,12 @@ pub struct MycDiscoveryRepairAttemptSummaryOutput {
     pub aggregate_publish_acknowledged_relay_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregate_publish_relay_outcome_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aggregate_publish_delivery_policy: Option<MycTransportDeliveryPolicy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aggregate_publish_required_acknowledged_relay_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aggregate_publish_attempt_count: Option<usize>,
     pub repair_summary: MycDiscoveryRepairSummary,
     pub planned_repair_relays: Vec<String>,
     pub blocked_relays: Vec<String>,
@@ -774,6 +780,12 @@ impl MycDiscoveryRepairAttemptSummaryOutput {
                 .map(|record| record.acknowledged_relay_count),
             aggregate_publish_relay_outcome_summary: publish_record
                 .map(|record| record.relay_outcome_summary.clone()),
+            aggregate_publish_delivery_policy: publish_record
+                .and_then(|record| record.delivery_policy),
+            aggregate_publish_required_acknowledged_relay_count: publish_record
+                .and_then(|record| record.required_acknowledged_relay_count),
+            aggregate_publish_attempt_count: publish_record
+                .and_then(|record| record.publish_attempt_count),
             repair_summary,
             planned_repair_relays,
             blocked_relays,
