@@ -810,7 +810,10 @@ MYC_TRANSPORT_RELAYS=wss://relay.example.com,wss://relay2.example.com
 
         assert_eq!(config.service.instance_name, "myc-dev");
         assert_eq!(config.logging.filter, "debug,myc=trace");
-        assert_eq!(config.logging.output_dir, Some(PathBuf::from("/tmp/myc-logs")));
+        assert_eq!(
+            config.logging.output_dir,
+            Some(PathBuf::from("/tmp/myc-logs"))
+        );
         assert!(!config.logging.stdout);
         assert_eq!(config.paths.state_dir, PathBuf::from("/tmp/myc"));
         assert_eq!(
@@ -960,10 +963,7 @@ MYC_UNKNOWN=nope
 
         assert_eq!(config.service.instance_name, "myc");
         assert!(config.discovery.enabled);
-        assert_eq!(
-            config.discovery.domain.as_deref(),
-            Some("myc.radroots.org")
-        );
+        assert_eq!(config.discovery.domain.as_deref(), Some("myc.radroots.org"));
         assert_eq!(config.discovery.handler_identifier, "myc");
         assert_eq!(
             config.logging.output_dir,

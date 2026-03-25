@@ -15,10 +15,12 @@ async fn main() {
                 "attempt_id": attempt_id,
                 "inspect_args": ["audit", "discovery-repair-attempt", "--attempt-id", attempt_id],
             });
-            eprintln!(
-                "myc: discovery repair attempt json: {}",
-                serde_json::to_string(&hint).expect("discovery repair attempt hint json")
-            );
+            match serde_json::to_string(&hint) {
+                Ok(value) => eprintln!("myc: discovery repair attempt json: {value}"),
+                Err(json_error) => eprintln!(
+                    "myc: failed to serialize discovery repair attempt hint json: {json_error}"
+                ),
+            }
         }
         std::process::exit(1);
     }
