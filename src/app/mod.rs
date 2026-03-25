@@ -77,6 +77,11 @@ mod tests {
         assert!(snapshot.audit_dir.ends_with("audit"));
         assert!(snapshot.signer_identity_path.ends_with("identity.json"));
         assert!(snapshot.user_identity_path.ends_with("user.json"));
+        assert_eq!(
+            snapshot.signer_identity_source.backend.as_str(),
+            "filesystem"
+        );
+        assert_eq!(snapshot.user_identity_source.backend.as_str(), "filesystem");
         assert!(snapshot.signer_state_path.ends_with("signer-state.json"));
         assert!(!snapshot.signer_identity_id.is_empty());
         assert!(!snapshot.signer_public_key_hex.is_empty());

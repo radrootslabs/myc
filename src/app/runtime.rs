@@ -4,7 +4,8 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use crate::audit::{MycOperationAuditRecord, MycOperationAuditStore};
-use crate::config::{MycAuditConfig, MycConfig};
+use crate::config::{MycAuditConfig, MycConfig, MycIdentitySourceSpec};
+use crate::custody::MycIdentityProvider;
 use crate::error::MycError;
 use crate::operability::server::run_observability_server;
 use crate::policy::MycPolicyContext;
@@ -36,6 +37,8 @@ pub struct MycStartupSnapshot {
     pub audit_dir: PathBuf,
     pub signer_identity_path: PathBuf,
     pub user_identity_path: PathBuf,
+    pub signer_identity_source: MycIdentitySourceSpec,
+    pub user_identity_source: MycIdentitySourceSpec,
     pub signer_state_path: PathBuf,
     pub signer_identity_id: String,
     pub signer_public_key_hex: String,
@@ -46,6 +49,8 @@ pub struct MycStartupSnapshot {
 
 #[derive(Clone)]
 pub struct MycSignerContext {
+    signer_identity_provider: MycIdentityProvider,
+    user_identity_provider: MycIdentityProvider,
     signer_identity: RadrootsIdentity,
     user_identity: RadrootsIdentity,
     signer_state_path: PathBuf,
@@ -73,6 +78,8 @@ impl MycRuntime {
             &paths,
             config.audit.clone(),
             MycPolicyContext::from_config(&config.policy)?,
+            config.paths.signer_identity_source(),
+            config.paths.user_identity_source(),
         )?;
         let transport = MycNostrTransport::bootstrap(&config.transport, &signer.signer_identity)?;
         let runtime = Self {
@@ -140,6 +147,8 @@ impl MycRuntime {
             audit_dir: self.paths.audit_dir.clone(),
             signer_identity_path: self.paths.signer_identity_path.clone(),
             user_identity_path: self.paths.user_identity_path.clone(),
+            signer_identity_source: self.signer.signer_identity_source().clone(),
+            user_identity_source: self.signer.user_identity_source().clone(),
             signer_state_path: self.paths.signer_state_path.clone(),
             signer_identity_id: signer_public.id.into_string(),
             signer_public_key_hex: signer_public.public_key_hex,
@@ -168,6 +177,10 @@ impl MycRuntime {
             audit_dir = %snapshot.audit_dir.display(),
             signer_identity_path = %snapshot.signer_identity_path.display(),
             user_identity_path = %snapshot.user_identity_path.display(),
+            signer_identity_backend = %snapshot.signer_identity_source.backend.as_str(),
+            user_identity_backend = %snapshot.user_identity_source.backend.as_str(),
+            signer_keyring_account_id = snapshot.signer_identity_source.keyring_account_id.as_deref().unwrap_or(""),
+            user_keyring_account_id = snapshot.user_identity_source.keyring_account_id.as_deref().unwrap_or(""),
             signer_state_path = %snapshot.signer_state_path.display(),
             signer_identity_id = %snapshot.signer_identity_id,
             signer_public_key_hex = %snapshot.signer_public_key_hex,
@@ -288,12 +301,28 @@ impl MycSignerContext {
         &self.signer_identity
     }
 
+    pub fn signer_identity_source(&self) -> &MycIdentitySourceSpec {
+        self.signer_identity_provider.source()
+    }
+
+    pub fn signer_identity_provider(&self) -> &MycIdentityProvider {
+        &self.signer_identity_provider
+    }
+
     pub fn signer_public_identity(&self) -> RadrootsIdentityPublic {
         self.signer_identity.to_public()
     }
 
     pub fn user_identity(&self) -> &RadrootsIdentity {
         &self.user_identity
+    }
+
+    pub fn user_identity_source(&self) -> &MycIdentitySourceSpec {
+        self.user_identity_provider.source()
+    }
+
+    pub fn user_identity_provider(&self) -> &MycIdentityProvider {
+        &self.user_identity_provider
     }
 
     pub fn user_public_identity(&self) -> RadrootsIdentityPublic {
@@ -342,9 +371,15 @@ impl MycSignerContext {
         paths: &MycRuntimePaths,
         audit_config: MycAuditConfig,
         policy: MycPolicyContext,
+        signer_identity_source: MycIdentitySourceSpec,
+        user_identity_source: MycIdentitySourceSpec,
     ) -> Result<Self, MycError> {
-        let signer_identity = RadrootsIdentity::load_from_path_auto(&paths.signer_identity_path)?;
-        let user_identity = RadrootsIdentity::load_from_path_auto(&paths.user_identity_path)?;
+        let signer_identity_provider =
+            MycIdentityProvider::from_source("signer", signer_identity_source)?;
+        let user_identity_provider =
+            MycIdentityProvider::from_source("user", user_identity_source)?;
+        let signer_identity = signer_identity_provider.load_identity()?;
+        let user_identity = user_identity_provider.load_identity()?;
         let manager = Self::load_signer_manager_from_path(&paths.signer_state_path)?;
         let configured_public = signer_identity.to_public();
 
@@ -362,6 +397,8 @@ impl MycSignerContext {
         }
 
         Ok(Self {
+            signer_identity_provider,
+            user_identity_provider,
             signer_identity,
             user_identity,
             signer_state_path: paths.signer_state_path.clone(),

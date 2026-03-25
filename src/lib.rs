@@ -5,6 +5,7 @@ pub mod audit;
 pub mod cli;
 pub mod config;
 pub mod control;
+pub mod custody;
 pub mod discovery;
 pub mod error;
 pub mod logging;
@@ -19,10 +20,12 @@ pub use audit::{
 };
 pub use config::{
     DEFAULT_ENV_PATH, MycAuditConfig, MycConfig, MycConnectionApproval, MycDiscoveryConfig,
-    MycDiscoveryMetadataConfig, MycLoggingConfig, MycObservabilityConfig, MycPathsConfig,
-    MycPolicyConfig, MycServiceConfig, MycTransportConfig, MycTransportDeliveryPolicy,
+    MycDiscoveryMetadataConfig, MycIdentityBackend, MycIdentitySourceSpec, MycLoggingConfig,
+    MycObservabilityConfig, MycPathsConfig, MycPolicyConfig, MycServiceConfig, MycTransportConfig,
+    MycTransportDeliveryPolicy,
 };
 pub use control::{MycAcceptedConnectionOutput, MycAuthorizedReplayOutput};
+pub use custody::{MycIdentityProvider, MycIdentityStatusOutput};
 pub use discovery::{
     MycDiscoveryBundleManifest, MycDiscoveryBundleOutput, MycDiscoveryContext,
     MycDiscoveryDiffOutput, MycDiscoveryLiveStatus, MycDiscoveryRelayFetchStatus,
@@ -36,7 +39,7 @@ pub use discovery::{
 };
 pub use error::MycError;
 pub use operability::{
-    MycAuditDecisionCounts, MycDiscoveryStatusOutput, MycMetricsSnapshot,
+    MycAuditDecisionCounts, MycCustodyStatusOutput, MycDiscoveryStatusOutput, MycMetricsSnapshot,
     MycOperationOutcomeCounts, MycRelayProbe, MycRelayProbeAvailability, MycRuntimeStatus,
     MycStatusFullOutput, MycStatusSummaryOutput, MycTransportStatusOutput, collect_metrics,
     collect_status_full, collect_status_summary, render_metrics_text,

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use radroots_identity::IdentityError;
 use radroots_nostr::prelude::RadrootsNostrError;
+use radroots_nostr_accounts::prelude::RadrootsNostrAccountsError;
 use radroots_nostr_connect::prelude::RadrootsNostrConnectError;
 use radroots_nostr_signer::prelude::RadrootsNostrSignerError;
 use thiserror::Error;
@@ -97,6 +98,38 @@ pub enum MycError {
         attempt_id: String,
         #[source]
         source: Box<MycError>,
+    },
+    #[error("custody vault error for {role} identity: {source}")]
+    CustodyVault {
+        role: String,
+        #[source]
+        source: RadrootsNostrAccountsError,
+    },
+    #[error(
+        "no secret found in custody vault service `{service_name}` for {role} identity `{account_id}`"
+    )]
+    CustodySecretNotFound {
+        role: String,
+        service_name: String,
+        account_id: String,
+    },
+    #[error(
+        "custody vault service `{service_name}` resolved {role} identity `{resolved_identity_id}` but expected `{account_id}`"
+    )]
+    CustodySecretIdentityMismatch {
+        role: String,
+        service_name: String,
+        account_id: String,
+        resolved_identity_id: String,
+    },
+    #[error(
+        "public identity file {path} resolved {role} identity `{profile_identity_id}` but expected `{account_id}`"
+    )]
+    CustodyProfileIdentityMismatch {
+        role: String,
+        path: PathBuf,
+        account_id: String,
+        profile_identity_id: String,
     },
     #[error(transparent)]
     Identity(#[from] IdentityError),

@@ -67,6 +67,8 @@ fn status_summary_command_emits_machine_readable_json() {
     let value: Value = serde_json::from_slice(&output.stdout).expect("status json");
     assert_eq!(value["status"], "unready");
     assert_eq!(value["ready"], false);
+    assert_eq!(value["custody"]["signer"]["backend"], "filesystem");
+    assert_eq!(value["custody"]["signer"]["resolved"], true);
     assert_eq!(value["transport"]["enabled"], false);
 }
 

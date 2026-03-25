@@ -14,6 +14,7 @@ use tokio::task::JoinSet;
 use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome};
 use crate::config::MycTransportDeliveryPolicy;
+use crate::custody::MycIdentityStatusOutput;
 use crate::discovery::MycDiscoveryContext;
 use crate::error::MycError;
 use crate::transport::MycTransportSnapshot;
@@ -84,11 +85,20 @@ pub struct MycDiscoveryStatusOutput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycCustodyStatusOutput {
+    pub signer: MycIdentityStatusOutput,
+    pub user: MycIdentityStatusOutput,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discovery_app: Option<MycIdentityStatusOutput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycStatusFullOutput {
     pub status: MycRuntimeStatus,
     pub ready: bool,
     pub reasons: Vec<String>,
     pub startup: crate::app::MycStartupSnapshot,
+    pub custody: MycCustodyStatusOutput,
     pub transport: MycTransportStatusOutput,
     pub discovery: MycDiscoveryStatusOutput,
 }
@@ -99,6 +109,7 @@ pub struct MycStatusSummaryOutput {
     pub ready: bool,
     pub reasons: Vec<String>,
     pub instance_name: String,
+    pub custody: MycCustodyStatusOutput,
     pub transport: MycTransportStatusOutput,
     pub discovery: MycDiscoveryStatusOutput,
 }
@@ -143,13 +154,19 @@ struct MycTransportStatusEvaluation {
     reasons: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MycCustodyStatusEvaluation {
+    output: MycCustodyStatusOutput,
+}
+
 pub async fn collect_status_full(runtime: &MycRuntime) -> Result<MycStatusFullOutput, MycError> {
     let snapshot = runtime.snapshot();
+    let custody = collect_custody_status(runtime)?;
     let transport = collect_transport_status(runtime).await?;
     let discovery = collect_discovery_status(runtime).await?;
     let mut reasons = transport.reasons;
     reasons.extend(discovery.reasons);
-    let status = combine_runtime_status(
+    let mut status = combine_runtime_status(
         transport.output.status,
         if discovery.output.enabled {
             Some(discovery.output.status)
@@ -157,12 +174,23 @@ pub async fn collect_status_full(runtime: &MycRuntime) -> Result<MycStatusFullOu
             None
         },
     );
+    if custody
+        .output
+        .discovery_app
+        .as_ref()
+        .is_some_and(|status_output| !status_output.resolved)
+        && status != MycRuntimeStatus::Unready
+    {
+        status = MycRuntimeStatus::Degraded;
+        reasons.push("discovery app identity could not be resolved".to_owned());
+    }
     let ready = transport.output.ready;
     Ok(MycStatusFullOutput {
         status,
         ready,
         reasons,
         startup: snapshot,
+        custody: custody.output,
         transport: transport.output,
         discovery: discovery.output,
     })
@@ -177,6 +205,7 @@ pub async fn collect_status_summary(
         ready: full.ready,
         reasons: full.reasons,
         instance_name: full.startup.instance_name,
+        custody: full.custody,
         transport: MycTransportStatusOutput {
             relay_probes: Vec::new(),
             ..full.transport
@@ -192,6 +221,42 @@ pub async fn collect_status_summary(
                 relay_probes: Vec::new(),
                 ..full.discovery.publish_relays
             },
+        },
+    })
+}
+
+fn collect_custody_status(runtime: &MycRuntime) -> Result<MycCustodyStatusEvaluation, MycError> {
+    let signer = runtime
+        .signer_context()
+        .signer_identity_provider()
+        .resolved_status(runtime.signer_identity());
+    let user = runtime
+        .signer_context()
+        .user_identity_provider()
+        .resolved_status(runtime.user_identity());
+    let discovery_app = if runtime.config().discovery.enabled {
+        match runtime.config().discovery.app_identity_source() {
+            Some(source) => Some(
+                crate::custody::MycIdentityProvider::from_source("discovery app", source)?
+                    .probe_status(),
+            ),
+            None => Some(
+                runtime
+                    .signer_context()
+                    .signer_identity_provider()
+                    .resolved_status(runtime.signer_identity())
+                    .with_inherited_from("signer"),
+            ),
+        }
+    } else {
+        None
+    };
+
+    Ok(MycCustodyStatusEvaluation {
+        output: MycCustodyStatusOutput {
+            signer,
+            user,
+            discovery_app,
         },
     })
 }

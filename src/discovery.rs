@@ -18,6 +18,7 @@ use tokio::task::JoinSet;
 use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
 use crate::config::MycDiscoveryMetadataConfig;
+use crate::custody::MycIdentityProvider;
 use crate::error::MycError;
 use crate::transport::{MycNostrTransport, MycRelayPublishResult};
 
@@ -286,11 +287,12 @@ impl MycDiscoveryContext {
             ));
         }
 
-        let app_identity_path = discovery
-            .app_identity_path
-            .clone()
-            .unwrap_or_else(|| runtime.paths().signer_identity_path.clone());
-        let app_identity = RadrootsIdentity::load_from_path_auto(&app_identity_path)?;
+        let app_identity = match discovery.app_identity_source() {
+            Some(source) => {
+                MycIdentityProvider::from_source("discovery app", source)?.load_identity()?
+            }
+            None => runtime.signer_identity().clone(),
+        };
         let public_relays = discovery.resolved_public_relays(&runtime.config().transport)?;
         let publish_relays = discovery.resolved_publish_relays(&runtime.config().transport)?;
         let nostrconnect_url = discovery
