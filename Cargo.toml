@@ -16,7 +16,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
 [dependencies]
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 clap = { version = "4.5", features = ["derive"] }
-nostr = { version = "0.44.2", features = ["nip04", "nip44"] }
+nostr = { version = "0.44.2", features = ["nip04", "nip44", "nip46"] }
 radroots-identity = { path = "../lib/crates/identity" }
 radroots-log = { path = "../lib/crates/log" }
 radroots-nostr-accounts = { path = "../lib/crates/nostr-accounts", default-features = false, features = ["std", "memory-vault", "os-keyring"] }
