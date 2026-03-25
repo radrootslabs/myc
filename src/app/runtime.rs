@@ -12,6 +12,7 @@ use radroots_nostr_signer::prelude::{
     RadrootsNostrFileSignerStore, RadrootsNostrSignerApprovalRequirement,
     RadrootsNostrSignerManager,
 };
+use serde::Serialize;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,7 +24,7 @@ pub struct MycRuntimePaths {
     pub signer_state_path: PathBuf,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycStartupSnapshot {
     pub instance_name: String,
     pub log_filter: String,

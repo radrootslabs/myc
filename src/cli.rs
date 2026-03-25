@@ -19,6 +19,11 @@ use crate::discovery::{
 };
 use crate::error::MycError;
 use crate::logging;
+use crate::operability::{
+    MycAuditDecisionCounts, MycOperationOutcomeCounts, MycStatusFullOutput, MycStatusSummaryOutput,
+    collect_metrics, collect_status_full, collect_status_summary, increment_outcome_counts,
+    is_aggregate_publish_operation, operation_kind_label, render_metrics_text,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "myc")]
@@ -33,6 +38,14 @@ pub struct MycCli {
 #[derive(Debug, Subcommand)]
 pub enum MycCommand {
     Run,
+    Status {
+        #[arg(long, value_enum, default_value_t = MycStatusView::Summary)]
+        view: MycStatusView,
+    },
+    Metrics {
+        #[arg(long, value_enum, default_value_t = MycMetricsFormat::Prometheus)]
+        format: MycMetricsFormat,
+    },
     Connections {
         #[command(subcommand)]
         command: MycConnectionsCommand,
@@ -110,6 +123,18 @@ pub enum MycDiscoveryRepairAttemptView {
     Records,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum MycStatusView {
+    Summary,
+    Full,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum MycMetricsFormat {
+    Json,
+    Prometheus,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum MycAuthCommand {
     Require {
@@ -180,26 +205,6 @@ pub struct MycAuditListOutput {
     pub runtime_operation_audit: Vec<MycOperationAuditRecord>,
 }
 
-#[derive(Debug, Default, Serialize, PartialEq, Eq)]
-pub struct MycAuditDecisionCounts {
-    pub allowed: usize,
-    pub denied: usize,
-    pub challenged: usize,
-}
-
-#[derive(Debug, Default, Serialize, PartialEq, Eq)]
-pub struct MycOperationOutcomeCounts {
-    pub succeeded: usize,
-    pub rejected: usize,
-    pub restored: usize,
-    pub unavailable: usize,
-    pub missing: usize,
-    pub matched: usize,
-    pub drifted: usize,
-    pub conflicted: usize,
-    pub skipped: usize,
-}
-
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct MycAuditSummaryOutput {
     pub record_limit: usize,
@@ -261,6 +266,13 @@ pub enum MycDiscoveryRepairAttemptOutput {
     Records(MycDiscoveryRepairAttemptRecordsOutput),
 }
 
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum MycStatusOutput {
+    Summary(MycStatusSummaryOutput),
+    Full(MycStatusFullOutput),
+}
+
 pub async fn run_from_env() -> Result<(), MycError> {
     let cli = MycCli::parse();
     let config = load_config(cli.env_file.as_deref())?;
@@ -269,6 +281,27 @@ pub async fn run_from_env() -> Result<(), MycError> {
         MycCommand::Run => {
             logging::init_logging(&config.logging)?;
             MycRuntime::bootstrap(config)?.run().await
+        }
+        MycCommand::Status { view } => {
+            let runtime = MycRuntime::bootstrap(config)?;
+            let output = match view {
+                MycStatusView::Summary => {
+                    MycStatusOutput::Summary(collect_status_summary(&runtime).await?)
+                }
+                MycStatusView::Full => MycStatusOutput::Full(collect_status_full(&runtime).await?),
+            };
+            print_json(&output)
+        }
+        MycCommand::Metrics { format } => {
+            let runtime = MycRuntime::bootstrap(config)?;
+            let output = collect_metrics(&runtime)?;
+            match format {
+                MycMetricsFormat::Json => print_json(&output),
+                MycMetricsFormat::Prometheus => {
+                    print_text(&render_metrics_text(&output));
+                    Ok(())
+                }
+            }
         }
         MycCommand::Connections { command } => {
             let runtime = MycRuntime::bootstrap(config)?;
@@ -654,47 +687,6 @@ fn audit_read_limit(runtime: &MycRuntime, limit: Option<usize>) -> usize {
     limit.unwrap_or(runtime.operation_audit_store().config().default_read_limit)
 }
 
-fn increment_outcome_counts(
-    counts: &mut MycOperationOutcomeCounts,
-    outcome: MycOperationAuditOutcome,
-) {
-    match outcome {
-        MycOperationAuditOutcome::Succeeded => counts.succeeded += 1,
-        MycOperationAuditOutcome::Rejected => counts.rejected += 1,
-        MycOperationAuditOutcome::Restored => counts.restored += 1,
-        MycOperationAuditOutcome::Unavailable => counts.unavailable += 1,
-        MycOperationAuditOutcome::Missing => counts.missing += 1,
-        MycOperationAuditOutcome::Matched => counts.matched += 1,
-        MycOperationAuditOutcome::Drifted => counts.drifted += 1,
-        MycOperationAuditOutcome::Conflicted => counts.conflicted += 1,
-        MycOperationAuditOutcome::Skipped => counts.skipped += 1,
-    }
-}
-
-fn operation_kind_label(kind: MycOperationAuditKind) -> String {
-    match kind {
-        MycOperationAuditKind::ListenerResponsePublish => "listener_response_publish".to_owned(),
-        MycOperationAuditKind::ConnectAcceptPublish => "connect_accept_publish".to_owned(),
-        MycOperationAuditKind::AuthReplayPublish => "auth_replay_publish".to_owned(),
-        MycOperationAuditKind::AuthReplayRestore => "auth_replay_restore".to_owned(),
-        MycOperationAuditKind::DiscoveryHandlerFetch => "discovery_handler_fetch".to_owned(),
-        MycOperationAuditKind::DiscoveryHandlerPublish => "discovery_handler_publish".to_owned(),
-        MycOperationAuditKind::DiscoveryHandlerCompare => "discovery_handler_compare".to_owned(),
-        MycOperationAuditKind::DiscoveryHandlerRefresh => "discovery_handler_refresh".to_owned(),
-        MycOperationAuditKind::DiscoveryHandlerRepair => "discovery_handler_repair".to_owned(),
-    }
-}
-
-fn is_aggregate_publish_operation(kind: MycOperationAuditKind) -> bool {
-    matches!(
-        kind,
-        MycOperationAuditKind::ListenerResponsePublish
-            | MycOperationAuditKind::ConnectAcceptPublish
-            | MycOperationAuditKind::AuthReplayPublish
-            | MycOperationAuditKind::DiscoveryHandlerPublish
-    )
-}
-
 impl MycDiscoveryRepairAttemptSummaryOutput {
     fn from_records(
         attempt_id: &str,
@@ -804,6 +796,10 @@ where
 {
     println!("{}", serde_json::to_string_pretty(value)?);
     Ok(())
+}
+
+fn print_text(value: &str) {
+    println!("{value}");
 }
 
 #[cfg(test)]

@@ -8,6 +8,7 @@ pub mod control;
 pub mod discovery;
 pub mod error;
 pub mod logging;
+pub mod operability;
 pub mod policy;
 pub mod transport;
 
@@ -34,6 +35,12 @@ pub use discovery::{
     render_nip05_output, verify_bundle,
 };
 pub use error::MycError;
+pub use operability::{
+    MycAuditDecisionCounts, MycDiscoveryStatusOutput, MycMetricsSnapshot,
+    MycOperationOutcomeCounts, MycRelayProbe, MycRelayProbeAvailability, MycRuntimeStatus,
+    MycStatusFullOutput, MycStatusSummaryOutput, MycTransportStatusOutput, collect_metrics,
+    collect_status_full, collect_status_summary, render_metrics_text,
+};
 pub use policy::{MycConnectDecision, MycPolicyContext};
 pub use transport::{MycNostrTransport, MycRelayPublishResult, MycTransportSnapshot};
 

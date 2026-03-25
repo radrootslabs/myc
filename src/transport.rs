@@ -28,7 +28,7 @@ pub struct MycNostrTransport {
     publish_max_backoff_millis: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycTransportSnapshot {
     pub enabled: bool,
     pub relay_count: usize,

@@ -194,6 +194,10 @@ impl MycOperationAuditStore {
         self.list_with_limit(self.config.default_read_limit)
     }
 
+    pub fn list_all(&self) -> Result<Vec<MycOperationAuditRecord>, MycError> {
+        self.list_matching(usize::MAX, |_| true)
+    }
+
     pub fn list_with_limit(&self, limit: usize) -> Result<Vec<MycOperationAuditRecord>, MycError> {
         self.list_matching(limit, |_| true)
     }
