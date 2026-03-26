@@ -6,6 +6,7 @@ use radroots_nostr::prelude::RadrootsNostrError;
 use radroots_nostr_accounts::prelude::RadrootsNostrAccountsError;
 use radroots_nostr_connect::prelude::RadrootsNostrConnectError;
 use radroots_nostr_signer::prelude::RadrootsNostrSignerError;
+use radroots_sql_core::error::SqlError;
 use thiserror::Error;
 
 use crate::config::MycTransportDeliveryPolicy;
@@ -69,6 +70,18 @@ pub enum MycError {
     },
     #[error("failed to serialize audit record at {path}: {source}")]
     AuditSerialize {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("audit sqlite error at {path}: {source}")]
+    AuditSql {
+        path: PathBuf,
+        #[source]
+        source: SqlError,
+    },
+    #[error("audit sqlite decode error at {path}: {source}")]
+    AuditSqlDecode {
         path: PathBuf,
         #[source]
         source: serde_json::Error,

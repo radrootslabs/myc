@@ -2,6 +2,7 @@
 
 pub mod app;
 pub mod audit;
+mod audit_sqlite;
 pub mod cli;
 pub mod config;
 pub mod control;
@@ -18,6 +19,7 @@ pub use audit::{
     MycJsonlOperationAuditStore, MycOperationAuditKind, MycOperationAuditOutcome,
     MycOperationAuditRecord, MycOperationAuditStore,
 };
+pub use audit_sqlite::MycSqliteOperationAuditStore;
 pub use config::{
     DEFAULT_ENV_PATH, MycAuditConfig, MycConfig, MycConnectionApproval, MycDiscoveryConfig,
     MycDiscoveryMetadataConfig, MycIdentityBackend, MycIdentitySourceSpec, MycLoggingConfig,

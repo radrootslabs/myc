@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::audit::{MycJsonlOperationAuditStore, MycOperationAuditRecord, MycOperationAuditStore};
+use crate::audit_sqlite::MycSqliteOperationAuditStore;
 use crate::config::{
     MycAuditConfig, MycConfig, MycIdentitySourceSpec, MycPersistenceConfig, MycRuntimeAuditBackend,
     MycSignerStateBackend,
@@ -386,7 +387,7 @@ impl MycSignerContext {
         let user_identity = user_identity_provider.load_identity()?;
         let signer_store = Self::build_signer_store(persistence, &paths.signer_state_path);
         let operation_audit_store =
-            Self::build_operation_audit_store(persistence, &paths.audit_dir, audit_config);
+            Self::build_operation_audit_store(persistence, &paths.audit_dir, audit_config)?;
         let manager = Self::load_signer_manager_from_store(signer_store.clone())?;
         let configured_public = signer_identity.to_public();
 
@@ -428,11 +429,16 @@ impl MycSignerContext {
         persistence: &MycPersistenceConfig,
         audit_dir: &Path,
         audit_config: MycAuditConfig,
-    ) -> Arc<dyn MycOperationAuditStore> {
+    ) -> Result<Arc<dyn MycOperationAuditStore>, MycError> {
         match persistence.runtime_audit_backend {
-            MycRuntimeAuditBackend::JsonlFile => {
-                Arc::new(MycJsonlOperationAuditStore::new(audit_dir, audit_config))
-            }
+            MycRuntimeAuditBackend::JsonlFile => Ok(Arc::new(MycJsonlOperationAuditStore::new(
+                audit_dir,
+                audit_config,
+            ))),
+            MycRuntimeAuditBackend::Sqlite => Ok(Arc::new(MycSqliteOperationAuditStore::open(
+                audit_dir,
+                audit_config,
+            )?)),
         }
     }
 
@@ -495,7 +501,8 @@ mod tests {
         RadrootsNostrFileSignerStore, RadrootsNostrSignerManager,
     };
 
-    use crate::config::MycConfig;
+    use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
+    use crate::config::{MycConfig, MycRuntimeAuditBackend};
     use crate::error::MycError;
 
     use super::MycRuntime;
@@ -662,5 +669,47 @@ mod tests {
         assert!(runtime.snapshot().transport.enabled);
         assert_eq!(runtime.snapshot().transport.relay_count, 1);
         assert_eq!(runtime.snapshot().transport.connect_timeout_secs, 15);
+    }
+
+    #[test]
+    fn bootstrap_supports_sqlite_operation_audit_backend() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut config = MycConfig::default();
+        config.paths.state_dir = temp.path().join("state");
+        config.paths.signer_identity_path = temp.path().join("signer.json");
+        config.paths.user_identity_path = temp.path().join("user.json");
+        config.persistence.runtime_audit_backend = MycRuntimeAuditBackend::Sqlite;
+        write_test_identity(
+            &config.paths.signer_identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_test_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
+
+        let runtime = MycRuntime::bootstrap(config).expect("runtime");
+        runtime.record_operation_audit(&MycOperationAuditRecord::new(
+            MycOperationAuditKind::ListenerResponsePublish,
+            MycOperationAuditOutcome::Succeeded,
+            None,
+            Some("request-1"),
+            1,
+            1,
+            "relay acknowledged publish",
+        ));
+
+        let records = runtime
+            .operation_audit_store()
+            .list()
+            .expect("list runtime audit");
+        assert_eq!(records.len(), 1);
+        assert!(
+            runtime
+                .paths()
+                .audit_dir
+                .join("operations.sqlite")
+                .is_file()
+        );
     }
 }

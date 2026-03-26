@@ -23,6 +23,7 @@ radroots-nostr-accounts = { path = "../lib/crates/nostr-accounts", default-featu
 radroots-nostr = { path = "../lib/crates/nostr", features = ["client", "events"] }
 radroots-nostr-connect = { path = "../lib/crates/nostr-connect" }
 radroots-nostr-signer = { path = "../lib/crates/nostr-signer" }
+radroots-sql-core = { path = "../lib/crates/sql-core", features = ["native"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
