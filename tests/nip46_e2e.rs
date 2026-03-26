@@ -8,8 +8,9 @@ use myc::control;
 use myc::{
     MycConfig, MycConnectionApproval, MycDiscoveryContext, MycDiscoveryLiveStatus,
     MycDiscoveryRelayFetchStatus, MycDiscoveryRepairOutcome, MycOperationAuditKind,
-    MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime, MycTransportDeliveryPolicy,
-    diff_live_nip89, fetch_live_nip89, publish_nip89_event, refresh_nip89,
+    MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime, MycRuntimeAuditBackend,
+    MycSignerStateBackend, MycTransportDeliveryPolicy, diff_live_nip89, fetch_live_nip89,
+    publish_nip89_event, refresh_nip89,
 };
 use nostr::filter::MatchEventOptions;
 use nostr::nips::nip44;
@@ -1390,6 +1391,144 @@ async fn live_listener_consumes_connect_secret_only_after_successful_publish() -
         MycOperationAuditOutcome::Succeeded
     );
     assert_eq!(operation_audit[1].request_id.as_deref(), Some("connect-2"));
+
+    let _ = shutdown_tx.send(());
+    listener_task.await??;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_listener_works_with_sqlite_signer_state_and_runtime_audit() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new_with_transport_config(
+        &[relay.url()],
+        MycConnectionApproval::NotRequired,
+        |config| {
+            config.persistence.signer_state_backend = MycSignerStateBackend::Sqlite;
+            config.persistence.runtime_audit_backend = MycRuntimeAuditBackend::Sqlite;
+        },
+    );
+    let runtime = test_runtime.runtime.clone();
+    let signer_public_key = runtime.signer_identity().public_key();
+    let client_identity =
+        identity("5353535353535353535353535353535353535353535353535353535353535353");
+    let base_created_at = Timestamp::now().as_secs();
+
+    assert_eq!(
+        runtime
+            .paths()
+            .signer_state_path
+            .file_name()
+            .and_then(|name| name.to_str()),
+        Some("signer-state.sqlite")
+    );
+    assert_eq!(
+        runtime
+            .paths()
+            .runtime_audit_path
+            .file_name()
+            .and_then(|name| name.to_str()),
+        Some("operations.sqlite")
+    );
+
+    relay
+        .queue_publish_outcomes(signer_public_key, &[false, true])
+        .await;
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let service_runtime = runtime.clone();
+    let listener_task = tokio::spawn(async move {
+        service_runtime
+            .run_until(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
+
+    relay.wait_for_subscription_count(1).await?;
+
+    let request_one = build_request_event(
+        &client_identity,
+        signer_public_key,
+        connect_request_message("sqlite-connect-1", signer_public_key, "sqlite-secret"),
+        base_created_at,
+    );
+    publish_event(relay.url(), &request_one).await?;
+    wait_for_connection_count(&runtime, 1).await?;
+    sleep(Duration::from_millis(100)).await;
+
+    assert!(
+        relay
+            .published_events_by_author(signer_public_key)
+            .await
+            .is_empty()
+    );
+    let initial_connection = runtime
+        .signer_manager()?
+        .list_connections()?
+        .into_iter()
+        .next()
+        .expect("stored connection");
+    assert!(!initial_connection.connect_secret_is_consumed());
+
+    let request_two = build_request_event(
+        &client_identity,
+        signer_public_key,
+        connect_request_message("sqlite-connect-2", signer_public_key, "sqlite-secret"),
+        base_created_at + 1,
+    );
+    publish_event(relay.url(), &request_two).await?;
+
+    let response_events = relay
+        .wait_for_published_events_by_author(signer_public_key, 1)
+        .await?;
+    let response = decrypt_response(&client_identity, signer_public_key, &response_events[0]);
+    assert_eq!(response.id, "sqlite-connect-2");
+    assert_eq!(
+        response.result,
+        Some(serde_json::Value::String("sqlite-secret".to_owned()))
+    );
+
+    wait_for_connect_secret_consumed(&runtime).await?;
+    let consumed_connection = runtime
+        .signer_manager()?
+        .list_connections()?
+        .into_iter()
+        .next()
+        .expect("stored connection");
+    assert!(consumed_connection.connect_secret_is_consumed());
+    let operation_audit = runtime.operation_audit_store().list_all()?;
+    assert_eq!(operation_audit.len(), 2);
+    assert_eq!(
+        operation_audit[0].outcome,
+        MycOperationAuditOutcome::Rejected
+    );
+    assert_eq!(
+        operation_audit[1].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
+
+    let restarted_runtime = MycRuntime::bootstrap(runtime.config().clone())?;
+    assert_eq!(
+        restarted_runtime
+            .signer_manager()?
+            .list_connections()?
+            .len(),
+        1
+    );
+    assert_eq!(
+        restarted_runtime.operation_audit_store().list_all()?.len(),
+        2
+    );
+    assert!(
+        restarted_runtime
+            .signer_manager()?
+            .list_connections()?
+            .into_iter()
+            .next()
+            .expect("persisted connection")
+            .connect_secret_is_consumed()
+    );
 
     let _ = shutdown_tx.send(());
     listener_task.await??;
