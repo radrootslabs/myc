@@ -16,14 +16,16 @@ use radroots_nostr_signer::prelude::{
     RadrootsNostrSignerConnectEvaluation, RadrootsNostrSignerConnectionId,
     RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerRequestAction,
     RadrootsNostrSignerRequestEvaluation, RadrootsNostrSignerRequestResponseHint,
-    RadrootsNostrSignerSessionLookup,
+    RadrootsNostrSignerSessionLookup, RadrootsNostrSignerWorkflowId,
 };
 use tokio::sync::broadcast;
 
 use crate::app::MycSignerContext;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
 use crate::error::MycError;
+use crate::outbox::{MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycDeliveryOutboxStore};
 use crate::transport::MycNostrTransport;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct MycNip46Handler {
@@ -34,6 +36,7 @@ pub struct MycNip46Handler {
 pub struct MycNip46Service {
     handler: MycNip46Handler,
     transport: MycNostrTransport,
+    delivery_outbox_store: Arc<dyn MycDeliveryOutboxStore>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -511,9 +514,17 @@ impl MycNip46Handler {
 }
 
 impl MycNip46Service {
-    pub fn new(signer: MycSignerContext, transport: MycNostrTransport) -> Self {
+    pub fn new(
+        signer: MycSignerContext,
+        transport: MycNostrTransport,
+        delivery_outbox_store: Arc<dyn MycDeliveryOutboxStore>,
+    ) -> Self {
         let handler = MycNip46Handler::new(signer, transport.relays().to_vec());
-        Self { handler, transport }
+        Self {
+            handler,
+            transport,
+            delivery_outbox_store,
+        }
     }
 
     pub async fn run(&self) -> Result<(), MycError> {
@@ -594,20 +605,71 @@ impl MycNip46Service {
                 match response_event.sign_with_keys(self.handler.signer.signer_identity().keys()) {
                     Ok(event) => event,
                     Err(error) => {
-                        self.handler
-                            .signer
-                            .record_operation_audit(&MycOperationAuditRecord::new(
-                                MycOperationAuditKind::ListenerResponsePublish,
-                                MycOperationAuditOutcome::Rejected,
-                                connection_id.as_ref(),
-                                Some(request_id.as_str()),
-                                self.transport.relays().len(),
-                                0,
-                                format!("failed to sign NIP-46 response event: {error}"),
-                            ));
+                        self.record_listener_publish_local_rejection(
+                            connection_id.as_ref(),
+                            request_id.as_str(),
+                            format!("failed to sign NIP-46 response event: {error}"),
+                        );
                         continue;
                     }
                 };
+
+            let mut workflow_id = None;
+            if let Some(connect_connection_id) = consume_connect_secret_for.as_ref() {
+                let manager = match self.handler.signer.load_signer_manager() {
+                    Ok(manager) => manager,
+                    Err(error) => {
+                        self.record_listener_publish_local_rejection(
+                            connection_id.as_ref(),
+                            request_id.as_str(),
+                            error.to_string(),
+                        );
+                        continue;
+                    }
+                };
+                match manager.begin_connect_secret_publish_finalization(connect_connection_id) {
+                    Ok(workflow) => workflow_id = Some(workflow.workflow_id),
+                    Err(error) => {
+                        self.record_listener_publish_local_rejection(
+                            connection_id.as_ref(),
+                            request_id.as_str(),
+                            format!(
+                                "failed to begin connect-secret publish finalization workflow: {error}"
+                            ),
+                        );
+                        continue;
+                    }
+                }
+            }
+
+            let outbox_record = match self.build_listener_outbox_record(
+                response_event.clone(),
+                connection_id.as_ref(),
+                request_id.as_str(),
+                workflow_id.as_ref(),
+            ) {
+                Ok(record) => record,
+                Err(error) => {
+                    let error = self
+                        .cancel_listener_publish_workflow_if_needed(workflow_id.as_ref(), error);
+                    self.record_listener_publish_local_rejection(
+                        connection_id.as_ref(),
+                        request_id.as_str(),
+                        error.to_string(),
+                    );
+                    continue;
+                }
+            };
+            if let Err(error) = self.delivery_outbox_store.enqueue(&outbox_record) {
+                let error =
+                    self.cancel_listener_publish_workflow_if_needed(workflow_id.as_ref(), error);
+                self.record_listener_publish_local_rejection(
+                    connection_id.as_ref(),
+                    request_id.as_str(),
+                    error.to_string(),
+                );
+                continue;
+            }
             let publish_outcome = match self
                 .transport
                 .publish_event("NIP-46 response publish", &response_event)
@@ -615,74 +677,274 @@ impl MycNip46Service {
             {
                 Ok(publish_outcome) => publish_outcome,
                 Err(error) => {
-                    let mut record = MycOperationAuditRecord::new(
-                        MycOperationAuditKind::ListenerResponsePublish,
-                        MycOperationAuditOutcome::Rejected,
+                    let mut error = self.record_listener_outbox_failure(&outbox_record, error);
+                    error = self
+                        .cancel_listener_publish_workflow_if_needed(workflow_id.as_ref(), error);
+                    self.record_listener_publish_error(
                         connection_id.as_ref(),
-                        Some(request_id.as_str()),
-                        error
-                            .publish_rejection_counts()
-                            .map(|(relay_count, _)| relay_count)
-                            .unwrap_or(self.transport.relays().len()),
-                        error
-                            .publish_rejection_counts()
-                            .map(|(_, acknowledged)| acknowledged)
-                            .unwrap_or_default(),
-                        error
-                            .publish_rejection_details()
-                            .map(ToOwned::to_owned)
-                            .unwrap_or_else(|| error.to_string()),
+                        request_id.as_str(),
+                        &error,
                     );
-                    if let (
-                        Some(delivery_policy),
-                        Some(required_acknowledged_relay_count),
-                        Some(attempt_count),
-                    ) = (
-                        error.publish_delivery_policy(),
-                        error.publish_required_acknowledged_relay_count(),
-                        error.publish_attempt_count(),
-                    ) {
-                        record = record.with_delivery_details(
-                            delivery_policy,
-                            required_acknowledged_relay_count,
-                            attempt_count,
-                        );
-                    }
-                    self.handler.signer.record_operation_audit(&record);
                     continue;
                 }
             };
-            self.handler.signer.record_operation_audit(
-                &MycOperationAuditRecord::new(
-                    MycOperationAuditKind::ListenerResponsePublish,
-                    MycOperationAuditOutcome::Succeeded,
-                    connection_id.as_ref(),
-                    Some(request_id.as_str()),
-                    publish_outcome.relay_count,
-                    publish_outcome.acknowledged_relay_count,
-                    publish_outcome.relay_outcome_summary.clone(),
-                )
-                .with_delivery_details(
-                    publish_outcome.delivery_policy,
-                    publish_outcome.required_acknowledged_relay_count,
-                    publish_outcome.attempt_count,
-                ),
-            );
-            if let Some(connection_id) = consume_connect_secret_for {
-                if let Err(error) = self
-                    .handler
-                    .signer
-                    .load_signer_manager()?
-                    .mark_connect_secret_consumed(&connection_id)
-                {
-                    tracing::warn!(
-                        error = %error,
-                        connection_id = %connection_id,
-                        "failed to persist consumed NIP-46 connect secret"
+            if let Some(workflow_id) = workflow_id.as_ref() {
+                let manager = match self.handler.signer.load_signer_manager() {
+                    Ok(manager) => manager,
+                    Err(error) => {
+                        self.record_listener_publish_post_publish_failure(
+                            connection_id.as_ref(),
+                            request_id.as_str(),
+                            &publish_outcome,
+                            format!(
+                                "failed to load signer manager for publish finalization: {error}"
+                            ),
+                        );
+                        continue;
+                    }
+                };
+                if let Err(error) = manager.mark_publish_workflow_published(workflow_id) {
+                    self.record_listener_publish_post_publish_failure(
+                        connection_id.as_ref(),
+                        request_id.as_str(),
+                        &publish_outcome,
+                        format!("failed to mark signer publish workflow as published: {error}"),
                     );
+                    continue;
                 }
             }
+            if let Err(error) = self.delivery_outbox_store.mark_published_pending_finalize(
+                &outbox_record.job_id,
+                publish_outcome.attempt_count,
+            ) {
+                self.record_listener_publish_post_publish_failure(
+                    connection_id.as_ref(),
+                    request_id.as_str(),
+                    &publish_outcome,
+                    format!("failed to persist delivery outbox published state: {error}"),
+                );
+                continue;
+            }
+            if let Some(workflow_id) = workflow_id.as_ref() {
+                let manager = match self.handler.signer.load_signer_manager() {
+                    Ok(manager) => manager,
+                    Err(error) => {
+                        self.record_listener_publish_post_publish_failure(
+                            connection_id.as_ref(),
+                            request_id.as_str(),
+                            &publish_outcome,
+                            format!("failed to load signer manager for publish workflow finalization: {error}"),
+                        );
+                        continue;
+                    }
+                };
+                if let Err(error) = manager.finalize_publish_workflow(workflow_id) {
+                    self.record_listener_publish_post_publish_failure(
+                        connection_id.as_ref(),
+                        request_id.as_str(),
+                        &publish_outcome,
+                        format!("failed to finalize signer publish workflow: {error}"),
+                    );
+                    continue;
+                }
+            }
+            if let Err(error) = self
+                .delivery_outbox_store
+                .mark_finalized(&outbox_record.job_id)
+            {
+                self.record_listener_publish_post_publish_failure(
+                    connection_id.as_ref(),
+                    request_id.as_str(),
+                    &publish_outcome,
+                    format!("failed to finalize delivery outbox job: {error}"),
+                );
+                continue;
+            }
+            self.record_listener_publish_success(
+                connection_id.as_ref(),
+                request_id.as_str(),
+                &publish_outcome,
+            );
         }
+    }
+
+    fn build_listener_outbox_record(
+        &self,
+        response_event: RadrootsNostrEvent,
+        connection_id: Option<&RadrootsNostrSignerConnectionId>,
+        request_id: &str,
+        workflow_id: Option<&RadrootsNostrSignerWorkflowId>,
+    ) -> Result<MycDeliveryOutboxRecord, MycError> {
+        let mut record = MycDeliveryOutboxRecord::new(
+            MycDeliveryOutboxKind::ListenerResponsePublish,
+            response_event,
+            self.transport.relays().to_vec(),
+        )?
+        .with_request_id(request_id.to_owned());
+        if let Some(connection_id) = connection_id {
+            record = record.with_connection_id(connection_id);
+        }
+        if let Some(workflow_id) = workflow_id {
+            record = record.with_signer_publish_workflow_id(workflow_id);
+        }
+        Ok(record)
+    }
+
+    fn cancel_listener_publish_workflow_if_needed(
+        &self,
+        workflow_id: Option<&RadrootsNostrSignerWorkflowId>,
+        error: MycError,
+    ) -> MycError {
+        let Some(workflow_id) = workflow_id else {
+            return error;
+        };
+        match self
+            .handler
+            .signer
+            .load_signer_manager()
+            .and_then(|manager| {
+                manager
+                    .cancel_publish_workflow(workflow_id)
+                    .map(|_| ())
+                    .map_err(Into::into)
+            }) {
+            Ok(()) => error,
+            Err(cancel_error) => MycError::InvalidOperation(format!(
+                "{error}; additionally failed to cancel listener publish workflow: {cancel_error}"
+            )),
+        }
+    }
+
+    fn record_listener_outbox_failure(
+        &self,
+        outbox_record: &MycDeliveryOutboxRecord,
+        error: MycError,
+    ) -> MycError {
+        let publish_attempt_count = error.publish_attempt_count().unwrap_or_default();
+        let failure_summary = error
+            .publish_rejection_details()
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| error.to_string());
+        match self.delivery_outbox_store.mark_failed(
+            &outbox_record.job_id,
+            publish_attempt_count,
+            &failure_summary,
+        ) {
+            Ok(_) => error,
+            Err(outbox_error) => MycError::InvalidOperation(format!(
+                "{error}; additionally failed to persist listener publish failure to the outbox: {outbox_error}"
+            )),
+        }
+    }
+
+    fn record_listener_publish_local_rejection(
+        &self,
+        connection_id: Option<&RadrootsNostrSignerConnectionId>,
+        request_id: &str,
+        summary: impl Into<String>,
+    ) {
+        self.handler
+            .signer
+            .record_operation_audit(&MycOperationAuditRecord::new(
+                MycOperationAuditKind::ListenerResponsePublish,
+                MycOperationAuditOutcome::Rejected,
+                connection_id,
+                Some(request_id),
+                self.transport.relays().len(),
+                0,
+                summary.into(),
+            ));
+    }
+
+    fn record_listener_publish_error(
+        &self,
+        connection_id: Option<&RadrootsNostrSignerConnectionId>,
+        request_id: &str,
+        error: &MycError,
+    ) {
+        let mut record = MycOperationAuditRecord::new(
+            MycOperationAuditKind::ListenerResponsePublish,
+            MycOperationAuditOutcome::Rejected,
+            connection_id,
+            Some(request_id),
+            error
+                .publish_rejection_counts()
+                .map(|(relay_count, _)| relay_count)
+                .unwrap_or(self.transport.relays().len()),
+            error
+                .publish_rejection_counts()
+                .map(|(_, acknowledged)| acknowledged)
+                .unwrap_or_default(),
+            error
+                .publish_rejection_details()
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| error.to_string()),
+        );
+        if let (
+            Some(delivery_policy),
+            Some(required_acknowledged_relay_count),
+            Some(attempt_count),
+        ) = (
+            error.publish_delivery_policy(),
+            error.publish_required_acknowledged_relay_count(),
+            error.publish_attempt_count(),
+        ) {
+            record = record.with_delivery_details(
+                delivery_policy,
+                required_acknowledged_relay_count,
+                attempt_count,
+            );
+        }
+        self.handler.signer.record_operation_audit(&record);
+    }
+
+    fn record_listener_publish_post_publish_failure(
+        &self,
+        connection_id: Option<&RadrootsNostrSignerConnectionId>,
+        request_id: &str,
+        publish_outcome: &crate::transport::MycPublishOutcome,
+        summary: impl Into<String>,
+    ) {
+        self.handler.signer.record_operation_audit(
+            &MycOperationAuditRecord::new(
+                MycOperationAuditKind::ListenerResponsePublish,
+                MycOperationAuditOutcome::Rejected,
+                connection_id,
+                Some(request_id),
+                publish_outcome.relay_count,
+                publish_outcome.acknowledged_relay_count,
+                summary.into(),
+            )
+            .with_delivery_details(
+                publish_outcome.delivery_policy,
+                publish_outcome.required_acknowledged_relay_count,
+                publish_outcome.attempt_count,
+            ),
+        );
+    }
+
+    fn record_listener_publish_success(
+        &self,
+        connection_id: Option<&RadrootsNostrSignerConnectionId>,
+        request_id: &str,
+        publish_outcome: &crate::transport::MycPublishOutcome,
+    ) {
+        self.handler.signer.record_operation_audit(
+            &MycOperationAuditRecord::new(
+                MycOperationAuditKind::ListenerResponsePublish,
+                MycOperationAuditOutcome::Succeeded,
+                connection_id,
+                Some(request_id),
+                publish_outcome.relay_count,
+                publish_outcome.acknowledged_relay_count,
+                publish_outcome.relay_outcome_summary.clone(),
+            )
+            .with_delivery_details(
+                publish_outcome.delivery_policy,
+                publish_outcome.required_acknowledged_relay_count,
+                publish_outcome.attempt_count,
+            ),
+        );
     }
 }
 

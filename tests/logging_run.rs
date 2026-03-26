@@ -12,11 +12,22 @@ fn write_test_identity(path: &Path, secret_key: &str) {
         .expect("write identity");
 }
 
-fn wait_for_non_empty_log(path: &Path, timeout: Duration) -> Result<String, String> {
+fn wait_for_log_contents(
+    path: &Path,
+    timeout: Duration,
+    expected_substrings: &[&str],
+) -> Result<String, String> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         match std::fs::read_to_string(path) {
-            Ok(contents) if !contents.trim().is_empty() => return Ok(contents),
+            Ok(contents)
+                if !contents.trim().is_empty()
+                    && expected_substrings
+                        .iter()
+                        .all(|substring| contents.contains(substring)) =>
+            {
+                return Ok(contents);
+            }
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(format!("failed to read log file: {error}")),
@@ -92,8 +103,11 @@ MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=10\n",
         .spawn()
         .expect("spawn myc");
 
-    let contents = match wait_for_non_empty_log(expected_log_path.as_path(), Duration::from_secs(5))
-    {
+    let contents = match wait_for_log_contents(
+        expected_log_path.as_path(),
+        Duration::from_secs(5),
+        &["logging initialized", "myc runtime bootstrapped"],
+    ) {
         Ok(contents) => contents,
         Err(error) => {
             kill_child(&mut child);

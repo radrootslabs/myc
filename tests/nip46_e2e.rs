@@ -6,7 +6,8 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use myc::control;
 use myc::{
-    MycConfig, MycConnectionApproval, MycDiscoveryContext, MycDiscoveryLiveStatus,
+    MycConfig, MycConnectionApproval, MycDeliveryOutboxKind, MycDeliveryOutboxRecord,
+    MycDeliveryOutboxStatus, MycDiscoveryContext, MycDiscoveryLiveStatus,
     MycDiscoveryRelayFetchStatus, MycDiscoveryRepairOutcome, MycOperationAuditKind,
     MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime, MycRuntimeAuditBackend,
     MycSignerStateBackend, MycTransportDeliveryPolicy, diff_live_nip89, fetch_live_nip89,
@@ -811,6 +812,29 @@ async fn wait_for_operation_audit_count(
     .map_err(Into::into)
 }
 
+async fn wait_for_delivery_outbox_records<F>(
+    runtime: &MycRuntime,
+    predicate: F,
+) -> TestResult<Vec<MycDeliveryOutboxRecord>>
+where
+    F: Fn(&[MycDeliveryOutboxRecord]) -> bool,
+{
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let records = runtime
+                .delivery_outbox_store()
+                .list_all()
+                .expect("delivery outbox");
+            if predicate(&records) {
+                return records;
+            }
+            sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .map_err(Into::into)
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn live_listener_rejects_denied_clients_without_registering_connection() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
@@ -1336,6 +1360,30 @@ async fn live_listener_consumes_connect_secret_only_after_successful_publish() -
             .relay_outcome_summary
             .contains("blocked by test relay")
     );
+    let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
+        records.len() >= 1 && records[0].status == MycDeliveryOutboxStatus::Failed
+    })
+    .await?;
+    assert_eq!(
+        outbox_records[0].kind,
+        MycDeliveryOutboxKind::ListenerResponsePublish
+    );
+    assert_eq!(outbox_records[0].status, MycDeliveryOutboxStatus::Failed);
+    assert_eq!(
+        outbox_records[0]
+            .connection_id
+            .as_ref()
+            .map(|value| value.as_str()),
+        Some(initial_connection.connection_id.as_str())
+    );
+    assert_eq!(outbox_records[0].request_id.as_deref(), Some("connect-1"));
+    assert!(outbox_records[0].signer_publish_workflow_id.is_some());
+    assert!(
+        runtime
+            .signer_manager()?
+            .list_publish_workflows()?
+            .is_empty()
+    );
 
     let request_two = build_request_event(
         &client_identity,
@@ -1363,6 +1411,25 @@ async fn live_listener_consumes_connect_secret_only_after_successful_publish() -
         .next()
         .expect("stored connection");
     assert!(consumed_connection.connect_secret_is_consumed());
+    let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
+        records.len() >= 2 && records[1].status == MycDeliveryOutboxStatus::Finalized
+    })
+    .await?;
+    assert_eq!(
+        outbox_records[1].kind,
+        MycDeliveryOutboxKind::ListenerResponsePublish
+    );
+    assert_eq!(outbox_records[1].status, MycDeliveryOutboxStatus::Finalized);
+    assert_eq!(outbox_records[1].request_id.as_deref(), Some("connect-2"));
+    assert!(outbox_records[1].published_at_unix.is_some());
+    assert!(outbox_records[1].finalized_at_unix.is_some());
+    assert!(outbox_records[1].signer_publish_workflow_id.is_some());
+    assert!(
+        runtime
+            .signer_manager()?
+            .list_publish_workflows()?
+            .is_empty()
+    );
 
     let request_three = build_request_event(
         &client_identity,
@@ -1507,6 +1574,12 @@ async fn live_listener_works_with_sqlite_signer_state_and_runtime_audit() -> Tes
         operation_audit[1].outcome,
         MycOperationAuditOutcome::Succeeded
     );
+    let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
+        records.len() >= 2 && records[1].status == MycDeliveryOutboxStatus::Finalized
+    })
+    .await?;
+    assert_eq!(outbox_records[0].status, MycDeliveryOutboxStatus::Failed);
+    assert_eq!(outbox_records[1].status, MycDeliveryOutboxStatus::Finalized);
 
     let restarted_runtime = MycRuntime::bootstrap(runtime.config().clone())?;
     assert_eq!(
@@ -1519,6 +1592,29 @@ async fn live_listener_works_with_sqlite_signer_state_and_runtime_audit() -> Tes
     assert_eq!(
         restarted_runtime.operation_audit_store().list_all()?.len(),
         2
+    );
+    let restarted_outbox = restarted_runtime.delivery_outbox_store().list_all()?;
+    assert_eq!(restarted_outbox.len(), 2);
+    assert_eq!(restarted_outbox[0].status, MycDeliveryOutboxStatus::Failed);
+    assert_eq!(
+        restarted_outbox[1].status,
+        MycDeliveryOutboxStatus::Finalized
+    );
+    assert_eq!(
+        restarted_outbox[0].request_id.as_deref(),
+        Some("sqlite-connect-1")
+    );
+    assert_eq!(
+        restarted_outbox[1].request_id.as_deref(),
+        Some("sqlite-connect-2")
+    );
+    assert!(restarted_outbox[0].signer_publish_workflow_id.is_some());
+    assert!(restarted_outbox[1].signer_publish_workflow_id.is_some());
+    assert!(
+        restarted_runtime
+            .signer_manager()?
+            .list_publish_workflows()?
+            .is_empty()
     );
     assert!(
         restarted_runtime

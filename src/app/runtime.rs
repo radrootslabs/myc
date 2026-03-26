@@ -220,7 +220,11 @@ impl MycRuntime {
         let mut tasks = tokio::task::JoinSet::new();
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         if let Some(transport) = self.transport.clone() {
-            let service = MycNip46Service::new(self.signer_context(), transport);
+            let service = MycNip46Service::new(
+                self.signer_context(),
+                transport,
+                self.delivery_outbox_store(),
+            );
             let shutdown = observe_shutdown_signal(shutdown_rx.clone());
             tasks.spawn(async move { service.run_until(shutdown).await });
         }
