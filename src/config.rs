@@ -401,6 +401,295 @@ impl MycConfig {
         Self::from_env_str_with_source(value, Path::new("<inline>"))
     }
 
+    pub fn to_env_string(&self) -> Result<String, MycError> {
+        self.validate()?;
+
+        let mut lines = Vec::new();
+        push_env_line(
+            &mut lines,
+            "MYC_SERVICE_INSTANCE_NAME",
+            self.service.instance_name.as_str(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_LOGGING_FILTER",
+            self.logging.filter.as_str(),
+        );
+        push_optional_path_env_line(
+            &mut lines,
+            "MYC_LOGGING_OUTPUT_DIR",
+            self.logging.output_dir.as_ref(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_LOGGING_STDOUT",
+            self.logging.stdout.to_string(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_PATHS_STATE_DIR",
+            self.paths.state_dir.display().to_string(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_PATHS_SIGNER_IDENTITY_BACKEND",
+            self.paths.signer_identity_backend.as_str(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_PATHS_SIGNER_IDENTITY_PATH",
+            self.paths.signer_identity_path.display().to_string(),
+        );
+        push_optional_string_env_line(
+            &mut lines,
+            "MYC_PATHS_SIGNER_IDENTITY_KEYRING_ACCOUNT_ID",
+            self.paths.signer_identity_keyring_account_id.as_deref(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_PATHS_SIGNER_IDENTITY_KEYRING_SERVICE_NAME",
+            self.paths.signer_identity_keyring_service_name.as_str(),
+        );
+        push_optional_path_env_line(
+            &mut lines,
+            "MYC_PATHS_SIGNER_IDENTITY_PROFILE_PATH",
+            self.paths.signer_identity_profile_path.as_ref(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_PATHS_USER_IDENTITY_BACKEND",
+            self.paths.user_identity_backend.as_str(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_PATHS_USER_IDENTITY_PATH",
+            self.paths.user_identity_path.display().to_string(),
+        );
+        push_optional_string_env_line(
+            &mut lines,
+            "MYC_PATHS_USER_IDENTITY_KEYRING_ACCOUNT_ID",
+            self.paths.user_identity_keyring_account_id.as_deref(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_PATHS_USER_IDENTITY_KEYRING_SERVICE_NAME",
+            self.paths.user_identity_keyring_service_name.as_str(),
+        );
+        push_optional_path_env_line(
+            &mut lines,
+            "MYC_PATHS_USER_IDENTITY_PROFILE_PATH",
+            self.paths.user_identity_profile_path.as_ref(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_AUDIT_DEFAULT_READ_LIMIT",
+            self.audit.default_read_limit.to_string(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_AUDIT_MAX_ACTIVE_FILE_BYTES",
+            self.audit.max_active_file_bytes.to_string(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_AUDIT_MAX_ARCHIVED_FILES",
+            self.audit.max_archived_files.to_string(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_OBSERVABILITY_ENABLED",
+            self.observability.enabled.to_string(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_OBSERVABILITY_BIND_ADDR",
+            self.observability.bind_addr.to_string(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_ENABLED",
+            self.discovery.enabled.to_string(),
+        );
+        push_optional_string_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_DOMAIN",
+            self.discovery.domain.as_deref(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_HANDLER_IDENTIFIER",
+            self.discovery.handler_identifier.as_str(),
+        );
+        push_optional_string_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_APP_IDENTITY_BACKEND",
+            self.discovery
+                .app_identity_backend
+                .map(MycIdentityBackend::as_str),
+        );
+        push_optional_path_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_APP_IDENTITY_PATH",
+            self.discovery.app_identity_path.as_ref(),
+        );
+        push_optional_string_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_APP_IDENTITY_KEYRING_ACCOUNT_ID",
+            self.discovery.app_identity_keyring_account_id.as_deref(),
+        );
+        push_optional_string_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_APP_IDENTITY_KEYRING_SERVICE_NAME",
+            self.discovery.app_identity_keyring_service_name.as_deref(),
+        );
+        push_optional_path_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_APP_IDENTITY_PROFILE_PATH",
+            self.discovery.app_identity_profile_path.as_ref(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_PUBLIC_RELAYS",
+            self.discovery.public_relays.join(","),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_PUBLISH_RELAYS",
+            self.discovery.publish_relays.join(","),
+        );
+        push_optional_string_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_NOSTRCONNECT_URL_TEMPLATE",
+            self.discovery.nostrconnect_url_template.as_deref(),
+        );
+        push_optional_path_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_NIP05_OUTPUT_PATH",
+            self.discovery.nip05_output_path.as_ref(),
+        );
+        push_optional_string_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_METADATA_NAME",
+            self.discovery.metadata.name.as_deref(),
+        );
+        push_optional_string_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_METADATA_DISPLAY_NAME",
+            self.discovery.metadata.display_name.as_deref(),
+        );
+        push_optional_string_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_METADATA_ABOUT",
+            self.discovery.metadata.about.as_deref(),
+        );
+        push_optional_string_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_METADATA_WEBSITE",
+            self.discovery.metadata.website.as_deref(),
+        );
+        push_optional_string_env_line(
+            &mut lines,
+            "MYC_DISCOVERY_METADATA_PICTURE",
+            self.discovery.metadata.picture.as_deref(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_POLICY_CONNECTION_APPROVAL",
+            match self.policy.connection_approval {
+                MycConnectionApproval::NotRequired => "not_required",
+                MycConnectionApproval::ExplicitUser => "explicit_user",
+                MycConnectionApproval::Deny => "deny",
+            },
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_POLICY_TRUSTED_CLIENT_PUBKEYS",
+            self.policy.trusted_client_pubkeys.join(","),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_POLICY_DENIED_CLIENT_PUBKEYS",
+            self.policy.denied_client_pubkeys.join(","),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_POLICY_PERMISSION_CEILING",
+            self.policy.permission_ceiling.to_string(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_POLICY_ALLOWED_SIGN_EVENT_KINDS",
+            self.policy
+                .allowed_sign_event_kinds
+                .iter()
+                .map(u16::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        push_optional_string_env_line(
+            &mut lines,
+            "MYC_POLICY_AUTH_URL",
+            self.policy.auth_url.as_deref(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_POLICY_AUTH_PENDING_TTL_SECS",
+            self.policy.auth_pending_ttl_secs.to_string(),
+        );
+        push_optional_u64_env_line(
+            &mut lines,
+            "MYC_POLICY_AUTHORIZED_TTL_SECS",
+            self.policy.auth_authorized_ttl_secs,
+        );
+        push_optional_u64_env_line(
+            &mut lines,
+            "MYC_POLICY_REAUTH_AFTER_INACTIVITY_SECS",
+            self.policy.reauth_after_inactivity_secs,
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_TRANSPORT_ENABLED",
+            self.transport.enabled.to_string(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_TRANSPORT_CONNECT_TIMEOUT_SECS",
+            self.transport.connect_timeout_secs.to_string(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_TRANSPORT_RELAYS",
+            self.transport.relays.join(","),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_TRANSPORT_DELIVERY_POLICY",
+            self.transport.delivery_policy.as_str(),
+        );
+        push_optional_usize_env_line(
+            &mut lines,
+            "MYC_TRANSPORT_DELIVERY_QUORUM",
+            self.transport.delivery_quorum,
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_TRANSPORT_PUBLISH_MAX_ATTEMPTS",
+            self.transport.publish_max_attempts.to_string(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MILLIS",
+            self.transport.publish_initial_backoff_millis.to_string(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS",
+            self.transport.publish_max_backoff_millis.to_string(),
+        );
+
+        Ok(lines.join("\n") + "\n")
+    }
+
     pub fn validate(&self) -> Result<(), MycError> {
         if self.service.instance_name.trim().is_empty() {
             return Err(MycError::InvalidConfig(
@@ -583,6 +872,34 @@ impl MycConfig {
         }
         config.validate()?;
         Ok(config)
+    }
+}
+
+fn push_env_line(lines: &mut Vec<String>, key: &str, value: impl ToString) {
+    lines.push(format!("{key}={}", value.to_string()));
+}
+
+fn push_optional_string_env_line(lines: &mut Vec<String>, key: &str, value: Option<&str>) {
+    if let Some(value) = value {
+        push_env_line(lines, key, value);
+    }
+}
+
+fn push_optional_path_env_line(lines: &mut Vec<String>, key: &str, value: Option<&PathBuf>) {
+    if let Some(value) = value {
+        push_env_line(lines, key, value.display().to_string());
+    }
+}
+
+fn push_optional_u64_env_line(lines: &mut Vec<String>, key: &str, value: Option<u64>) {
+    if let Some(value) = value {
+        push_env_line(lines, key, value.to_string());
+    }
+}
+
+fn push_optional_usize_env_line(lines: &mut Vec<String>, key: &str, value: Option<usize>) {
+    if let Some(value) = value {
+        push_env_line(lines, key, value.to_string());
     }
 }
 
@@ -1782,5 +2099,69 @@ MYC_DISCOVERY_APP_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
             config.discovery.nip05_output_path,
             Some(PathBuf::from("/var/lib/myc/public/.well-known/nostr.json"))
         );
+    }
+
+    #[test]
+    fn env_renderer_roundtrips_current_config_surface() {
+        let config = MycConfig::from_env_str(
+            r#"
+MYC_SERVICE_INSTANCE_NAME=myc-dev
+MYC_LOGGING_FILTER=debug,myc=trace
+MYC_LOGGING_OUTPUT_DIR=/tmp/myc logs
+MYC_LOGGING_STDOUT=false
+MYC_PATHS_STATE_DIR=/tmp/myc state
+MYC_PATHS_SIGNER_IDENTITY_BACKEND=os_keyring
+MYC_PATHS_SIGNER_IDENTITY_PATH=/tmp/ignored-signer.json
+MYC_PATHS_SIGNER_IDENTITY_KEYRING_ACCOUNT_ID=1111111111111111111111111111111111111111111111111111111111111111
+MYC_PATHS_SIGNER_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.signer
+MYC_PATHS_SIGNER_IDENTITY_PROFILE_PATH=/tmp/signer-profile.json
+MYC_PATHS_USER_IDENTITY_BACKEND=filesystem
+MYC_PATHS_USER_IDENTITY_PATH=/tmp/myc-user.json
+MYC_PATHS_USER_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.user
+MYC_AUDIT_DEFAULT_READ_LIMIT=50
+MYC_AUDIT_MAX_ACTIVE_FILE_BYTES=4096
+MYC_AUDIT_MAX_ARCHIVED_FILES=3
+MYC_OBSERVABILITY_ENABLED=true
+MYC_OBSERVABILITY_BIND_ADDR=127.0.0.1:9550
+MYC_DISCOVERY_ENABLED=true
+MYC_DISCOVERY_DOMAIN=myc.example.com
+MYC_DISCOVERY_HANDLER_IDENTIFIER=myc-main
+MYC_DISCOVERY_APP_IDENTITY_BACKEND=filesystem
+MYC_DISCOVERY_APP_IDENTITY_PATH=/tmp/myc-app.json
+MYC_DISCOVERY_APP_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
+MYC_DISCOVERY_PUBLIC_RELAYS=wss://relay.discovery.example.com
+MYC_DISCOVERY_PUBLISH_RELAYS=wss://relay.publish.example.com
+MYC_DISCOVERY_NOSTRCONNECT_URL_TEMPLATE=https://myc.example.com/connect/<nostrconnect>
+MYC_DISCOVERY_NIP05_OUTPUT_PATH=/tmp/nostr.json
+MYC_DISCOVERY_METADATA_NAME=myc
+MYC_DISCOVERY_METADATA_DISPLAY_NAME=Mycorrhiza
+MYC_DISCOVERY_METADATA_ABOUT=NIP-46 signer
+MYC_DISCOVERY_METADATA_WEBSITE=https://myc.example.com
+MYC_DISCOVERY_METADATA_PICTURE=https://myc.example.com/logo.png
+MYC_POLICY_CONNECTION_APPROVAL=not_required
+MYC_POLICY_TRUSTED_CLIENT_PUBKEYS=1111111111111111111111111111111111111111111111111111111111111111
+MYC_POLICY_DENIED_CLIENT_PUBKEYS=2222222222222222222222222222222222222222222222222222222222222222
+MYC_POLICY_PERMISSION_CEILING=nip04_encrypt,sign_event:1
+MYC_POLICY_ALLOWED_SIGN_EVENT_KINDS=1,7
+MYC_POLICY_AUTH_URL=https://auth.example.com/challenge
+MYC_POLICY_AUTH_PENDING_TTL_SECS=300
+MYC_POLICY_AUTHORIZED_TTL_SECS=3600
+MYC_POLICY_REAUTH_AFTER_INACTIVITY_SECS=600
+MYC_TRANSPORT_ENABLED=true
+MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=15
+MYC_TRANSPORT_RELAYS=wss://relay.example.com,wss://relay2.example.com
+MYC_TRANSPORT_DELIVERY_POLICY=quorum
+MYC_TRANSPORT_DELIVERY_QUORUM=2
+MYC_TRANSPORT_PUBLISH_MAX_ATTEMPTS=4
+MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MILLIS=100
+MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS=800
+            "#,
+        )
+        .expect("config");
+
+        let rendered = config.to_env_string().expect("render env");
+        let reparsed = MycConfig::from_env_str(&rendered).expect("reparse rendered env");
+
+        assert_eq!(reparsed, config);
     }
 }
