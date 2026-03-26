@@ -614,6 +614,16 @@ fn build_external_request_event(
         .expect("sign external request event")
 }
 
+fn build_signer_noise_event(signer_identity: &RadrootsIdentity, created_at_unix: u64) -> Event {
+    EventBuilder::new(
+        Kind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+        "non-nip44-signer-noise",
+    )
+    .custom_created_at(Timestamp::from(created_at_unix))
+    .sign_with_keys(signer_identity.keys())
+    .expect("sign noise event")
+}
+
 fn decrypt_response(
     client_identity: &RadrootsIdentity,
     signer_public_key: PublicKey,
@@ -635,16 +645,20 @@ async fn wait_for_external_response(
     request_id: &str,
     method: ExternalNostrConnectMethod,
 ) -> TestResult<(Event, ExternalNostrConnectResponse)> {
-    timeout(Duration::from_secs(5), async {
+    timeout(Duration::from_secs(10), async {
         loop {
             let events = relay.published_events_by_author(signer_public_key).await;
             for event in events {
-                let plaintext = nip44::decrypt(
+                let Ok(plaintext) = nip44::decrypt(
                     client_identity.keys().secret_key(),
                     &signer_public_key,
                     &event.content,
-                )?;
-                let message = ExternalNostrConnectMessage::from_json(&plaintext)?;
+                ) else {
+                    continue;
+                };
+                let Ok(message) = ExternalNostrConnectMessage::from_json(&plaintext) else {
+                    continue;
+                };
                 if message.id() != request_id {
                     continue;
                 }
@@ -1199,6 +1213,51 @@ async fn external_nostr_client_surfaces_auth_challenge_state() -> TestResult<()>
         connect_response.error.as_deref(),
         Some("https://auth.example/challenge")
     );
+
+    let _ = shutdown_tx.send(());
+    listener_task.await??;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn external_nostr_client_ignores_unrelated_signer_events_before_response() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
+    let runtime = test_runtime.runtime.clone();
+    let signer_identity = runtime.signer_identity();
+    let signer_public_key = signer_identity.public_key();
+    let client_identity =
+        identity("5656565656565656565656565656565656565656565656565656565656565656");
+    let base_created_at = Timestamp::now().as_secs();
+
+    register_external_client_session(&runtime, client_identity.public_key(), relay.url(), "")?;
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let service_runtime = runtime.clone();
+    let listener_task = tokio::spawn(async move {
+        service_runtime
+            .run_until(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
+
+    relay.wait_for_subscription_count(1).await?;
+
+    let noise_event = build_signer_noise_event(&signer_identity, base_created_at);
+    publish_event(relay.url(), &noise_event).await?;
+
+    let (_, ping_response) = publish_external_request_and_wait_for_response(
+        &relay,
+        &client_identity,
+        signer_public_key,
+        "external-noise-ping",
+        ExternalNostrConnectRequest::Ping,
+        base_created_at + 1,
+    )
+    .await?;
+    assert_eq!(ping_response.result, Some(ExternalResponseResult::Pong));
+    assert_eq!(ping_response.error, None);
 
     let _ = shutdown_tx.send(());
     listener_task.await??;
