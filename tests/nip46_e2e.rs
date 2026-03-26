@@ -1731,6 +1731,205 @@ async fn startup_recovery_republishes_queued_listener_connect_secret_job() -> Te
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn startup_recovery_republishes_queued_connect_accept_job() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
+    let MycTestRuntime {
+        _temp: _tempdir,
+        runtime,
+    } = test_runtime;
+    let signer_public_key = runtime.signer_identity().public_key();
+    let config = runtime.config().clone();
+    let relay_url: RadrootsNostrRelayUrl = relay.url().parse()?;
+    let client_identity =
+        identity("4343434343434343434343434343434343434343434343434343434343434343");
+
+    let manager = runtime.signer_manager()?;
+    let connection = manager.register_connection(
+        RadrootsNostrSignerConnectionDraft::new(
+            client_identity.public_key(),
+            runtime.user_public_identity(),
+        )
+        .with_connect_secret("startup-connect-accept-secret")
+        .with_relays(vec![relay_url.clone()])
+        .with_approval_requirement(RadrootsNostrSignerApprovalRequirement::NotRequired),
+    )?;
+    let workflow = manager.begin_connect_secret_publish_finalization(&connection.connection_id)?;
+    let event = RadrootsNostrEventBuilder::new(
+        RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+        "startup-recovery-connect-accept",
+    )
+    .sign_with_keys(runtime.signer_identity().keys())
+    .map_err(|error| format!("failed to sign startup recovery connect-accept event: {error}"))?;
+    let outbox_record = MycDeliveryOutboxRecord::new(
+        MycDeliveryOutboxKind::ConnectAcceptPublish,
+        event,
+        vec![relay_url],
+    )?
+    .with_connection_id(&connection.connection_id)
+    .with_request_id("startup-recovery-connect-accept")
+    .with_signer_publish_workflow_id(&workflow.workflow_id);
+    runtime.delivery_outbox_store().enqueue(&outbox_record)?;
+
+    runtime.run_until(async {}).await?;
+
+    let published = relay
+        .wait_for_published_events_by_author(signer_public_key, 1)
+        .await?;
+    assert_eq!(published.len(), 1);
+
+    let restarted_runtime = MycRuntime::bootstrap(config)?;
+    let recovered_connection = restarted_runtime
+        .signer_manager()?
+        .get_connection(&connection.connection_id)?
+        .expect("persisted connection");
+    assert!(recovered_connection.connect_secret_is_consumed());
+    assert!(
+        restarted_runtime
+            .signer_manager()?
+            .list_publish_workflows()?
+            .is_empty()
+    );
+    let outbox_records = restarted_runtime.delivery_outbox_store().list_all()?;
+    assert_eq!(outbox_records.len(), 1);
+    assert_eq!(outbox_records[0].status, MycDeliveryOutboxStatus::Finalized);
+    assert_eq!(
+        outbox_records[0].request_id.as_deref(),
+        Some("startup-recovery-connect-accept")
+    );
+    assert!(outbox_records[0].published_at_unix.is_some());
+    assert!(outbox_records[0].finalized_at_unix.is_some());
+    let audit_records = restarted_runtime.operation_audit_store().list_all()?;
+    assert_eq!(audit_records.len(), 2);
+    assert_eq!(
+        audit_records[0].operation,
+        MycOperationAuditKind::ConnectAcceptPublish
+    );
+    assert_eq!(
+        audit_records[0].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
+    assert_eq!(
+        audit_records[0].request_id.as_deref(),
+        Some("startup-recovery-connect-accept")
+    );
+    assert_eq!(
+        audit_records[1].operation,
+        MycOperationAuditKind::DeliveryRecovery
+    );
+    assert_eq!(
+        audit_records[1].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn startup_recovery_republishes_queued_auth_replay_job() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::ExplicitUser);
+    let MycTestRuntime {
+        _temp: _tempdir,
+        runtime,
+    } = test_runtime;
+    let signer_public_key = runtime.signer_identity().public_key();
+    let config = runtime.config().clone();
+    let relay_url: RadrootsNostrRelayUrl = relay.url().parse()?;
+    let client_identity =
+        identity("5353535353535353535353535353535353535353535353535353535353535353");
+
+    let manager = runtime.signer_manager()?;
+    let connection = manager.register_connection(
+        RadrootsNostrSignerConnectionDraft::new(
+            client_identity.public_key(),
+            runtime.user_public_identity(),
+        )
+        .with_relays(vec![relay_url.clone()])
+        .with_approval_requirement(RadrootsNostrSignerApprovalRequirement::ExplicitUser),
+    )?;
+    let _ = manager.require_auth_challenge(&connection.connection_id, "https://auth.example")?;
+    let _ = manager.set_pending_request(
+        &connection.connection_id,
+        ping_request_message("startup-recovery-auth"),
+    )?;
+    let workflow = manager.begin_auth_replay_publish_finalization(&connection.connection_id)?;
+    let event = RadrootsNostrEventBuilder::new(
+        RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+        "startup-recovery-auth-replay",
+    )
+    .sign_with_keys(runtime.signer_identity().keys())
+    .map_err(|error| format!("failed to sign startup recovery auth-replay event: {error}"))?;
+    let outbox_record = MycDeliveryOutboxRecord::new(
+        MycDeliveryOutboxKind::AuthReplayPublish,
+        event,
+        vec![relay_url],
+    )?
+    .with_connection_id(&connection.connection_id)
+    .with_request_id("startup-recovery-auth")
+    .with_signer_publish_workflow_id(&workflow.workflow_id);
+    runtime.delivery_outbox_store().enqueue(&outbox_record)?;
+
+    runtime.run_until(async {}).await?;
+
+    let published = relay
+        .wait_for_published_events_by_author(signer_public_key, 1)
+        .await?;
+    assert_eq!(published.len(), 1);
+
+    let restarted_runtime = MycRuntime::bootstrap(config)?;
+    let recovered_connection = restarted_runtime
+        .signer_manager()?
+        .get_connection(&connection.connection_id)?
+        .expect("persisted connection");
+    assert_eq!(
+        recovered_connection.auth_state,
+        RadrootsNostrSignerAuthState::Authorized
+    );
+    assert!(recovered_connection.pending_request.is_none());
+    assert!(recovered_connection.last_authenticated_at_unix.is_some());
+    assert!(
+        restarted_runtime
+            .signer_manager()?
+            .list_publish_workflows()?
+            .is_empty()
+    );
+    let outbox_records = restarted_runtime.delivery_outbox_store().list_all()?;
+    assert_eq!(outbox_records.len(), 1);
+    assert_eq!(outbox_records[0].status, MycDeliveryOutboxStatus::Finalized);
+    assert_eq!(
+        outbox_records[0].request_id.as_deref(),
+        Some("startup-recovery-auth")
+    );
+    assert!(outbox_records[0].published_at_unix.is_some());
+    assert!(outbox_records[0].finalized_at_unix.is_some());
+    let audit_records = restarted_runtime.operation_audit_store().list_all()?;
+    assert_eq!(audit_records.len(), 2);
+    assert_eq!(
+        audit_records[0].operation,
+        MycOperationAuditKind::AuthReplayPublish
+    );
+    assert_eq!(
+        audit_records[0].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
+    assert_eq!(
+        audit_records[0].request_id.as_deref(),
+        Some("startup-recovery-auth")
+    );
+    assert_eq!(
+        audit_records[1].operation,
+        MycOperationAuditKind::DeliveryRecovery
+    );
+    assert_eq!(
+        audit_records[1].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn trusted_client_reauths_after_authorized_ttl() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let client_identity =
@@ -2592,6 +2791,150 @@ async fn explicit_nip89_publish_uses_app_identity_and_records_audit() -> TestRes
     assert!(outbox_records[0].signer_publish_workflow_id.is_none());
     assert!(outbox_records[0].published_at_unix.is_some());
     assert!(outbox_records[0].finalized_at_unix.is_some());
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn startup_recovery_republishes_queued_discovery_publish_job() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime =
+        MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
+    let MycTestRuntime {
+        _temp: _tempdir,
+        runtime,
+    } = test_runtime;
+    let config = runtime.config().clone();
+    let relay_url: RadrootsNostrRelayUrl = relay.url().parse()?;
+    let context = MycDiscoveryContext::from_runtime(&runtime)?;
+    let app_public_key = context.app_identity().public_key();
+    let event = context.build_signed_handler_event()?;
+    let event_id = event.id.to_hex();
+    let outbox_record = MycDeliveryOutboxRecord::new(
+        MycDeliveryOutboxKind::DiscoveryHandlerPublish,
+        event,
+        vec![relay_url],
+    )?
+    .with_request_id(event_id.as_str());
+    runtime.delivery_outbox_store().enqueue(&outbox_record)?;
+
+    runtime.run_until(async {}).await?;
+
+    let published = relay
+        .wait_for_published_events_by_author(app_public_key, 1)
+        .await?;
+    assert_eq!(published.len(), 1);
+    assert_eq!(published[0].id.to_hex(), event_id);
+
+    let restarted_runtime = MycRuntime::bootstrap(config)?;
+    let outbox_records = restarted_runtime.delivery_outbox_store().list_all()?;
+    assert_eq!(outbox_records.len(), 1);
+    assert_eq!(outbox_records[0].status, MycDeliveryOutboxStatus::Finalized);
+    assert_eq!(
+        outbox_records[0].request_id.as_deref(),
+        Some(event_id.as_str())
+    );
+    assert!(outbox_records[0].published_at_unix.is_some());
+    assert!(outbox_records[0].finalized_at_unix.is_some());
+    let audit_records = restarted_runtime.operation_audit_store().list_all()?;
+    assert_eq!(audit_records.len(), 2);
+    assert_eq!(
+        audit_records[0].operation,
+        MycOperationAuditKind::DiscoveryHandlerPublish
+    );
+    assert_eq!(
+        audit_records[0].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
+    assert_eq!(
+        audit_records[0].request_id.as_deref(),
+        Some(event_id.as_str())
+    );
+    assert_eq!(
+        audit_records[1].operation,
+        MycOperationAuditKind::DeliveryRecovery
+    );
+    assert_eq!(
+        audit_records[1].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn startup_recovery_finalizes_published_discovery_publish_job() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime =
+        MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
+    let MycTestRuntime {
+        _temp: _tempdir,
+        runtime,
+    } = test_runtime;
+    let config = runtime.config().clone();
+    let relay_url: RadrootsNostrRelayUrl = relay.url().parse()?;
+    let context = MycDiscoveryContext::from_runtime(&runtime)?;
+    let app_public_key = context.app_identity().public_key();
+    let event = context.build_signed_handler_event()?;
+    let event_id = event.id.to_hex();
+    let outbox_record = MycDeliveryOutboxRecord::new(
+        MycDeliveryOutboxKind::DiscoveryHandlerPublish,
+        event,
+        vec![relay_url],
+    )?
+    .with_request_id(event_id.as_str());
+    runtime.delivery_outbox_store().enqueue(&outbox_record)?;
+    runtime
+        .delivery_outbox_store()
+        .mark_published_pending_finalize(&outbox_record.job_id, 1)?;
+
+    runtime.run_until(async {}).await?;
+
+    sleep(Duration::from_millis(100)).await;
+    assert!(
+        relay
+            .published_events_by_author(app_public_key)
+            .await
+            .is_empty()
+    );
+
+    let restarted_runtime = MycRuntime::bootstrap(config)?;
+    let outbox_records = restarted_runtime.delivery_outbox_store().list_all()?;
+    assert_eq!(outbox_records.len(), 1);
+    assert_eq!(outbox_records[0].status, MycDeliveryOutboxStatus::Finalized);
+    assert_eq!(
+        outbox_records[0].request_id.as_deref(),
+        Some(event_id.as_str())
+    );
+    assert!(outbox_records[0].published_at_unix.is_some());
+    assert!(outbox_records[0].finalized_at_unix.is_some());
+    let audit_records = restarted_runtime.operation_audit_store().list_all()?;
+    assert_eq!(audit_records.len(), 2);
+    assert_eq!(
+        audit_records[0].operation,
+        MycOperationAuditKind::DiscoveryHandlerPublish
+    );
+    assert_eq!(
+        audit_records[0].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
+    assert_eq!(
+        audit_records[0].request_id.as_deref(),
+        Some(event_id.as_str())
+    );
+    assert!(
+        audit_records[0]
+            .relay_outcome_summary
+            .contains("startup recovery finalized previously published delivery job")
+    );
+    assert_eq!(
+        audit_records[1].operation,
+        MycOperationAuditKind::DeliveryRecovery
+    );
+    assert_eq!(
+        audit_records[1].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
 
     Ok(())
 }
