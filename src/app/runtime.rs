@@ -18,7 +18,7 @@ use crate::transport::{MycNip46Service, MycNostrTransport, MycTransportSnapshot}
 use radroots_identity::{RadrootsIdentity, RadrootsIdentityPublic};
 use radroots_nostr_signer::prelude::{
     RadrootsNostrFileSignerStore, RadrootsNostrSignerApprovalRequirement,
-    RadrootsNostrSignerManager, RadrootsNostrSignerStore,
+    RadrootsNostrSignerManager, RadrootsNostrSignerStore, RadrootsNostrSqliteSignerStore,
 };
 use serde::Serialize;
 
@@ -293,7 +293,10 @@ impl MycRuntimePaths {
         Self {
             signer_identity_path: config.paths.signer_identity_path.clone(),
             user_identity_path: config.paths.user_identity_path.clone(),
-            signer_state_path: state_dir.join("signer-state.json"),
+            signer_state_path: state_dir.join(match config.persistence.signer_state_backend {
+                MycSignerStateBackend::JsonFile => "signer-state.json",
+                MycSignerStateBackend::Sqlite => "signer-state.sqlite",
+            }),
             audit_dir: state_dir.join("audit"),
             state_dir,
         }
@@ -385,7 +388,7 @@ impl MycSignerContext {
             MycIdentityProvider::from_source("user", user_identity_source)?;
         let signer_identity = signer_identity_provider.load_identity()?;
         let user_identity = user_identity_provider.load_identity()?;
-        let signer_store = Self::build_signer_store(persistence, &paths.signer_state_path);
+        let signer_store = Self::build_signer_store(persistence, &paths.signer_state_path)?;
         let operation_audit_store =
             Self::build_operation_audit_store(persistence, &paths.audit_dir, audit_config)?;
         let manager = Self::load_signer_manager_from_store(signer_store.clone())?;
@@ -419,9 +422,14 @@ impl MycSignerContext {
     fn build_signer_store(
         persistence: &MycPersistenceConfig,
         path: &Path,
-    ) -> Arc<dyn RadrootsNostrSignerStore> {
+    ) -> Result<Arc<dyn RadrootsNostrSignerStore>, MycError> {
         match persistence.signer_state_backend {
-            MycSignerStateBackend::JsonFile => Arc::new(RadrootsNostrFileSignerStore::new(path)),
+            MycSignerStateBackend::JsonFile => {
+                Ok(Arc::new(RadrootsNostrFileSignerStore::new(path)))
+            }
+            MycSignerStateBackend::Sqlite => {
+                Ok(Arc::new(RadrootsNostrSqliteSignerStore::open(path)?))
+            }
         }
     }
 
@@ -498,11 +506,11 @@ mod tests {
 
     use radroots_identity::RadrootsIdentity;
     use radroots_nostr_signer::prelude::{
-        RadrootsNostrFileSignerStore, RadrootsNostrSignerManager,
+        RadrootsNostrFileSignerStore, RadrootsNostrSignerManager, RadrootsNostrSqliteSignerStore,
     };
 
     use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
-    use crate::config::{MycConfig, MycRuntimeAuditBackend};
+    use crate::config::{MycConfig, MycRuntimeAuditBackend, MycSignerStateBackend};
     use crate::error::MycError;
 
     use super::MycRuntime;
@@ -669,6 +677,76 @@ mod tests {
         assert!(runtime.snapshot().transport.enabled);
         assert_eq!(runtime.snapshot().transport.relay_count, 1);
         assert_eq!(runtime.snapshot().transport.connect_timeout_secs, 15);
+    }
+
+    #[test]
+    fn bootstrap_supports_sqlite_signer_state_backend() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut config = MycConfig::default();
+        config.paths.state_dir = temp.path().join("state");
+        config.paths.signer_identity_path = temp.path().join("signer.json");
+        config.paths.user_identity_path = temp.path().join("user.json");
+        config.persistence.signer_state_backend = MycSignerStateBackend::Sqlite;
+        write_test_identity(
+            &config.paths.signer_identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_test_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
+
+        let runtime = MycRuntime::bootstrap(config).expect("runtime");
+
+        assert!(
+            runtime
+                .paths()
+                .signer_state_path
+                .ends_with("signer-state.sqlite")
+        );
+        assert!(runtime.paths().signer_state_path.is_file());
+    }
+
+    #[test]
+    fn bootstrap_rejects_mismatched_persisted_sqlite_signer_identity() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let identity_path = temp.path().join("identity.json");
+        let user_path = temp.path().join("user.json");
+        write_test_identity(
+            &identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_test_identity(
+            &user_path,
+            "3333333333333333333333333333333333333333333333333333333333333333",
+        );
+
+        let store_identity = RadrootsIdentity::from_secret_key_str(
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        )
+        .expect("second identity");
+        let store = Arc::new(
+            RadrootsNostrSqliteSignerStore::open(
+                temp.path().join("state").join("signer-state.sqlite"),
+            )
+            .expect("open sqlite store"),
+        );
+        let manager = RadrootsNostrSignerManager::new(store).expect("manager");
+        manager
+            .set_signer_identity(store_identity.to_public())
+            .expect("persist signer");
+
+        let mut config = MycConfig::default();
+        config.paths.state_dir = temp.path().join("state");
+        config.paths.signer_identity_path = identity_path;
+        config.paths.user_identity_path = user_path;
+        config.persistence.signer_state_backend = MycSignerStateBackend::Sqlite;
+
+        let err = match MycRuntime::bootstrap(config) {
+            Ok(_) => panic!("expected identity mismatch"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, MycError::SignerIdentityMismatch { .. }));
     }
 
     #[test]

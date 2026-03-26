@@ -141,6 +141,7 @@ pub enum MycIdentityBackend {
 #[serde(rename_all = "snake_case")]
 pub enum MycSignerStateBackend {
     JsonFile,
+    Sqlite,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -368,6 +369,7 @@ impl MycSignerStateBackend {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::JsonFile => "json_file",
+            Self::Sqlite => "sqlite",
         }
     }
 }
@@ -1352,10 +1354,11 @@ fn parse_signer_state_backend_env(
 ) -> Result<MycSignerStateBackend, MycError> {
     match value {
         "json_file" => Ok(MycSignerStateBackend::JsonFile),
+        "sqlite" => Ok(MycSignerStateBackend::Sqlite),
         _ => Err(config_parse_error(
             path,
             line_number,
-            format!("{key} must be `json_file`"),
+            format!("{key} must be `json_file` or `sqlite`"),
         )),
     }
 }
@@ -2312,6 +2315,29 @@ MYC_PERSISTENCE_RUNTIME_AUDIT_BACKEND=sqlite
                 .to_env_string()
                 .expect("render env")
                 .contains("MYC_PERSISTENCE_RUNTIME_AUDIT_BACKEND=sqlite")
+        );
+    }
+
+    #[test]
+    fn parse_signer_state_backend_supports_sqlite() {
+        let config = MycConfig::from_env_str(
+            r#"
+MYC_PATHS_SIGNER_IDENTITY_PATH=/tmp/signer.json
+MYC_PATHS_USER_IDENTITY_PATH=/tmp/user.json
+MYC_PERSISTENCE_SIGNER_STATE_BACKEND=sqlite
+            "#,
+        )
+        .expect("config");
+
+        assert_eq!(
+            config.persistence.signer_state_backend,
+            MycSignerStateBackend::Sqlite
+        );
+        assert!(
+            config
+                .to_env_string()
+                .expect("render env")
+                .contains("MYC_PERSISTENCE_SIGNER_STATE_BACKEND=sqlite")
         );
     }
 }

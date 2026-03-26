@@ -43,7 +43,7 @@ mod tests {
 
     use radroots_identity::RadrootsIdentity;
 
-    use crate::config::MycConfig;
+    use crate::config::{MycConfig, MycSignerStateBackend};
 
     use super::MycApp;
 
@@ -88,5 +88,28 @@ mod tests {
         assert!(!snapshot.user_identity_id.is_empty());
         assert!(!snapshot.user_public_key_hex.is_empty());
         assert!(!snapshot.transport.enabled);
+    }
+
+    #[test]
+    fn app_bootstrap_uses_backend_aware_signer_state_path() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut config = MycConfig::default();
+        config.paths.state_dir = PathBuf::from(temp.path()).join("state");
+        config.paths.signer_identity_path = temp.path().join("identity.json");
+        config.paths.user_identity_path = temp.path().join("user.json");
+        config.persistence.signer_state_backend = MycSignerStateBackend::Sqlite;
+        write_test_identity(
+            &config.paths.signer_identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_test_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
+
+        let app = MycApp::bootstrap(config).expect("bootstrap");
+        let snapshot = app.snapshot();
+
+        assert!(snapshot.signer_state_path.ends_with("signer-state.sqlite"));
     }
 }
