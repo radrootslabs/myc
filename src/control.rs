@@ -5,15 +5,16 @@ use radroots_nostr_connect::prelude::{
     RadrootsNostrConnectResponse, RadrootsNostrConnectUri,
 };
 use radroots_nostr_signer::prelude::{
-    RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerAuthorizationOutcome,
-    RadrootsNostrSignerConnectionId, RadrootsNostrSignerConnectionRecord,
-    RadrootsNostrSignerPendingRequest, RadrootsNostrSignerRequestId,
+    RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerConnectionId,
+    RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerRequestId,
+    RadrootsNostrSignerWorkflowId,
 };
 use serde::Serialize;
 
 use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
 use crate::error::MycError;
+use crate::outbox::{MycDeliveryOutboxKind, MycDeliveryOutboxRecord};
 use crate::transport::{MycNip46Handler, MycNostrTransport, MycPublishOutcome};
 
 #[derive(Debug, Serialize)]
@@ -41,10 +42,18 @@ pub async fn authorize_auth_challenge(
         .signer_context()
         .policy()
         .ensure_authorize_auth_challenge_allowed(&connection)?;
-    let outcome = manager.authorize_auth_challenge(connection_id)?;
-    let replayed_request_id = replay_authorized_request(runtime, &outcome).await?;
+    let workflow = manager.begin_auth_replay_publish_finalization(connection_id)?;
+    let replayed_request_id =
+        replay_authorized_request(runtime, &connection.connection_id, &workflow.workflow_id)
+            .await?;
+    let connection = runtime
+        .signer_manager()?
+        .get_connection(connection_id)?
+        .ok_or_else(|| {
+            MycError::InvalidOperation(format!("connection `{connection_id}` was not found"))
+        })?;
     Ok(MycAuthorizedReplayOutput {
-        connection: outcome.connection,
+        connection,
         replayed_request_id,
     })
 }
@@ -148,17 +157,55 @@ pub async fn accept_client_uri(
         RadrootsNostrConnectResponse::ConnectSecretEcho(client_uri.secret),
     )?;
     let response_relays = merge_relays(&client_uri.relays, &preferred_relays);
-    let publish_outcome = match MycNostrTransport::publish_once(
+    let workflow = manager.begin_connect_secret_publish_finalization(&connection.connection_id)?;
+    let event = match event.sign_with_keys(runtime.signer_identity().keys()) {
+        Ok(event) => event,
+        Err(error) => {
+            return Err(cancel_connect_accept_workflow_on_error(
+                runtime,
+                &workflow.workflow_id,
+                MycError::InvalidOperation(format!(
+                    "failed to sign connect accept response event: {error}"
+                )),
+            ));
+        }
+    };
+    let outbox_record = match build_control_outbox_record(
+        MycDeliveryOutboxKind::ConnectAcceptPublish,
+        event.clone(),
+        &response_relays,
+        Some(&connection.connection_id),
+        Some(response_request_id.as_str()),
+        Some(&workflow.workflow_id),
+    ) {
+        Ok(record) => record,
+        Err(error) => {
+            return Err(cancel_connect_accept_workflow_on_error(
+                runtime,
+                &workflow.workflow_id,
+                error,
+            ));
+        }
+    };
+    if let Err(error) = runtime.delivery_outbox_store().enqueue(&outbox_record) {
+        return Err(cancel_connect_accept_workflow_on_error(
+            runtime,
+            &workflow.workflow_id,
+            error,
+        ));
+    }
+    let publish_outcome = match MycNostrTransport::publish_event_once(
         runtime.signer_identity(),
         &response_relays,
         &runtime.config().transport,
         "connect accept response publish",
-        event,
+        &event,
     )
     .await
     {
         Ok(outcome) => outcome,
         Err(error) => {
+            let error = mark_outbox_publish_failed(runtime, &outbox_record, error);
             runtime.record_operation_audit(&record_publish_failure(
                 MycOperationAuditKind::ConnectAcceptPublish,
                 Some(&connection.connection_id),
@@ -166,9 +213,63 @@ pub async fn accept_client_uri(
                 response_relays.len(),
                 &error,
             ));
-            return Err(error);
+            return Err(cancel_connect_accept_workflow_on_error(
+                runtime,
+                &workflow.workflow_id,
+                error,
+            ));
         }
     };
+    if let Err(error) = manager.mark_publish_workflow_published(&workflow.workflow_id) {
+        record_post_publish_failure(
+            runtime,
+            MycOperationAuditKind::ConnectAcceptPublish,
+            Some(&connection.connection_id),
+            Some(response_request_id.as_str()),
+            &publish_outcome,
+            format!("failed to mark connect-accept publish workflow as published: {error}"),
+        );
+        return Err(error.into());
+    }
+    if let Err(error) = runtime
+        .delivery_outbox_store()
+        .mark_published_pending_finalize(&outbox_record.job_id, publish_outcome.attempt_count)
+    {
+        record_post_publish_failure(
+            runtime,
+            MycOperationAuditKind::ConnectAcceptPublish,
+            Some(&connection.connection_id),
+            Some(response_request_id.as_str()),
+            &publish_outcome,
+            format!("failed to persist connect-accept outbox published state: {error}"),
+        );
+        return Err(error);
+    }
+    if let Err(error) = manager.finalize_publish_workflow(&workflow.workflow_id) {
+        record_post_publish_failure(
+            runtime,
+            MycOperationAuditKind::ConnectAcceptPublish,
+            Some(&connection.connection_id),
+            Some(response_request_id.as_str()),
+            &publish_outcome,
+            format!("failed to finalize connect-accept publish workflow: {error}"),
+        );
+        return Err(error.into());
+    }
+    if let Err(error) = runtime
+        .delivery_outbox_store()
+        .mark_finalized(&outbox_record.job_id)
+    {
+        record_post_publish_failure(
+            runtime,
+            MycOperationAuditKind::ConnectAcceptPublish,
+            Some(&connection.connection_id),
+            Some(response_request_id.as_str()),
+            &publish_outcome,
+            format!("failed to finalize connect-accept outbox job: {error}"),
+        );
+        return Err(error);
+    }
     record_publish_audit(
         runtime,
         MycOperationAuditKind::ConnectAcceptPublish,
@@ -177,7 +278,6 @@ pub async fn accept_client_uri(
         Some(response_request_id.as_str()),
         &publish_outcome,
     );
-    let _ = manager.mark_connect_secret_consumed(&connection.connection_id)?;
 
     Ok(MycAcceptedConnectionOutput {
         connection: runtime
@@ -213,9 +313,14 @@ pub fn parse_permission_values(
 
 async fn replay_authorized_request(
     runtime: &MycRuntime,
-    outcome: &RadrootsNostrSignerAuthorizationOutcome,
+    connection_id: &RadrootsNostrSignerConnectionId,
+    workflow_id: &RadrootsNostrSignerWorkflowId,
 ) -> Result<Option<String>, MycError> {
-    let Some(pending_request) = outcome.pending_request.clone() else {
+    let manager = runtime.signer_manager()?;
+    let workflow = manager.get_publish_workflow(workflow_id)?.ok_or_else(|| {
+        MycError::InvalidOperation(format!("publish workflow `{workflow_id}` was not found"))
+    })?;
+    let Some(pending_request) = workflow.pending_request.clone() else {
         return Ok(None);
     };
     let transport = match runtime.transport() {
@@ -224,25 +329,38 @@ async fn replay_authorized_request(
             let error = MycError::InvalidOperation(
                 "transport.enabled must be true to replay authorized requests".to_owned(),
             );
-            return Err(restore_pending_auth_challenge_on_error(
+            return Err(cancel_auth_replay_workflow_on_error(
                 runtime,
-                &outcome.connection.connection_id,
-                pending_request,
+                connection_id,
+                workflow_id,
+                Some(&pending_request.request_message.id),
                 error,
             ));
         }
     };
     let handler = MycNip46Handler::new(runtime.signer_context(), transport.relays().to_vec());
-    let handled_request = match handler.handle_request(
-        outcome.connection.client_public_key,
-        pending_request.request_message.clone(),
-    ) {
+    let evaluation = match manager.evaluate_auth_replay_publish_workflow(workflow_id) {
+        Ok(evaluation) => evaluation,
+        Err(error) => {
+            return Err(cancel_auth_replay_workflow_on_error(
+                runtime,
+                connection_id,
+                workflow_id,
+                Some(&pending_request.request_message.id),
+                error.into(),
+            ));
+        }
+    };
+    let handled_request = match handler
+        .handle_authorized_request_evaluation(pending_request.request_message.clone(), evaluation)
+    {
         Ok(handled_request) => handled_request,
         Err(error) => {
-            return Err(restore_pending_auth_challenge_on_error(
+            return Err(cancel_auth_replay_workflow_on_error(
                 runtime,
-                &outcome.connection.connection_id,
-                pending_request,
+                connection_id,
+                workflow_id,
+                Some(&pending_request.request_message.id),
                 error,
             ));
         }
@@ -252,86 +370,196 @@ async fn replay_authorized_request(
         let error = MycError::InvalidOperation(
             "authorized auth replay did not produce a response".to_owned(),
         );
-        return Err(restore_pending_auth_challenge_on_error(
+        return Err(cancel_auth_replay_workflow_on_error(
             runtime,
-            &outcome.connection.connection_id,
-            pending_request,
+            connection_id,
+            workflow_id,
+            Some(&pending_request.request_message.id),
             error,
         ));
     };
+    if consume_connect_secret_for.is_some() {
+        return Err(cancel_auth_replay_workflow_on_error(
+            runtime,
+            connection_id,
+            workflow_id,
+            Some(&pending_request.request_message.id),
+            MycError::InvalidOperation(
+                "auth replay unexpectedly requested connect-secret finalization".to_owned(),
+            ),
+        ));
+    }
     let event = match handler.build_response_event(
-        outcome.connection.client_public_key,
+        manager
+            .get_connection(connection_id)?
+            .ok_or_else(|| {
+                MycError::InvalidOperation(format!("connection `{connection_id}` was not found"))
+            })?
+            .client_public_key,
         pending_request.request_message.id.clone(),
         response,
     ) {
         Ok(event) => event,
         Err(error) => {
-            return Err(restore_pending_auth_challenge_on_error(
+            return Err(cancel_auth_replay_workflow_on_error(
                 runtime,
-                &outcome.connection.connection_id,
-                pending_request,
+                connection_id,
+                workflow_id,
+                Some(&pending_request.request_message.id),
                 error,
             ));
         }
     };
-    let publish_relays = if outcome.connection.relays.is_empty() {
+    let connection = manager.get_connection(connection_id)?.ok_or_else(|| {
+        MycError::InvalidOperation(format!("connection `{connection_id}` was not found"))
+    })?;
+    let event = match event.sign_with_keys(runtime.signer_identity().keys()) {
+        Ok(event) => event,
+        Err(error) => {
+            return Err(cancel_auth_replay_workflow_on_error(
+                runtime,
+                connection_id,
+                workflow_id,
+                Some(&pending_request.request_message.id),
+                MycError::InvalidOperation(format!(
+                    "failed to sign authorized auth replay response event: {error}"
+                )),
+            ));
+        }
+    };
+    let publish_relays = if connection.relays.is_empty() {
         transport.relays().to_vec()
     } else {
-        outcome.connection.relays.clone()
+        connection.relays.clone()
     };
-    let publish_outcome = match MycNostrTransport::publish_once(
+    let outbox_record = match build_control_outbox_record(
+        MycDeliveryOutboxKind::AuthReplayPublish,
+        event.clone(),
+        &publish_relays,
+        Some(connection_id),
+        Some(&pending_request.request_message.id),
+        Some(workflow_id),
+    ) {
+        Ok(record) => record,
+        Err(error) => {
+            return Err(cancel_auth_replay_workflow_on_error(
+                runtime,
+                connection_id,
+                workflow_id,
+                Some(&pending_request.request_message.id),
+                error,
+            ));
+        }
+    };
+    if let Err(error) = runtime.delivery_outbox_store().enqueue(&outbox_record) {
+        return Err(cancel_auth_replay_workflow_on_error(
+            runtime,
+            connection_id,
+            workflow_id,
+            Some(&pending_request.request_message.id),
+            error,
+        ));
+    }
+    let publish_outcome = match MycNostrTransport::publish_event_once(
         runtime.signer_identity(),
         &publish_relays,
         &runtime.config().transport,
         "authorized auth replay publish",
-        event,
+        &event,
     )
     .await
     {
         Ok(publish_outcome) => publish_outcome,
         Err(error) => {
+            let error = mark_outbox_publish_failed(runtime, &outbox_record, error);
             runtime.record_operation_audit(&record_publish_failure(
                 MycOperationAuditKind::AuthReplayPublish,
-                Some(&outcome.connection.connection_id),
+                Some(connection_id),
                 Some(pending_request.request_message.id.as_str()),
                 publish_relays.len(),
                 &error,
             ));
-            return Err(restore_pending_auth_challenge_on_error(
+            return Err(cancel_auth_replay_workflow_on_error(
                 runtime,
-                &outcome.connection.connection_id,
-                pending_request,
+                connection_id,
+                workflow_id,
+                Some(&pending_request.request_message.id),
                 error,
             ));
         }
     };
+    if let Err(error) = manager.mark_publish_workflow_published(workflow_id) {
+        record_post_publish_failure(
+            runtime,
+            MycOperationAuditKind::AuthReplayPublish,
+            Some(connection_id),
+            Some(pending_request.request_message.id.as_str()),
+            &publish_outcome,
+            format!("failed to mark auth replay publish workflow as published: {error}"),
+        );
+        return Err(error.into());
+    }
+    if let Err(error) = runtime
+        .delivery_outbox_store()
+        .mark_published_pending_finalize(&outbox_record.job_id, publish_outcome.attempt_count)
+    {
+        record_post_publish_failure(
+            runtime,
+            MycOperationAuditKind::AuthReplayPublish,
+            Some(connection_id),
+            Some(pending_request.request_message.id.as_str()),
+            &publish_outcome,
+            format!("failed to persist auth replay outbox published state: {error}"),
+        );
+        return Err(error);
+    }
+    if let Err(error) = manager.finalize_publish_workflow(workflow_id) {
+        record_post_publish_failure(
+            runtime,
+            MycOperationAuditKind::AuthReplayPublish,
+            Some(connection_id),
+            Some(pending_request.request_message.id.as_str()),
+            &publish_outcome,
+            format!("failed to finalize auth replay publish workflow: {error}"),
+        );
+        return Err(error.into());
+    }
+    if let Err(error) = runtime
+        .delivery_outbox_store()
+        .mark_finalized(&outbox_record.job_id)
+    {
+        record_post_publish_failure(
+            runtime,
+            MycOperationAuditKind::AuthReplayPublish,
+            Some(connection_id),
+            Some(pending_request.request_message.id.as_str()),
+            &publish_outcome,
+            format!("failed to finalize auth replay outbox job: {error}"),
+        );
+        return Err(error);
+    }
     record_publish_audit(
         runtime,
         MycOperationAuditKind::AuthReplayPublish,
         MycOperationAuditOutcome::Succeeded,
-        Some(&outcome.connection.connection_id),
+        Some(connection_id),
         Some(pending_request.request_message.id.as_str()),
         &publish_outcome,
     );
-    if let Some(connection_id) = consume_connect_secret_for {
-        runtime
-            .signer_manager()?
-            .mark_connect_secret_consumed(&connection_id)?;
-    }
     Ok(Some(pending_request.request_message.id.clone()))
 }
 
-fn restore_pending_auth_challenge_on_error(
+fn cancel_auth_replay_workflow_on_error(
     runtime: &MycRuntime,
     connection_id: &RadrootsNostrSignerConnectionId,
-    pending_request: RadrootsNostrSignerPendingRequest,
+    workflow_id: &RadrootsNostrSignerWorkflowId,
+    request_id: Option<&str>,
     error: MycError,
 ) -> MycError {
     let summary = publish_failure_summary(&error);
-    let request_id = pending_request.request_message.id.clone();
     match runtime.signer_manager().and_then(|manager| {
         manager
-            .restore_pending_auth_challenge(connection_id, pending_request.clone())
+            .cancel_publish_workflow(workflow_id)
             .map_err(Into::into)
     }) {
         Ok(_) => {
@@ -339,7 +567,7 @@ fn restore_pending_auth_challenge_on_error(
                 MycOperationAuditKind::AuthReplayRestore,
                 MycOperationAuditOutcome::Restored,
                 Some(connection_id),
-                Some(request_id.as_str()),
+                request_id,
                 error
                     .publish_rejection_counts()
                     .map(|(relay_count, _)| relay_count)
@@ -348,7 +576,7 @@ fn restore_pending_auth_challenge_on_error(
                     .publish_rejection_counts()
                     .map(|(_, acknowledged)| acknowledged)
                     .unwrap_or_default(),
-                format!("restored pending auth challenge after replay failure: {summary}"),
+                format!("preserved pending auth challenge after replay failure: {summary}"),
             );
             if let (
                 Some(delivery_policy),
@@ -369,7 +597,66 @@ fn restore_pending_auth_challenge_on_error(
             error
         }
         Err(restore_error) => MycError::InvalidOperation(format!(
-            "{error}; additionally failed to restore pending auth challenge: {restore_error}"
+            "{error}; additionally failed to cancel auth replay publish workflow: {restore_error}"
+        )),
+    }
+}
+
+fn cancel_connect_accept_workflow_on_error(
+    runtime: &MycRuntime,
+    workflow_id: &RadrootsNostrSignerWorkflowId,
+    error: MycError,
+) -> MycError {
+    match runtime.signer_manager().and_then(|manager| {
+        manager
+            .cancel_publish_workflow(workflow_id)
+            .map(|_| ())
+            .map_err(Into::into)
+    }) {
+        Ok(()) => error,
+        Err(cancel_error) => MycError::InvalidOperation(format!(
+            "{error}; additionally failed to cancel connect-accept publish workflow: {cancel_error}"
+        )),
+    }
+}
+
+fn build_control_outbox_record(
+    kind: MycDeliveryOutboxKind,
+    event: radroots_nostr::prelude::RadrootsNostrEvent,
+    relay_urls: &[nostr::RelayUrl],
+    connection_id: Option<&RadrootsNostrSignerConnectionId>,
+    request_id: Option<&str>,
+    workflow_id: Option<&RadrootsNostrSignerWorkflowId>,
+) -> Result<MycDeliveryOutboxRecord, MycError> {
+    let relay_urls = relay_urls.to_vec();
+    let mut record = MycDeliveryOutboxRecord::new(kind, event, relay_urls)?;
+    if let Some(connection_id) = connection_id {
+        record = record.with_connection_id(connection_id);
+    }
+    if let Some(request_id) = request_id {
+        record = record.with_request_id(request_id.to_owned());
+    }
+    if let Some(workflow_id) = workflow_id {
+        record = record.with_signer_publish_workflow_id(workflow_id);
+    }
+    Ok(record)
+}
+
+fn mark_outbox_publish_failed(
+    runtime: &MycRuntime,
+    outbox_record: &MycDeliveryOutboxRecord,
+    error: MycError,
+) -> MycError {
+    let publish_attempt_count = error.publish_attempt_count().unwrap_or_default();
+    let summary = publish_failure_summary(&error);
+    match runtime.delivery_outbox_store().mark_failed(
+        &outbox_record.job_id,
+        publish_attempt_count,
+        &summary,
+    ) {
+        Ok(_) => error,
+        Err(outbox_error) => MycError::InvalidOperation(format!(
+            "{error}; additionally failed to persist publish failure to the delivery outbox: {outbox_error}"
         )),
     }
 }
@@ -391,6 +678,32 @@ fn record_publish_audit(
             publish_outcome.relay_count,
             publish_outcome.acknowledged_relay_count,
             publish_outcome.relay_outcome_summary.clone(),
+        )
+        .with_delivery_details(
+            publish_outcome.delivery_policy,
+            publish_outcome.required_acknowledged_relay_count,
+            publish_outcome.attempt_count,
+        ),
+    );
+}
+
+fn record_post_publish_failure(
+    runtime: &MycRuntime,
+    operation: MycOperationAuditKind,
+    connection_id: Option<&RadrootsNostrSignerConnectionId>,
+    request_id: Option<&str>,
+    publish_outcome: &MycPublishOutcome,
+    summary: impl Into<String>,
+) {
+    runtime.record_operation_audit(
+        &MycOperationAuditRecord::new(
+            operation,
+            MycOperationAuditOutcome::Rejected,
+            connection_id,
+            request_id,
+            publish_outcome.relay_count,
+            publish_outcome.acknowledged_relay_count,
+            summary.into(),
         )
         .with_delivery_details(
             publish_outcome.delivery_policy,

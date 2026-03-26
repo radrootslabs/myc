@@ -385,6 +385,97 @@ impl MycNip46Handler {
         }
     }
 
+    pub(crate) fn handle_authorized_request_evaluation(
+        &self,
+        request_message: RadrootsNostrConnectRequestMessage,
+        evaluation: RadrootsNostrSignerRequestEvaluation,
+    ) -> Result<MycNip46HandledRequest, MycError> {
+        let connection_id = Some(evaluation.connection.connection_id.clone());
+        Ok(match request_message.request.clone() {
+            RadrootsNostrConnectRequest::SignEvent(unsigned_event) => match evaluation.action {
+                RadrootsNostrSignerRequestAction::Denied { reason } => {
+                    MycNip46HandledRequest::respond_for_connection(
+                        connection_id,
+                        RadrootsNostrConnectResponse::Error {
+                            result: None,
+                            error: reason,
+                        },
+                    )
+                }
+                RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
+                    MycNip46HandledRequest::respond_for_connection(
+                        connection_id,
+                        RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
+                    )
+                }
+                RadrootsNostrSignerRequestAction::Allowed { .. } => {
+                    MycNip46HandledRequest::respond_for_connection(
+                        connection_id,
+                        self.sign_event_response(unsigned_event)?,
+                    )
+                }
+            },
+            RadrootsNostrConnectRequest::Nip04Encrypt { .. }
+            | RadrootsNostrConnectRequest::Nip04Decrypt { .. }
+            | RadrootsNostrConnectRequest::Nip44Encrypt { .. }
+            | RadrootsNostrConnectRequest::Nip44Decrypt { .. } => match evaluation.action {
+                RadrootsNostrSignerRequestAction::Denied { reason } => {
+                    MycNip46HandledRequest::respond_for_connection(
+                        connection_id,
+                        RadrootsNostrConnectResponse::Error {
+                            result: None,
+                            error: reason,
+                        },
+                    )
+                }
+                RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
+                    MycNip46HandledRequest::respond_for_connection(
+                        connection_id,
+                        RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
+                    )
+                }
+                RadrootsNostrSignerRequestAction::Allowed { .. } => {
+                    MycNip46HandledRequest::respond_for_connection(
+                        connection_id,
+                        self.crypto_response(request_message.request)?,
+                    )
+                }
+            },
+            RadrootsNostrConnectRequest::GetPublicKey
+            | RadrootsNostrConnectRequest::Ping
+            | RadrootsNostrConnectRequest::SwitchRelays => match evaluation.action {
+                RadrootsNostrSignerRequestAction::Denied { reason } => {
+                    MycNip46HandledRequest::respond_for_connection(
+                        connection_id,
+                        RadrootsNostrConnectResponse::Error {
+                            result: None,
+                            error: reason,
+                        },
+                    )
+                }
+                RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
+                    MycNip46HandledRequest::respond_for_connection(
+                        connection_id,
+                        RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
+                    )
+                }
+                RadrootsNostrSignerRequestAction::Allowed { response_hint, .. } => {
+                    MycNip46HandledRequest::respond_for_connection(
+                        connection_id,
+                        response_from_hint(&evaluation.connection, response_hint)?,
+                    )
+                }
+            },
+            other => MycNip46HandledRequest::respond_for_connection(
+                connection_id,
+                RadrootsNostrConnectResponse::Error {
+                    result: None,
+                    error: format!("method `{}` is not implemented yet", other.method()),
+                },
+            ),
+        })
+    }
+
     fn evaluate_request_with_policy(
         &self,
         connection: &RadrootsNostrSignerConnectionRecord,

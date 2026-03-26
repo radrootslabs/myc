@@ -1876,6 +1876,25 @@ async fn connect_accept_retries_without_consuming_secret_until_publish_succeeds(
             .relay_outcome_summary
             .contains("blocked by test relay")
     );
+    let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
+        records.len() >= 1 && records[0].status == MycDeliveryOutboxStatus::Failed
+    })
+    .await?;
+    assert_eq!(
+        outbox_records[0].kind,
+        MycDeliveryOutboxKind::ConnectAcceptPublish
+    );
+    assert_eq!(
+        outbox_records[0].request_id.as_deref(),
+        operation_audit[0].request_id.as_deref()
+    );
+    assert!(outbox_records[0].signer_publish_workflow_id.is_some());
+    assert!(
+        runtime
+            .signer_manager()?
+            .list_publish_workflows()?
+            .is_empty()
+    );
 
     let accepted = control::accept_client_uri(&runtime, &client_uri).await?;
     assert_eq!(accepted.response_request_id.len(), 36);
@@ -1920,6 +1939,27 @@ async fn connect_accept_retries_without_consuming_secret_until_publish_succeeds(
         operation_audit[1]
             .relay_outcome_summary
             .contains("1/1 relays acknowledged publish")
+    );
+    let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
+        records.len() >= 2 && records[1].status == MycDeliveryOutboxStatus::Finalized
+    })
+    .await?;
+    assert_eq!(
+        outbox_records[1].kind,
+        MycDeliveryOutboxKind::ConnectAcceptPublish
+    );
+    assert_eq!(
+        outbox_records[1].request_id.as_deref(),
+        Some(accepted.response_request_id.as_str())
+    );
+    assert!(outbox_records[1].published_at_unix.is_some());
+    assert!(outbox_records[1].finalized_at_unix.is_some());
+    assert!(outbox_records[1].signer_publish_workflow_id.is_some());
+    assert!(
+        runtime
+            .signer_manager()?
+            .list_publish_workflows()?
+            .is_empty()
     );
 
     let consumed = control::accept_client_uri(&runtime, &client_uri)
@@ -2088,6 +2128,21 @@ async fn connect_accept_rejects_when_quorum_delivery_policy_is_not_met() -> Test
         Some(2)
     );
     assert_eq!(operation_audit[0].publish_attempt_count, Some(1));
+    let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
+        records.len() >= 1 && records[0].status == MycDeliveryOutboxStatus::Failed
+    })
+    .await?;
+    assert_eq!(
+        outbox_records[0].kind,
+        MycDeliveryOutboxKind::ConnectAcceptPublish
+    );
+    assert!(outbox_records[0].signer_publish_workflow_id.is_some());
+    assert!(
+        runtime
+            .signer_manager()?
+            .list_publish_workflows()?
+            .is_empty()
+    );
 
     Ok(())
 }
@@ -2272,7 +2327,23 @@ async fn auth_replay_restores_pending_request_until_publish_succeeds() -> TestRe
     assert!(
         operation_audit[1]
             .relay_outcome_summary
-            .contains("restored pending auth challenge")
+            .contains("preserved pending auth challenge")
+    );
+    let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
+        records.len() >= 1 && records[0].status == MycDeliveryOutboxStatus::Failed
+    })
+    .await?;
+    assert_eq!(
+        outbox_records[0].kind,
+        MycDeliveryOutboxKind::AuthReplayPublish
+    );
+    assert_eq!(outbox_records[0].request_id.as_deref(), Some("auth-ping"));
+    assert!(outbox_records[0].signer_publish_workflow_id.is_some());
+    assert!(
+        runtime
+            .signer_manager()?
+            .list_publish_workflows()?
+            .is_empty()
     );
 
     let replayed = control::authorize_auth_challenge(&runtime, &connection.connection_id).await?;
@@ -2320,6 +2391,24 @@ async fn auth_replay_restores_pending_request_until_publish_succeeds() -> TestRe
         operation_audit[2]
             .relay_outcome_summary
             .contains("1/1 relays acknowledged publish")
+    );
+    let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
+        records.len() >= 2 && records[1].status == MycDeliveryOutboxStatus::Finalized
+    })
+    .await?;
+    assert_eq!(
+        outbox_records[1].kind,
+        MycDeliveryOutboxKind::AuthReplayPublish
+    );
+    assert_eq!(outbox_records[1].request_id.as_deref(), Some("auth-ping"));
+    assert!(outbox_records[1].published_at_unix.is_some());
+    assert!(outbox_records[1].finalized_at_unix.is_some());
+    assert!(outbox_records[1].signer_publish_workflow_id.is_some());
+    assert!(
+        runtime
+            .signer_manager()?
+            .list_publish_workflows()?
+            .is_empty()
     );
 
     Ok(())
