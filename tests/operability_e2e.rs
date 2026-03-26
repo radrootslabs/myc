@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use myc::{
-    MycConfig, MycRuntime, MycRuntimeStatus, MycTransportDeliveryPolicy, collect_status_full,
+    MycConfig, MycRuntime, MycRuntimeAuditBackend, MycRuntimeStatus, MycSignerStateBackend,
+    MycTransportDeliveryPolicy, collect_status_full,
 };
 use radroots_identity::RadrootsIdentity;
 use tokio::net::TcpListener;
@@ -190,5 +191,90 @@ async fn status_is_unready_when_all_policy_cannot_be_satisfied() -> TestResult<(
     assert_eq!(status.transport.status, MycRuntimeStatus::Unready);
     assert_eq!(status.transport.available_relay_count, 1);
     assert_eq!(status.transport.required_available_relays, 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn status_reports_sqlite_persistence_schema_state() -> TestResult<()> {
+    let runtime = build_runtime(|config| {
+        config.persistence.signer_state_backend = MycSignerStateBackend::Sqlite;
+        config.persistence.runtime_audit_backend = MycRuntimeAuditBackend::Sqlite;
+    });
+
+    let status = collect_status_full(&runtime).await?;
+
+    assert_eq!(
+        status.persistence.signer_state.backend,
+        MycSignerStateBackend::Sqlite
+    );
+    assert!(status.persistence.signer_state.exists);
+    assert_eq!(
+        status
+            .persistence
+            .signer_state
+            .sqlite_schema
+            .as_ref()
+            .expect("signer sqlite schema")
+            .applied_migration_count,
+        Some(1)
+    );
+    assert_eq!(
+        status
+            .persistence
+            .signer_state
+            .sqlite_schema
+            .as_ref()
+            .expect("signer sqlite schema")
+            .journal_mode
+            .as_deref(),
+        Some("wal")
+    );
+    assert_eq!(
+        status
+            .persistence
+            .signer_state
+            .sqlite_schema
+            .as_ref()
+            .expect("signer sqlite schema")
+            .store_version,
+        Some(1)
+    );
+    assert_eq!(
+        status.persistence.runtime_audit.backend,
+        MycRuntimeAuditBackend::Sqlite
+    );
+    assert!(status.persistence.runtime_audit.exists);
+    assert_eq!(
+        status
+            .persistence
+            .runtime_audit
+            .sqlite_schema
+            .as_ref()
+            .expect("audit sqlite schema")
+            .applied_migration_count,
+        Some(1)
+    );
+    assert_eq!(
+        status
+            .persistence
+            .runtime_audit
+            .sqlite_schema
+            .as_ref()
+            .expect("audit sqlite schema")
+            .latest_migration
+            .as_deref(),
+        Some("0000_runtime_audit_init")
+    );
+    assert_eq!(
+        status
+            .persistence
+            .runtime_audit
+            .sqlite_schema
+            .as_ref()
+            .expect("audit sqlite schema")
+            .journal_mode
+            .as_deref(),
+        Some("wal")
+    );
     Ok(())
 }

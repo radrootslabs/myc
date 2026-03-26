@@ -29,6 +29,7 @@ pub struct MycRuntimePaths {
     pub signer_identity_path: PathBuf,
     pub user_identity_path: PathBuf,
     pub signer_state_path: PathBuf,
+    pub runtime_audit_path: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -43,7 +44,10 @@ pub struct MycStartupSnapshot {
     pub user_identity_path: PathBuf,
     pub signer_identity_source: MycIdentitySourceSpec,
     pub user_identity_source: MycIdentitySourceSpec,
+    pub signer_state_backend: MycSignerStateBackend,
     pub signer_state_path: PathBuf,
+    pub runtime_audit_backend: MycRuntimeAuditBackend,
+    pub runtime_audit_path: PathBuf,
     pub signer_identity_id: String,
     pub signer_public_key_hex: String,
     pub user_identity_id: String,
@@ -153,7 +157,10 @@ impl MycRuntime {
             user_identity_path: self.paths.user_identity_path.clone(),
             signer_identity_source: self.signer.signer_identity_source().clone(),
             user_identity_source: self.signer.user_identity_source().clone(),
+            signer_state_backend: self.config.persistence.signer_state_backend,
             signer_state_path: self.paths.signer_state_path.clone(),
+            runtime_audit_backend: self.config.persistence.runtime_audit_backend,
+            runtime_audit_path: self.paths.runtime_audit_path.clone(),
             signer_identity_id: signer_public.id.into_string(),
             signer_public_key_hex: signer_public.public_key_hex,
             user_identity_id: user_public.id.into_string(),
@@ -185,7 +192,10 @@ impl MycRuntime {
             user_identity_backend = %snapshot.user_identity_source.backend.as_str(),
             signer_keyring_account_id = snapshot.signer_identity_source.keyring_account_id.as_deref().unwrap_or(""),
             user_keyring_account_id = snapshot.user_identity_source.keyring_account_id.as_deref().unwrap_or(""),
+            signer_state_backend = snapshot.signer_state_backend.as_str(),
             signer_state_path = %snapshot.signer_state_path.display(),
+            runtime_audit_backend = snapshot.runtime_audit_backend.as_str(),
+            runtime_audit_path = %snapshot.runtime_audit_path.display(),
             signer_identity_id = %snapshot.signer_identity_id,
             signer_public_key_hex = %snapshot.signer_public_key_hex,
             user_identity_id = %snapshot.user_identity_id,
@@ -302,8 +312,19 @@ impl MycRuntimePaths {
         })
     }
 
+    pub(crate) fn runtime_audit_path_for_backend(
+        audit_dir: &Path,
+        backend: MycRuntimeAuditBackend,
+    ) -> PathBuf {
+        audit_dir.join(match backend {
+            MycRuntimeAuditBackend::JsonlFile => "operations.jsonl",
+            MycRuntimeAuditBackend::Sqlite => "operations.sqlite",
+        })
+    }
+
     fn from_config(config: &MycConfig) -> Self {
         let state_dir = config.paths.state_dir.clone();
+        let audit_dir = Self::audit_dir_for_state_dir(&state_dir);
         Self {
             signer_identity_path: config.paths.signer_identity_path.clone(),
             user_identity_path: config.paths.user_identity_path.clone(),
@@ -311,7 +332,11 @@ impl MycRuntimePaths {
                 &state_dir,
                 config.persistence.signer_state_backend,
             ),
-            audit_dir: Self::audit_dir_for_state_dir(&state_dir),
+            runtime_audit_path: Self::runtime_audit_path_for_backend(
+                &audit_dir,
+                config.persistence.runtime_audit_backend,
+            ),
+            audit_dir,
             state_dir,
         }
     }

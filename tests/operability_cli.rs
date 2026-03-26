@@ -69,6 +69,11 @@ fn status_summary_command_emits_machine_readable_json() {
     assert_eq!(value["ready"], false);
     assert_eq!(value["custody"]["signer"]["backend"], "filesystem");
     assert_eq!(value["custody"]["signer"]["resolved"], true);
+    assert_eq!(value["persistence"]["signer_state"]["backend"], "json_file");
+    assert_eq!(
+        value["persistence"]["runtime_audit"]["backend"],
+        "jsonl_file"
+    );
     assert_eq!(value["transport"]["enabled"], false);
 }
 

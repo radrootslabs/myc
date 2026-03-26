@@ -1,6 +1,7 @@
 pub mod server;
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use radroots_identity::RadrootsIdentity;
@@ -8,12 +9,13 @@ use radroots_nostr::prelude::{
     RadrootsNostrClient, RadrootsNostrRelayStatus, RadrootsNostrRelayUrl,
 };
 use radroots_nostr_signer::prelude::RadrootsNostrSignerRequestDecision;
-use serde::Serialize;
+use radroots_sql_core::{SqlExecutor, SqliteExecutor};
+use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
 use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome};
-use crate::config::MycTransportDeliveryPolicy;
+use crate::config::{MycRuntimeAuditBackend, MycSignerStateBackend, MycTransportDeliveryPolicy};
 use crate::custody::MycIdentityStatusOutput;
 use crate::discovery::MycDiscoveryContext;
 use crate::error::MycError;
@@ -93,12 +95,52 @@ pub struct MycCustodyStatusOutput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycPersistenceStatusOutput {
+    pub signer_state: MycSignerStatePersistenceStatusOutput,
+    pub runtime_audit: MycRuntimeAuditPersistenceStatusOutput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycSignerStatePersistenceStatusOutput {
+    pub backend: MycSignerStateBackend,
+    pub path: PathBuf,
+    pub exists: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sqlite_schema: Option<MycSqliteSchemaStatusOutput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycRuntimeAuditPersistenceStatusOutput {
+    pub backend: MycRuntimeAuditBackend,
+    pub path: PathBuf,
+    pub exists: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sqlite_schema: Option<MycSqliteSchemaStatusOutput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycSqliteSchemaStatusOutput {
+    pub ready: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub applied_migration_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_migration: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub journal_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub store_version: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycStatusFullOutput {
     pub status: MycRuntimeStatus,
     pub ready: bool,
     pub reasons: Vec<String>,
     pub startup: crate::app::MycStartupSnapshot,
     pub custody: MycCustodyStatusOutput,
+    pub persistence: MycPersistenceStatusOutput,
     pub transport: MycTransportStatusOutput,
     pub discovery: MycDiscoveryStatusOutput,
 }
@@ -110,6 +152,7 @@ pub struct MycStatusSummaryOutput {
     pub reasons: Vec<String>,
     pub instance_name: String,
     pub custody: MycCustodyStatusOutput,
+    pub persistence: MycPersistenceStatusOutput,
     pub transport: MycTransportStatusOutput,
     pub discovery: MycDiscoveryStatusOutput,
 }
@@ -159,13 +202,39 @@ struct MycCustodyStatusEvaluation {
     output: MycCustodyStatusOutput,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MycPersistenceStatusEvaluation {
+    output: MycPersistenceStatusOutput,
+    reasons: Vec<String>,
+    status: Option<MycRuntimeStatus>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MycSqliteAppliedCountRow {
+    applied_count: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct MycSqliteNamedRow {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct MycSqliteJournalModeRow {
+    journal_mode: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct MycSqliteStoreVersionRow {
+    store_version: u64,
+}
+
 pub async fn collect_status_full(runtime: &MycRuntime) -> Result<MycStatusFullOutput, MycError> {
     let snapshot = runtime.snapshot();
     let custody = collect_custody_status(runtime)?;
+    let persistence = collect_persistence_status(runtime);
     let transport = collect_transport_status(runtime).await?;
     let discovery = collect_discovery_status(runtime).await?;
-    let mut reasons = transport.reasons;
-    reasons.extend(discovery.reasons);
     let mut status = combine_runtime_status(
         transport.output.status,
         if discovery.output.enabled {
@@ -174,6 +243,12 @@ pub async fn collect_status_full(runtime: &MycRuntime) -> Result<MycStatusFullOu
             None
         },
     );
+    let mut reasons = transport.reasons;
+    reasons.extend(discovery.reasons);
+    if let Some(persistence_status) = persistence.status {
+        status = worse_runtime_status(status, persistence_status);
+    }
+    reasons.extend(persistence.reasons.clone());
     if custody
         .output
         .discovery_app
@@ -191,6 +266,7 @@ pub async fn collect_status_full(runtime: &MycRuntime) -> Result<MycStatusFullOu
         reasons,
         startup: snapshot,
         custody: custody.output,
+        persistence: persistence.output,
         transport: transport.output,
         discovery: discovery.output,
     })
@@ -206,6 +282,7 @@ pub async fn collect_status_summary(
         reasons: full.reasons,
         instance_name: full.startup.instance_name,
         custody: full.custody,
+        persistence: full.persistence,
         transport: MycTransportStatusOutput {
             relay_probes: Vec::new(),
             ..full.transport
@@ -259,6 +336,69 @@ fn collect_custody_status(runtime: &MycRuntime) -> Result<MycCustodyStatusEvalua
             discovery_app,
         },
     })
+}
+
+fn collect_persistence_status(runtime: &MycRuntime) -> MycPersistenceStatusEvaluation {
+    let signer_state_backend = runtime.config().persistence.signer_state_backend;
+    let runtime_audit_backend = runtime.config().persistence.runtime_audit_backend;
+    let signer_state = MycSignerStatePersistenceStatusOutput {
+        backend: signer_state_backend,
+        path: runtime.paths().signer_state_path.clone(),
+        exists: runtime.paths().signer_state_path.exists(),
+        sqlite_schema: match signer_state_backend {
+            MycSignerStateBackend::JsonFile => None,
+            MycSignerStateBackend::Sqlite => Some(inspect_signer_state_sqlite_schema(
+                runtime.paths().signer_state_path.as_path(),
+            )),
+        },
+    };
+    let runtime_audit = MycRuntimeAuditPersistenceStatusOutput {
+        backend: runtime_audit_backend,
+        path: runtime.paths().runtime_audit_path.clone(),
+        exists: runtime.paths().runtime_audit_path.exists(),
+        sqlite_schema: match runtime_audit_backend {
+            MycRuntimeAuditBackend::JsonlFile => None,
+            MycRuntimeAuditBackend::Sqlite => Some(inspect_runtime_audit_sqlite_schema(
+                runtime.paths().runtime_audit_path.as_path(),
+            )),
+        },
+    };
+
+    let mut reasons = Vec::new();
+    if signer_state
+        .sqlite_schema
+        .as_ref()
+        .is_some_and(|schema| !schema.ready)
+    {
+        reasons.push(format!(
+            "signer-state sqlite schema at {} is not ready",
+            signer_state.path.display()
+        ));
+    }
+    if runtime_audit
+        .sqlite_schema
+        .as_ref()
+        .is_some_and(|schema| !schema.ready)
+    {
+        reasons.push(format!(
+            "runtime-audit sqlite schema at {} is not ready",
+            runtime_audit.path.display()
+        ));
+    }
+    let status = if reasons.is_empty() {
+        None
+    } else {
+        Some(MycRuntimeStatus::Degraded)
+    };
+
+    MycPersistenceStatusEvaluation {
+        output: MycPersistenceStatusOutput {
+            signer_state,
+            runtime_audit,
+        },
+        reasons,
+        status,
+    }
 }
 
 pub fn collect_metrics(runtime: &MycRuntime) -> Result<MycMetricsSnapshot, MycError> {
@@ -785,6 +925,93 @@ fn relay_status_label(status: RadrootsNostrRelayStatus) -> String {
     status.to_string().to_ascii_lowercase()
 }
 
+fn inspect_signer_state_sqlite_schema(path: &Path) -> MycSqliteSchemaStatusOutput {
+    inspect_sqlite_schema(
+        path,
+        Some("SELECT store_version FROM signer_store_metadata WHERE singleton_id = 1"),
+    )
+}
+
+fn inspect_runtime_audit_sqlite_schema(path: &Path) -> MycSqliteSchemaStatusOutput {
+    inspect_sqlite_schema(path, None)
+}
+
+fn inspect_sqlite_schema(
+    path: &Path,
+    store_version_sql: Option<&str>,
+) -> MycSqliteSchemaStatusOutput {
+    let outcome = (|| -> Result<MycSqliteSchemaStatusOutput, String> {
+        if !path.exists() {
+            return Err("sqlite persistence file is missing".to_owned());
+        }
+        let executor = SqliteExecutor::open(path).map_err(|error| error.to_string())?;
+        let applied_count = query_sqlite_rows::<MycSqliteAppliedCountRow>(
+            &executor,
+            "SELECT COUNT(*) AS applied_count FROM __migrations",
+        )?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "sqlite migrations query returned no rows".to_owned())?
+        .applied_count;
+        let latest_migration = query_sqlite_rows::<MycSqliteNamedRow>(
+            &executor,
+            "SELECT name FROM __migrations ORDER BY rowid DESC LIMIT 1",
+        )?
+        .into_iter()
+        .next()
+        .map(|row| row.name);
+        let journal_mode =
+            query_sqlite_rows::<MycSqliteJournalModeRow>(&executor, "PRAGMA journal_mode")?
+                .into_iter()
+                .next()
+                .ok_or_else(|| "sqlite journal mode query returned no rows".to_owned())?
+                .journal_mode;
+        let store_version = if let Some(sql) = store_version_sql {
+            query_sqlite_rows::<MycSqliteStoreVersionRow>(&executor, sql)?
+                .into_iter()
+                .next()
+                .map(|row| {
+                    u32::try_from(row.store_version)
+                        .map_err(|_| "sqlite store_version is out of range".to_owned())
+                })
+                .transpose()?
+        } else {
+            None
+        };
+
+        Ok(MycSqliteSchemaStatusOutput {
+            ready: true,
+            applied_migration_count: Some(applied_count as usize),
+            latest_migration,
+            journal_mode: Some(journal_mode),
+            store_version,
+            error: None,
+        })
+    })();
+
+    match outcome {
+        Ok(output) => output,
+        Err(error) => MycSqliteSchemaStatusOutput {
+            ready: false,
+            applied_migration_count: None,
+            latest_migration: None,
+            journal_mode: None,
+            store_version: None,
+            error: Some(error),
+        },
+    }
+}
+
+fn query_sqlite_rows<T>(executor: &SqliteExecutor, sql: &str) -> Result<Vec<T>, String>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let raw = executor
+        .query_raw(sql, "[]")
+        .map_err(|error| error.to_string())?;
+    serde_json::from_str(&raw).map_err(|error| error.to_string())
+}
+
 fn push_counter(lines: &mut Vec<String>, name: &str, value: usize) {
     lines.push(format!("{name} {value}"));
 }
@@ -918,11 +1145,14 @@ fn push_labeled_counter_pair(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::path::PathBuf;
 
     use super::{
-        MycMetricsSnapshot, MycOperationOutcomeCounts, MycRuntimeStatus, render_metrics_text,
-        worse_runtime_status,
+        MycMetricsSnapshot, MycOperationOutcomeCounts, MycRuntimeStatus,
+        inspect_runtime_audit_sqlite_schema, render_metrics_text, worse_runtime_status,
     };
+    use crate::app::MycRuntimePaths;
+    use crate::config::MycRuntimeAuditBackend;
 
     #[test]
     fn runtime_status_prefers_the_worst_state() {
@@ -975,5 +1205,23 @@ mod tests {
         assert!(rendered.contains(
             r#"myc_runtime_operation_kind_total{kind="listener_response_publish",outcome="succeeded"} 1"#
         ));
+    }
+
+    #[test]
+    fn runtime_audit_sqlite_schema_status_reports_missing_file() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let status = inspect_runtime_audit_sqlite_schema(
+            MycRuntimePaths::runtime_audit_path_for_backend(
+                PathBuf::from(temp.path()).as_path(),
+                MycRuntimeAuditBackend::Sqlite,
+            )
+            .as_path(),
+        );
+
+        assert!(!status.ready);
+        assert_eq!(
+            status.error.as_deref(),
+            Some("sqlite persistence file is missing")
+        );
     }
 }

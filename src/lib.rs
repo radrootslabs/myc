@@ -44,9 +44,11 @@ pub use discovery::{
 pub use error::MycError;
 pub use operability::{
     MycAuditDecisionCounts, MycCustodyStatusOutput, MycDiscoveryStatusOutput, MycMetricsSnapshot,
-    MycOperationOutcomeCounts, MycRelayProbe, MycRelayProbeAvailability, MycRuntimeStatus,
-    MycStatusFullOutput, MycStatusSummaryOutput, MycTransportStatusOutput, collect_metrics,
-    collect_status_full, collect_status_summary, render_metrics_text,
+    MycOperationOutcomeCounts, MycPersistenceStatusOutput, MycRelayProbe,
+    MycRelayProbeAvailability, MycRuntimeAuditPersistenceStatusOutput, MycRuntimeStatus,
+    MycSignerStatePersistenceStatusOutput, MycSqliteSchemaStatusOutput, MycStatusFullOutput,
+    MycStatusSummaryOutput, MycTransportStatusOutput, collect_metrics, collect_status_full,
+    collect_status_summary, render_metrics_text,
 };
 pub use persistence::{
     MycPersistenceImportJsonToSqliteOutput, MycPersistenceImportSelection,

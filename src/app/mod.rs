@@ -82,7 +82,10 @@ mod tests {
             "filesystem"
         );
         assert_eq!(snapshot.user_identity_source.backend.as_str(), "filesystem");
+        assert_eq!(snapshot.signer_state_backend.as_str(), "json_file");
         assert!(snapshot.signer_state_path.ends_with("signer-state.json"));
+        assert_eq!(snapshot.runtime_audit_backend.as_str(), "jsonl_file");
+        assert!(snapshot.runtime_audit_path.ends_with("operations.jsonl"));
         assert!(!snapshot.signer_identity_id.is_empty());
         assert!(!snapshot.signer_public_key_hex.is_empty());
         assert!(!snapshot.user_identity_id.is_empty());
@@ -98,6 +101,7 @@ mod tests {
         config.paths.signer_identity_path = temp.path().join("identity.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         config.persistence.signer_state_backend = MycSignerStateBackend::Sqlite;
+        config.persistence.runtime_audit_backend = crate::config::MycRuntimeAuditBackend::Sqlite;
         write_test_identity(
             &config.paths.signer_identity_path,
             "1111111111111111111111111111111111111111111111111111111111111111",
@@ -110,6 +114,9 @@ mod tests {
         let app = MycApp::bootstrap(config).expect("bootstrap");
         let snapshot = app.snapshot();
 
+        assert_eq!(snapshot.signer_state_backend.as_str(), "sqlite");
         assert!(snapshot.signer_state_path.ends_with("signer-state.sqlite"));
+        assert_eq!(snapshot.runtime_audit_backend.as_str(), "sqlite");
+        assert!(snapshot.runtime_audit_path.ends_with("operations.sqlite"));
     }
 }
