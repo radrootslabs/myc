@@ -23,6 +23,7 @@ const MYC_OPERATION_AUDIT_LATEST_SUFFIX: &str = ".attempt";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MycOperationAuditKind {
+    DeliveryRecovery,
     ListenerResponsePublish,
     ConnectAcceptPublish,
     AuthReplayPublish,
@@ -770,6 +771,7 @@ fn parse_archive_index(file_name: &str) -> Option<usize> {
 
 fn operation_index_label(kind: MycOperationAuditKind) -> &'static str {
     match kind {
+        MycOperationAuditKind::DeliveryRecovery => "delivery_recovery",
         MycOperationAuditKind::ListenerResponsePublish => "listener_response_publish",
         MycOperationAuditKind::ConnectAcceptPublish => "connect_accept_publish",
         MycOperationAuditKind::AuthReplayPublish => "auth_replay_publish",

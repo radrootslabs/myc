@@ -8,7 +8,10 @@ use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{
     RadrootsNostrClient, RadrootsNostrRelayStatus, RadrootsNostrRelayUrl,
 };
-use radroots_nostr_signer::prelude::RadrootsNostrSignerRequestDecision;
+use radroots_nostr_signer::prelude::{
+    RadrootsNostrSignerPublishWorkflowRecord, RadrootsNostrSignerPublishWorkflowState,
+    RadrootsNostrSignerRequestDecision,
+};
 use radroots_sql_core::{SqlExecutor, SqliteExecutor};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
@@ -19,6 +22,7 @@ use crate::config::{MycRuntimeAuditBackend, MycSignerStateBackend, MycTransportD
 use crate::custody::MycIdentityStatusOutput;
 use crate::discovery::MycDiscoveryContext;
 use crate::error::MycError;
+use crate::outbox::{MycDeliveryOutboxRecord, MycDeliveryOutboxStatus, now_unix_secs};
 use crate::transport::MycTransportSnapshot;
 
 const MYC_RELAY_PROBE_CONCURRENCY_LIMIT: usize = 4;
@@ -101,6 +105,37 @@ pub struct MycPersistenceStatusOutput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycDeliveryRecoveryStatusOutput {
+    pub recorded_at_unix: u64,
+    pub outcome: MycOperationAuditOutcome,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycDeliveryOutboxStatusOutput {
+    pub status: MycRuntimeStatus,
+    pub ready: bool,
+    pub path: PathBuf,
+    pub exists: bool,
+    pub total_job_count: usize,
+    pub queued_job_count: usize,
+    pub published_pending_finalize_job_count: usize,
+    pub finalized_job_count: usize,
+    pub failed_job_count: usize,
+    pub unfinished_job_count: usize,
+    pub critical_unfinished_job_count: usize,
+    pub blocked_job_count: usize,
+    pub critical_blocked_job_count: usize,
+    pub stuck_after_secs: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oldest_unfinished_age_secs: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oldest_blocked_age_secs: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_recovery: Option<MycDeliveryRecoveryStatusOutput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycSignerStatePersistenceStatusOutput {
     pub backend: MycSignerStateBackend,
     pub path: PathBuf,
@@ -141,6 +176,7 @@ pub struct MycStatusFullOutput {
     pub startup: crate::app::MycStartupSnapshot,
     pub custody: MycCustodyStatusOutput,
     pub persistence: MycPersistenceStatusOutput,
+    pub delivery_outbox: MycDeliveryOutboxStatusOutput,
     pub transport: MycTransportStatusOutput,
     pub discovery: MycDiscoveryStatusOutput,
 }
@@ -153,6 +189,7 @@ pub struct MycStatusSummaryOutput {
     pub instance_name: String,
     pub custody: MycCustodyStatusOutput,
     pub persistence: MycPersistenceStatusOutput,
+    pub delivery_outbox: MycDeliveryOutboxStatusOutput,
     pub transport: MycTransportStatusOutput,
     pub discovery: MycDiscoveryStatusOutput,
 }
@@ -189,6 +226,17 @@ pub struct MycMetricsSnapshot {
     pub runtime_repair_rejection_count: usize,
     pub runtime_unavailable_count: usize,
     pub runtime_replay_restore_count: usize,
+    pub delivery_recovery_success_count: usize,
+    pub delivery_recovery_rejection_count: usize,
+    pub delivery_outbox_total: usize,
+    pub delivery_outbox_queued_count: usize,
+    pub delivery_outbox_published_pending_finalize_count: usize,
+    pub delivery_outbox_failed_count: usize,
+    pub delivery_outbox_finalized_count: usize,
+    pub delivery_outbox_unfinished_count: usize,
+    pub delivery_outbox_critical_unfinished_count: usize,
+    pub delivery_outbox_blocked_count: usize,
+    pub delivery_outbox_critical_blocked_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -207,6 +255,12 @@ struct MycPersistenceStatusEvaluation {
     output: MycPersistenceStatusOutput,
     reasons: Vec<String>,
     status: Option<MycRuntimeStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MycDeliveryOutboxStatusEvaluation {
+    output: MycDeliveryOutboxStatusOutput,
+    reasons: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -233,6 +287,7 @@ pub async fn collect_status_full(runtime: &MycRuntime) -> Result<MycStatusFullOu
     let snapshot = runtime.snapshot();
     let custody = collect_custody_status(runtime)?;
     let persistence = collect_persistence_status(runtime);
+    let delivery_outbox = collect_delivery_outbox_status(runtime)?;
     let transport = collect_transport_status(runtime).await?;
     let discovery = collect_discovery_status(runtime).await?;
     let mut status = combine_runtime_status(
@@ -245,6 +300,8 @@ pub async fn collect_status_full(runtime: &MycRuntime) -> Result<MycStatusFullOu
     );
     let mut reasons = transport.reasons;
     reasons.extend(discovery.reasons);
+    status = worse_runtime_status(status, delivery_outbox.output.status);
+    reasons.extend(delivery_outbox.reasons.clone());
     if let Some(persistence_status) = persistence.status {
         status = worse_runtime_status(status, persistence_status);
     }
@@ -259,7 +316,7 @@ pub async fn collect_status_full(runtime: &MycRuntime) -> Result<MycStatusFullOu
         status = MycRuntimeStatus::Degraded;
         reasons.push("discovery app identity could not be resolved".to_owned());
     }
-    let ready = transport.output.ready;
+    let ready = transport.output.ready && delivery_outbox.output.ready;
     Ok(MycStatusFullOutput {
         status,
         ready,
@@ -267,6 +324,7 @@ pub async fn collect_status_full(runtime: &MycRuntime) -> Result<MycStatusFullOu
         startup: snapshot,
         custody: custody.output,
         persistence: persistence.output,
+        delivery_outbox: delivery_outbox.output,
         transport: transport.output,
         discovery: discovery.output,
     })
@@ -283,6 +341,7 @@ pub async fn collect_status_summary(
         instance_name: full.startup.instance_name,
         custody: full.custody,
         persistence: full.persistence,
+        delivery_outbox: full.delivery_outbox,
         transport: MycTransportStatusOutput {
             relay_probes: Vec::new(),
             ..full.transport
@@ -405,6 +464,7 @@ pub fn collect_metrics(runtime: &MycRuntime) -> Result<MycMetricsSnapshot, MycEr
     let manager = runtime.signer_manager()?;
     let signer_request_audit = manager.list_audit_records()?;
     let runtime_operation_audit = runtime.operation_audit_store().list_all()?;
+    let outbox_status = collect_delivery_outbox_status(runtime)?;
 
     let mut signer_request_decisions = MycAuditDecisionCounts::default();
     for record in &signer_request_audit {
@@ -424,6 +484,8 @@ pub fn collect_metrics(runtime: &MycRuntime) -> Result<MycMetricsSnapshot, MycEr
     let mut runtime_repair_rejection_count = 0;
     let mut runtime_unavailable_count = 0;
     let mut runtime_replay_restore_count = 0;
+    let mut delivery_recovery_success_count = 0;
+    let mut delivery_recovery_rejection_count = 0;
     for record in &runtime_operation_audit {
         increment_outcome_counts(&mut runtime_operation_outcomes, record.outcome);
         increment_outcome_counts(
@@ -452,6 +514,13 @@ pub fn collect_metrics(runtime: &MycRuntime) -> Result<MycMetricsSnapshot, MycEr
         {
             runtime_replay_restore_count += 1;
         }
+        if record.operation == MycOperationAuditKind::DeliveryRecovery {
+            match record.outcome {
+                MycOperationAuditOutcome::Succeeded => delivery_recovery_success_count += 1,
+                MycOperationAuditOutcome::Rejected => delivery_recovery_rejection_count += 1,
+                _ => {}
+            }
+        }
     }
 
     Ok(MycMetricsSnapshot {
@@ -465,6 +534,21 @@ pub fn collect_metrics(runtime: &MycRuntime) -> Result<MycMetricsSnapshot, MycEr
         runtime_repair_rejection_count,
         runtime_unavailable_count,
         runtime_replay_restore_count,
+        delivery_recovery_success_count,
+        delivery_recovery_rejection_count,
+        delivery_outbox_total: outbox_status.output.total_job_count,
+        delivery_outbox_queued_count: outbox_status.output.queued_job_count,
+        delivery_outbox_published_pending_finalize_count: outbox_status
+            .output
+            .published_pending_finalize_job_count,
+        delivery_outbox_failed_count: outbox_status.output.failed_job_count,
+        delivery_outbox_finalized_count: outbox_status.output.finalized_job_count,
+        delivery_outbox_unfinished_count: outbox_status.output.unfinished_job_count,
+        delivery_outbox_critical_unfinished_count: outbox_status
+            .output
+            .critical_unfinished_job_count,
+        delivery_outbox_blocked_count: outbox_status.output.blocked_job_count,
+        delivery_outbox_critical_blocked_count: outbox_status.output.critical_blocked_job_count,
     })
 }
 
@@ -541,6 +625,61 @@ pub fn render_metrics_text(snapshot: &MycMetricsSnapshot) -> String {
         "myc_runtime_replay_restore_total",
         snapshot.runtime_replay_restore_count,
     );
+    push_counter(
+        &mut lines,
+        "myc_delivery_recovery_success_total",
+        snapshot.delivery_recovery_success_count,
+    );
+    push_counter(
+        &mut lines,
+        "myc_delivery_recovery_rejection_total",
+        snapshot.delivery_recovery_rejection_count,
+    );
+    push_counter(
+        &mut lines,
+        "myc_delivery_outbox_total",
+        snapshot.delivery_outbox_total,
+    );
+    push_counter(
+        &mut lines,
+        "myc_delivery_outbox_queued_total",
+        snapshot.delivery_outbox_queued_count,
+    );
+    push_counter(
+        &mut lines,
+        "myc_delivery_outbox_published_pending_finalize_total",
+        snapshot.delivery_outbox_published_pending_finalize_count,
+    );
+    push_counter(
+        &mut lines,
+        "myc_delivery_outbox_failed_total",
+        snapshot.delivery_outbox_failed_count,
+    );
+    push_counter(
+        &mut lines,
+        "myc_delivery_outbox_finalized_total",
+        snapshot.delivery_outbox_finalized_count,
+    );
+    push_counter(
+        &mut lines,
+        "myc_delivery_outbox_unfinished_total",
+        snapshot.delivery_outbox_unfinished_count,
+    );
+    push_counter(
+        &mut lines,
+        "myc_delivery_outbox_critical_unfinished_total",
+        snapshot.delivery_outbox_critical_unfinished_count,
+    );
+    push_counter(
+        &mut lines,
+        "myc_delivery_outbox_blocked_total",
+        snapshot.delivery_outbox_blocked_count,
+    );
+    push_counter(
+        &mut lines,
+        "myc_delivery_outbox_critical_blocked_total",
+        snapshot.delivery_outbox_critical_blocked_count,
+    );
 
     lines.join("\n")
 }
@@ -564,6 +703,7 @@ pub fn increment_outcome_counts(
 
 pub fn operation_kind_label(kind: MycOperationAuditKind) -> String {
     match kind {
+        MycOperationAuditKind::DeliveryRecovery => "delivery_recovery".to_owned(),
         MycOperationAuditKind::ListenerResponsePublish => "listener_response_publish".to_owned(),
         MycOperationAuditKind::ConnectAcceptPublish => "connect_accept_publish".to_owned(),
         MycOperationAuditKind::AuthReplayPublish => "auth_replay_publish".to_owned(),
@@ -774,6 +914,229 @@ fn summarize_discovery_relay_group(
         unavailable_relay_count,
         relay_probes,
     }
+}
+
+fn collect_delivery_outbox_status(
+    runtime: &MycRuntime,
+) -> Result<MycDeliveryOutboxStatusEvaluation, MycError> {
+    let outbox_records = runtime.delivery_outbox_store().list_all()?;
+    let workflow_by_id = runtime
+        .signer_manager()?
+        .list_publish_workflows()?
+        .into_iter()
+        .map(|workflow| (workflow.workflow_id.to_string(), workflow))
+        .collect::<BTreeMap<_, _>>();
+    let now_unix = now_unix_secs();
+    let stuck_after_secs = delivery_outbox_stuck_after_secs(runtime);
+    let path = runtime.paths().delivery_outbox_path.clone();
+    let exists = path.exists();
+    let mut queued_job_count = 0usize;
+    let mut published_pending_finalize_job_count = 0usize;
+    let mut finalized_job_count = 0usize;
+    let mut failed_job_count = 0usize;
+    let mut unfinished_job_count = 0usize;
+    let mut critical_unfinished_job_count = 0usize;
+    let mut blocked_job_count = 0usize;
+    let mut critical_blocked_job_count = 0usize;
+    let mut oldest_unfinished_age_secs = None;
+    let mut oldest_blocked_age_secs = None;
+
+    for record in &outbox_records {
+        match record.status {
+            MycDeliveryOutboxStatus::Queued => queued_job_count += 1,
+            MycDeliveryOutboxStatus::PublishedPendingFinalize => {
+                published_pending_finalize_job_count += 1;
+            }
+            MycDeliveryOutboxStatus::Finalized => finalized_job_count += 1,
+            MycDeliveryOutboxStatus::Failed => failed_job_count += 1,
+        }
+
+        if !is_delivery_outbox_unfinished(record) {
+            continue;
+        }
+
+        unfinished_job_count += 1;
+        if is_critical_delivery_outbox_job(record) {
+            critical_unfinished_job_count += 1;
+        }
+        let age_secs = delivery_outbox_record_age_secs(record, now_unix);
+        oldest_unfinished_age_secs =
+            Some(oldest_unfinished_age_secs.map_or(age_secs, |current: u64| current.max(age_secs)));
+
+        if let Some(is_critical) = classify_blocked_delivery_outbox_record(
+            record,
+            &workflow_by_id,
+            age_secs,
+            stuck_after_secs,
+        ) {
+            blocked_job_count += 1;
+            if is_critical {
+                critical_blocked_job_count += 1;
+            }
+            oldest_blocked_age_secs = Some(
+                oldest_blocked_age_secs.map_or(age_secs, |current: u64| current.max(age_secs)),
+            );
+        }
+    }
+
+    let last_recovery = latest_delivery_recovery_status(runtime)?;
+    let mut reasons = Vec::new();
+    if !exists {
+        reasons.push(format!(
+            "delivery outbox persistence file at {} is missing",
+            path.display()
+        ));
+    }
+    if critical_blocked_job_count > 0 {
+        reasons.push(format!(
+            "{critical_blocked_job_count} critical delivery outbox job(s) are blocked"
+        ));
+    }
+    let noncritical_blocked_job_count =
+        blocked_job_count.saturating_sub(critical_blocked_job_count);
+    if noncritical_blocked_job_count > 0 {
+        reasons.push(format!(
+            "{noncritical_blocked_job_count} non-critical delivery outbox job(s) are blocked"
+        ));
+    }
+
+    let (status, ready) = if !exists || critical_blocked_job_count > 0 {
+        (MycRuntimeStatus::Unready, false)
+    } else if blocked_job_count > 0 {
+        (MycRuntimeStatus::Degraded, true)
+    } else {
+        (MycRuntimeStatus::Healthy, true)
+    };
+
+    Ok(MycDeliveryOutboxStatusEvaluation {
+        output: MycDeliveryOutboxStatusOutput {
+            status,
+            ready,
+            path,
+            exists,
+            total_job_count: outbox_records.len(),
+            queued_job_count,
+            published_pending_finalize_job_count,
+            finalized_job_count,
+            failed_job_count,
+            unfinished_job_count,
+            critical_unfinished_job_count,
+            blocked_job_count,
+            critical_blocked_job_count,
+            stuck_after_secs,
+            oldest_unfinished_age_secs,
+            oldest_blocked_age_secs,
+            last_recovery,
+        },
+        reasons,
+    })
+}
+
+fn latest_delivery_recovery_status(
+    runtime: &MycRuntime,
+) -> Result<Option<MycDeliveryRecoveryStatusOutput>, MycError> {
+    let latest = runtime
+        .operation_audit_store()
+        .list_all()?
+        .into_iter()
+        .filter(|record| record.operation == MycOperationAuditKind::DeliveryRecovery)
+        .max_by_key(|record| record.recorded_at_unix);
+    Ok(latest.map(|record| MycDeliveryRecoveryStatusOutput {
+        recorded_at_unix: record.recorded_at_unix,
+        outcome: record.outcome,
+        summary: record.relay_outcome_summary,
+    }))
+}
+
+fn delivery_outbox_stuck_after_secs(runtime: &MycRuntime) -> u64 {
+    let transport = &runtime.config().transport;
+    let mut total_millis = transport
+        .connect_timeout_secs
+        .saturating_mul(1000)
+        .saturating_mul(transport.publish_max_attempts as u64);
+    for completed_attempt in 1..transport.publish_max_attempts {
+        total_millis =
+            total_millis.saturating_add(delivery_outbox_backoff_millis(runtime, completed_attempt));
+    }
+    total_millis.saturating_add(999) / 1000
+}
+
+fn delivery_outbox_backoff_millis(runtime: &MycRuntime, completed_attempt_number: usize) -> u64 {
+    let transport = &runtime.config().transport;
+    let exponent = completed_attempt_number.saturating_sub(1) as u32;
+    let multiplier = 1u64.checked_shl(exponent).unwrap_or(u64::MAX);
+    let scaled = transport
+        .publish_initial_backoff_millis
+        .saturating_mul(multiplier);
+    scaled.min(transport.publish_max_backoff_millis)
+}
+
+fn is_delivery_outbox_unfinished(record: &MycDeliveryOutboxRecord) -> bool {
+    matches!(
+        record.status,
+        MycDeliveryOutboxStatus::Queued | MycDeliveryOutboxStatus::PublishedPendingFinalize
+    )
+}
+
+fn is_critical_delivery_outbox_job(record: &MycDeliveryOutboxRecord) -> bool {
+    record.kind != crate::outbox::MycDeliveryOutboxKind::DiscoveryHandlerPublish
+}
+
+fn delivery_outbox_record_age_secs(record: &MycDeliveryOutboxRecord, now_unix: u64) -> u64 {
+    now_unix.saturating_sub(record.updated_at_unix)
+}
+
+fn classify_blocked_delivery_outbox_record(
+    record: &MycDeliveryOutboxRecord,
+    workflow_by_id: &BTreeMap<String, RadrootsNostrSignerPublishWorkflowRecord>,
+    age_secs: u64,
+    stuck_after_secs: u64,
+) -> Option<bool> {
+    if !is_delivery_outbox_unfinished(record) {
+        return None;
+    }
+
+    let is_critical = is_critical_delivery_outbox_job(record);
+    match record.kind {
+        crate::outbox::MycDeliveryOutboxKind::DiscoveryHandlerPublish => {
+            if record.signer_publish_workflow_id.is_some() {
+                return Some(false);
+            }
+        }
+        crate::outbox::MycDeliveryOutboxKind::ConnectAcceptPublish
+        | crate::outbox::MycDeliveryOutboxKind::AuthReplayPublish => {
+            if record.signer_publish_workflow_id.is_none() {
+                return Some(true);
+            }
+        }
+        crate::outbox::MycDeliveryOutboxKind::ListenerResponsePublish => {}
+    }
+
+    if let Some(workflow_id) = record.signer_publish_workflow_id.as_ref() {
+        let Some(workflow) = workflow_by_id.get(workflow_id.as_str()) else {
+            return Some(is_critical);
+        };
+        let expected_state = match record.status {
+            MycDeliveryOutboxStatus::Queued => {
+                RadrootsNostrSignerPublishWorkflowState::PendingPublish
+            }
+            MycDeliveryOutboxStatus::PublishedPendingFinalize => {
+                RadrootsNostrSignerPublishWorkflowState::PublishedPendingFinalize
+            }
+            MycDeliveryOutboxStatus::Finalized | MycDeliveryOutboxStatus::Failed => {
+                return None;
+            }
+        };
+        if workflow.state != expected_state {
+            return Some(is_critical);
+        }
+    }
+
+    if age_secs > stuck_after_secs {
+        return Some(is_critical);
+    }
+
+    None
 }
 
 fn combine_runtime_status(
@@ -1197,6 +1560,17 @@ mod tests {
             runtime_repair_rejection_count: 0,
             runtime_unavailable_count: 0,
             runtime_replay_restore_count: 0,
+            delivery_recovery_success_count: 1,
+            delivery_recovery_rejection_count: 0,
+            delivery_outbox_total: 2,
+            delivery_outbox_queued_count: 1,
+            delivery_outbox_published_pending_finalize_count: 0,
+            delivery_outbox_failed_count: 1,
+            delivery_outbox_finalized_count: 0,
+            delivery_outbox_unfinished_count: 1,
+            delivery_outbox_critical_unfinished_count: 1,
+            delivery_outbox_blocked_count: 0,
+            delivery_outbox_critical_blocked_count: 0,
         };
 
         let rendered = render_metrics_text(&metrics);
@@ -1205,6 +1579,8 @@ mod tests {
         assert!(rendered.contains(
             r#"myc_runtime_operation_kind_total{kind="listener_response_publish",outcome="succeeded"} 1"#
         ));
+        assert!(rendered.contains("myc_delivery_recovery_success_total 1"));
+        assert!(rendered.contains("myc_delivery_outbox_total 2"));
     }
 
     #[test]

@@ -45,7 +45,8 @@ pub use discovery::{
 };
 pub use error::MycError;
 pub use operability::{
-    MycAuditDecisionCounts, MycCustodyStatusOutput, MycDiscoveryStatusOutput, MycMetricsSnapshot,
+    MycAuditDecisionCounts, MycCustodyStatusOutput, MycDeliveryOutboxStatusOutput,
+    MycDeliveryRecoveryStatusOutput, MycDiscoveryStatusOutput, MycMetricsSnapshot,
     MycOperationOutcomeCounts, MycPersistenceStatusOutput, MycRelayProbe,
     MycRelayProbeAvailability, MycRuntimeAuditPersistenceStatusOutput, MycRuntimeStatus,
     MycSignerStatePersistenceStatusOutput, MycSqliteSchemaStatusOutput, MycStatusFullOutput,

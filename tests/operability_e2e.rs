@@ -1,11 +1,19 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use myc::{
-    MycConfig, MycRuntime, MycRuntimeAuditBackend, MycRuntimeStatus, MycSignerStateBackend,
-    MycTransportDeliveryPolicy, collect_status_full,
+    MycConfig, MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycOperationAuditKind,
+    MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime, MycRuntimeAuditBackend,
+    MycRuntimeStatus, MycSignerStateBackend, MycTransportDeliveryPolicy, collect_status_full,
 };
 use radroots_identity::RadrootsIdentity;
+use radroots_nostr::prelude::{
+    RadrootsNostrEventBuilder, RadrootsNostrKind, RadrootsNostrRelayUrl,
+};
+use radroots_nostr_signer::prelude::{
+    RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerConnectionDraft,
+};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::time::sleep;
@@ -114,6 +122,19 @@ fn write_test_identity(path: &Path, secret_key: &str) {
         .expect("write identity");
 }
 
+fn signed_delivery_event(identity: &RadrootsIdentity, content: &str) -> nostr::Event {
+    RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), content)
+        .sign_with_keys(identity.keys())
+        .expect("sign event")
+}
+
+fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time")
+        .as_secs()
+}
+
 fn build_runtime<F>(configure: F) -> MycRuntime
 where
     F: FnOnce(&mut MycConfig),
@@ -191,6 +212,127 @@ async fn status_is_unready_when_all_policy_cannot_be_satisfied() -> TestResult<(
     assert_eq!(status.transport.status, MycRuntimeStatus::Unready);
     assert_eq!(status.transport.available_relay_count, 1);
     assert_eq!(status.transport.required_available_relays, 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn status_is_unready_when_critical_delivery_job_is_blocked() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let relay_url: RadrootsNostrRelayUrl = relay.url().parse()?;
+    let runtime = build_runtime(|config| {
+        config.transport.enabled = true;
+        config.transport.relays = vec![relay.url().to_owned()];
+    });
+    let client_identity = RadrootsIdentity::from_secret_key_str(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    )?;
+    let manager = runtime.signer_manager()?;
+    let connection = manager.register_connection(
+        RadrootsNostrSignerConnectionDraft::new(
+            client_identity.public_key(),
+            runtime.user_public_identity(),
+        )
+        .with_connect_secret("blocked-secret")
+        .with_relays(vec![relay_url.clone()])
+        .with_approval_requirement(RadrootsNostrSignerApprovalRequirement::NotRequired),
+    )?;
+    let workflow = manager.begin_connect_secret_publish_finalization(&connection.connection_id)?;
+    let outbox_record = MycDeliveryOutboxRecord::new(
+        MycDeliveryOutboxKind::ListenerResponsePublish,
+        signed_delivery_event(runtime.signer_identity(), "blocked-listener"),
+        vec![relay_url],
+    )?
+    .with_connection_id(&connection.connection_id)
+    .with_request_id("blocked-request")
+    .with_signer_publish_workflow_id(&workflow.workflow_id);
+    runtime.delivery_outbox_store().enqueue(&outbox_record)?;
+    manager.cancel_publish_workflow(&workflow.workflow_id)?;
+
+    let status = collect_status_full(&runtime).await?;
+
+    assert_eq!(status.transport.status, MycRuntimeStatus::Healthy);
+    assert_eq!(status.status, MycRuntimeStatus::Unready);
+    assert!(!status.ready);
+    assert_eq!(status.delivery_outbox.status, MycRuntimeStatus::Unready);
+    assert!(!status.delivery_outbox.ready);
+    assert_eq!(status.delivery_outbox.unfinished_job_count, 1);
+    assert_eq!(status.delivery_outbox.critical_unfinished_job_count, 1);
+    assert_eq!(status.delivery_outbox.blocked_job_count, 1);
+    assert_eq!(status.delivery_outbox.critical_blocked_job_count, 1);
+    assert!(
+        status
+            .reasons
+            .iter()
+            .any(|reason| reason == "1 critical delivery outbox job(s) are blocked")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn status_is_degraded_but_ready_when_only_discovery_job_is_stuck() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let relay_url: RadrootsNostrRelayUrl = relay.url().parse()?;
+    let runtime = build_runtime(|config| {
+        config.transport.enabled = true;
+        config.transport.relays = vec![relay.url().to_owned()];
+        config.transport.connect_timeout_secs = 1;
+    });
+    let mut outbox_record = MycDeliveryOutboxRecord::new(
+        MycDeliveryOutboxKind::DiscoveryHandlerPublish,
+        signed_delivery_event(runtime.signer_identity(), "stuck-discovery"),
+        vec![relay_url],
+    )?
+    .with_attempt_id("discovery-attempt-1");
+    let old_timestamp = now_unix_secs().saturating_sub(30);
+    outbox_record.created_at_unix = old_timestamp;
+    outbox_record.updated_at_unix = old_timestamp;
+    runtime.delivery_outbox_store().enqueue(&outbox_record)?;
+
+    let status = collect_status_full(&runtime).await?;
+
+    assert_eq!(status.transport.status, MycRuntimeStatus::Healthy);
+    assert_eq!(status.status, MycRuntimeStatus::Degraded);
+    assert!(status.ready);
+    assert_eq!(status.delivery_outbox.status, MycRuntimeStatus::Degraded);
+    assert!(status.delivery_outbox.ready);
+    assert_eq!(status.delivery_outbox.unfinished_job_count, 1);
+    assert_eq!(status.delivery_outbox.critical_unfinished_job_count, 0);
+    assert_eq!(status.delivery_outbox.blocked_job_count, 1);
+    assert_eq!(status.delivery_outbox.critical_blocked_job_count, 0);
+    assert_eq!(status.delivery_outbox.oldest_blocked_age_secs, Some(30));
+    assert!(
+        status
+            .reasons
+            .iter()
+            .any(|reason| reason == "1 non-critical delivery outbox job(s) are blocked")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn status_surfaces_last_delivery_recovery_result() -> TestResult<()> {
+    let runtime = build_runtime(|_| {});
+    runtime.record_operation_audit(&MycOperationAuditRecord::new(
+        MycOperationAuditKind::DeliveryRecovery,
+        MycOperationAuditOutcome::Succeeded,
+        None,
+        None,
+        2,
+        2,
+        "recovered 2/2 delivery outbox job(s); republished 1",
+    ));
+
+    let status = collect_status_full(&runtime).await?;
+    let last_recovery = status
+        .delivery_outbox
+        .last_recovery
+        .expect("last delivery recovery");
+
+    assert_eq!(last_recovery.outcome, MycOperationAuditOutcome::Succeeded);
+    assert_eq!(
+        last_recovery.summary,
+        "recovered 2/2 delivery outbox job(s); republished 1"
+    );
     Ok(())
 }
 

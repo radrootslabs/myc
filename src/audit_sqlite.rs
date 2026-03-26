@@ -471,6 +471,7 @@ fn parse_optional_usize(value: i64) -> Result<usize, MycError> {
 
 fn operation_kind_label(value: MycOperationAuditKind) -> &'static str {
     match value {
+        MycOperationAuditKind::DeliveryRecovery => "delivery_recovery",
         MycOperationAuditKind::ListenerResponsePublish => "listener_response_publish",
         MycOperationAuditKind::ConnectAcceptPublish => "connect_accept_publish",
         MycOperationAuditKind::AuthReplayPublish => "auth_replay_publish",
@@ -485,6 +486,7 @@ fn operation_kind_label(value: MycOperationAuditKind) -> &'static str {
 
 fn parse_operation_kind(value: &str) -> Result<MycOperationAuditKind, MycError> {
     match value {
+        "delivery_recovery" => Ok(MycOperationAuditKind::DeliveryRecovery),
         "listener_response_publish" => Ok(MycOperationAuditKind::ListenerResponsePublish),
         "connect_accept_publish" => Ok(MycOperationAuditKind::ConnectAcceptPublish),
         "auth_replay_publish" => Ok(MycOperationAuditKind::AuthReplayPublish),

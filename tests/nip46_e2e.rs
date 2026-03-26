@@ -1705,7 +1705,7 @@ async fn startup_recovery_republishes_queued_listener_connect_secret_job() -> Te
     assert!(outbox_records[0].published_at_unix.is_some());
     assert!(outbox_records[0].finalized_at_unix.is_some());
     let audit_records = restarted_runtime.operation_audit_store().list_all()?;
-    assert_eq!(audit_records.len(), 1);
+    assert_eq!(audit_records.len(), 2);
     assert_eq!(
         audit_records[0].operation,
         MycOperationAuditKind::ListenerResponsePublish
@@ -1717,6 +1717,14 @@ async fn startup_recovery_republishes_queued_listener_connect_secret_job() -> Te
     assert_eq!(
         audit_records[0].request_id.as_deref(),
         Some("startup-recovery-connect")
+    );
+    assert_eq!(
+        audit_records[1].operation,
+        MycOperationAuditKind::DeliveryRecovery
+    );
+    assert_eq!(
+        audit_records[1].outcome,
+        MycOperationAuditOutcome::Succeeded
     );
 
     Ok(())

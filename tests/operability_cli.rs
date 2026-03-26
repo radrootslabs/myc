@@ -1,8 +1,12 @@
 use std::path::Path;
 use std::process::Command;
 
-use myc::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime};
+use myc::{
+    MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycOperationAuditKind,
+    MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime,
+};
 use radroots_identity::RadrootsIdentity;
+use radroots_nostr::prelude::{RadrootsNostrEventBuilder, RadrootsNostrKind};
 use serde_json::Value;
 
 fn write_test_identity(path: &Path, secret_key: &str) {
@@ -49,6 +53,12 @@ MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=1\n",
     env_path
 }
 
+fn signed_event(identity: &RadrootsIdentity) -> nostr::Event {
+    RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), "operability")
+        .sign_with_keys(identity.keys())
+        .expect("sign event")
+}
+
 #[test]
 fn status_summary_command_emits_machine_readable_json() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -74,6 +84,9 @@ fn status_summary_command_emits_machine_readable_json() {
         value["persistence"]["runtime_audit"]["backend"],
         "jsonl_file"
     );
+    assert_eq!(value["delivery_outbox"]["status"], "healthy");
+    assert_eq!(value["delivery_outbox"]["ready"], true);
+    assert_eq!(value["delivery_outbox"]["total_job_count"], 0);
     assert_eq!(value["transport"]["enabled"], false);
 }
 
@@ -92,6 +105,25 @@ fn metrics_command_emits_json_and_prometheus_formats() {
         0,
         "restored pending request after failed replay publish",
     ));
+    runtime.record_operation_audit(&MycOperationAuditRecord::new(
+        MycOperationAuditKind::DeliveryRecovery,
+        MycOperationAuditOutcome::Succeeded,
+        None,
+        None,
+        1,
+        1,
+        "recovered 1/1 delivery outbox job(s); republished 1",
+    ));
+    let outbox_record = MycDeliveryOutboxRecord::new(
+        MycDeliveryOutboxKind::DiscoveryHandlerPublish,
+        signed_event(runtime.signer_identity()),
+        vec!["wss://relay.example.com".parse().expect("relay url")],
+    )
+    .expect("outbox record");
+    runtime
+        .delivery_outbox_store()
+        .enqueue(&outbox_record)
+        .expect("enqueue outbox record");
 
     let json_output = Command::new(env!("CARGO_BIN_EXE_myc"))
         .arg("--env-file")
@@ -104,6 +136,9 @@ fn metrics_command_emits_json_and_prometheus_formats() {
     assert!(json_output.status.success());
     let json_value: Value = serde_json::from_slice(&json_output.stdout).expect("metrics json");
     assert_eq!(json_value["runtime_replay_restore_count"], 1);
+    assert_eq!(json_value["delivery_recovery_success_count"], 1);
+    assert_eq!(json_value["delivery_outbox_total"], 1);
+    assert_eq!(json_value["delivery_outbox_queued_count"], 1);
 
     let prometheus_output = Command::new(env!("CARGO_BIN_EXE_myc"))
         .arg("--env-file")
@@ -116,5 +151,7 @@ fn metrics_command_emits_json_and_prometheus_formats() {
     assert!(prometheus_output.status.success());
     let rendered = String::from_utf8(prometheus_output.stdout).expect("utf8 metrics");
     assert!(rendered.contains("myc_runtime_replay_restore_total 1"));
+    assert!(rendered.contains("myc_delivery_recovery_success_total 1"));
+    assert!(rendered.contains("myc_delivery_outbox_total 1"));
     assert!(rendered.contains("myc_signer_request_total 0"));
 }

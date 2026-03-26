@@ -291,7 +291,16 @@ impl MycRuntime {
             .delivery_outbox_store
             .list_by_status(MycDeliveryOutboxStatus::PublishedPendingFinalize)?;
         if queued_records.is_empty() && published_records.is_empty() {
-            self.ensure_no_orphaned_publish_workflows()?;
+            if let Err(error) = self.ensure_no_orphaned_publish_workflows() {
+                self.record_delivery_recovery_summary(
+                    MycOperationAuditOutcome::Rejected,
+                    0,
+                    0,
+                    0,
+                    error.to_string(),
+                );
+                return Err(error);
+            }
             return Ok(());
         }
 
@@ -307,12 +316,49 @@ impl MycRuntime {
             "starting myc delivery recovery"
         );
 
+        let unfinished_delivery_job_count = queued_records.len();
+        let mut finalized_job_count = 0usize;
+        let mut republished_job_count = 0usize;
         let manager = self.signer_manager()?;
         for record in queued_records {
-            self.recover_delivery_outbox_record(&manager, record)
-                .await?;
+            match self.recover_delivery_outbox_record(&manager, record).await {
+                Ok(republished) => {
+                    finalized_job_count += 1;
+                    if republished {
+                        republished_job_count += 1;
+                    }
+                }
+                Err(error) => {
+                    self.record_delivery_recovery_summary(
+                        MycOperationAuditOutcome::Rejected,
+                        unfinished_delivery_job_count,
+                        finalized_job_count,
+                        republished_job_count,
+                        error.to_string(),
+                    );
+                    return Err(error);
+                }
+            }
         }
-        self.ensure_no_orphaned_publish_workflows()?;
+        if let Err(error) = self.ensure_no_orphaned_publish_workflows() {
+            self.record_delivery_recovery_summary(
+                MycOperationAuditOutcome::Rejected,
+                unfinished_delivery_job_count,
+                finalized_job_count,
+                republished_job_count,
+                error.to_string(),
+            );
+            return Err(error);
+        }
+        self.record_delivery_recovery_summary(
+            MycOperationAuditOutcome::Succeeded,
+            unfinished_delivery_job_count,
+            finalized_job_count,
+            republished_job_count,
+            format!(
+                "recovered {finalized_job_count}/{unfinished_delivery_job_count} delivery outbox job(s); republished {republished_job_count}"
+            ),
+        );
 
         tracing::info!("completed myc delivery recovery");
         Ok(())
@@ -343,7 +389,7 @@ impl MycRuntime {
         &self,
         manager: &RadrootsNostrSignerManager,
         record: MycDeliveryOutboxRecord,
-    ) -> Result<(), MycError> {
+    ) -> Result<bool, MycError> {
         self.validate_outbox_workflow_expectations(&record)?;
         let workflow = self.lookup_publish_workflow_for_record(manager, &record)?;
         tracing::info!(
@@ -379,12 +425,13 @@ impl MycRuntime {
                     let published = self
                         .delivery_outbox_store
                         .mark_published_pending_finalize(&record.job_id, publish_attempt_count)?;
-                    return self.finalize_recovered_delivery_job(
+                    self.finalize_recovered_delivery_job(
                         manager,
                         published,
                         workflow.as_ref(),
                         None,
-                    );
+                    )?;
+                    return Ok(false);
                 }
 
                 let publish_outcome = self
@@ -428,12 +475,14 @@ impl MycRuntime {
                     published,
                     published_workflow.as_ref(),
                     Some(&publish_outcome),
-                )
+                )?;
+                Ok(true)
             }
             MycDeliveryOutboxStatus::PublishedPendingFinalize => {
-                self.finalize_recovered_delivery_job(manager, record, workflow.as_ref(), None)
+                self.finalize_recovered_delivery_job(manager, record, workflow.as_ref(), None)?;
+                Ok(false)
             }
-            MycDeliveryOutboxStatus::Finalized | MycDeliveryOutboxStatus::Failed => Ok(()),
+            MycDeliveryOutboxStatus::Finalized | MycDeliveryOutboxStatus::Failed => Ok(false),
         }
     }
 
@@ -735,6 +784,35 @@ impl MycRuntime {
             "recovered myc delivery outbox job"
         );
         self.record_operation_audit(&audit_record);
+    }
+
+    fn record_delivery_recovery_summary(
+        &self,
+        outcome: MycOperationAuditOutcome,
+        unfinished_job_count: usize,
+        finalized_job_count: usize,
+        republished_job_count: usize,
+        summary: impl Into<String>,
+    ) {
+        let summary = summary.into();
+        let record = MycOperationAuditRecord::new(
+            MycOperationAuditKind::DeliveryRecovery,
+            outcome,
+            None,
+            None,
+            unfinished_job_count,
+            finalized_job_count,
+            summary.clone(),
+        );
+        tracing::info!(
+            outcome = ?outcome,
+            unfinished_job_count,
+            finalized_job_count,
+            republished_job_count,
+            summary = %summary,
+            "recorded myc delivery recovery summary"
+        );
+        self.record_operation_audit(&record);
     }
 
     fn required_acknowledged_relay_count(&self, relay_count: usize) -> Result<usize, MycError> {
@@ -1529,7 +1607,7 @@ mod tests {
         assert_eq!(outbox_records[0].status, MycDeliveryOutboxStatus::Finalized);
         assert!(outbox_records[0].finalized_at_unix.is_some());
         let audit_records = runtime.operation_audit_store().list().expect("list audit");
-        assert_eq!(audit_records.len(), 1);
+        assert_eq!(audit_records.len(), 2);
         assert_eq!(
             audit_records[0].operation,
             MycOperationAuditKind::ListenerResponsePublish
@@ -1541,6 +1619,14 @@ mod tests {
         assert_eq!(
             audit_records[0].request_id.as_deref(),
             Some("recovery-request")
+        );
+        assert_eq!(
+            audit_records[1].operation,
+            MycOperationAuditKind::DeliveryRecovery
+        );
+        assert_eq!(
+            audit_records[1].outcome,
+            MycOperationAuditOutcome::Succeeded
         );
     }
 
