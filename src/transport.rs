@@ -3,7 +3,6 @@ pub mod nip46;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
-use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{
     RadrootsNostrClient, RadrootsNostrEvent, RadrootsNostrEventBuilder, RadrootsNostrOutput,
     RadrootsNostrRelayUrl,
@@ -12,6 +11,7 @@ use serde::Serialize;
 use tokio::time::sleep;
 
 use crate::config::{MycTransportConfig, MycTransportDeliveryPolicy};
+use crate::custody::MycActiveIdentity;
 use crate::error::MycError;
 
 pub use nip46::{MycNip46Handler, MycNip46Service};
@@ -72,14 +72,14 @@ struct MycPublishSettings {
 impl MycNostrTransport {
     pub fn bootstrap(
         config: &MycTransportConfig,
-        signer_identity: &RadrootsIdentity,
+        signer_identity: &MycActiveIdentity,
     ) -> Result<Option<Self>, MycError> {
         if !config.enabled {
             return Ok(None);
         }
 
         Ok(Some(Self {
-            client: RadrootsNostrClient::from_identity(signer_identity),
+            client: signer_identity.nostr_client(),
             relays: config.parse_relays()?,
             connect_timeout_secs: config.connect_timeout_secs,
             delivery_policy: config.delivery_policy,
@@ -118,7 +118,7 @@ impl MycNostrTransport {
     }
 
     pub async fn publish_once(
-        signer_identity: &RadrootsIdentity,
+        signer_identity: &MycActiveIdentity,
         relays: &[RadrootsNostrRelayUrl],
         config: &MycTransportConfig,
         operation: &str,
@@ -130,16 +130,12 @@ impl MycNostrTransport {
             ));
         }
 
-        let event = event
-            .sign_with_keys(signer_identity.keys())
-            .map_err(|error| {
-                MycError::InvalidOperation(format!("failed to sign publish event: {error}"))
-            })?;
+        let event = signer_identity.sign_event_builder(event, "publish")?;
         Self::publish_event_once(signer_identity, relays, config, operation, &event).await
     }
 
     pub async fn publish_event_once(
-        signer_identity: &RadrootsIdentity,
+        signer_identity: &MycActiveIdentity,
         relays: &[RadrootsNostrRelayUrl],
         config: &MycTransportConfig,
         operation: &str,
@@ -153,7 +149,7 @@ impl MycNostrTransport {
 
         let settings = MycPublishSettings::from_config(config);
         publish_with_policy(relays, &settings, operation, || async {
-            let client = RadrootsNostrClient::from_identity(signer_identity);
+            let client = signer_identity.nostr_client();
             for relay in relays {
                 client
                     .add_relay(relay.as_str())
@@ -517,21 +513,23 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, Mutex};
 
-    use radroots_identity::RadrootsIdentity;
     use radroots_nostr::prelude::{
         RadrootsNostrEventId, RadrootsNostrOutput, RadrootsNostrRelayUrl,
     };
     use tokio::time::Instant;
 
     use crate::config::{MycTransportConfig, MycTransportDeliveryPolicy};
+    use crate::custody::MycActiveIdentity;
 
     use super::{MycNostrTransport, MycPublishSettings, MycTransportSnapshot, publish_with_policy};
 
-    fn signer_identity() -> RadrootsIdentity {
-        RadrootsIdentity::from_secret_key_str(
-            "1111111111111111111111111111111111111111111111111111111111111111",
+    fn signer_identity() -> MycActiveIdentity {
+        MycActiveIdentity::new(
+            radroots_identity::RadrootsIdentity::from_secret_key_str(
+                "1111111111111111111111111111111111111111111111111111111111111111",
+            )
+            .expect("identity"),
         )
-        .expect("identity")
     }
 
     #[test]

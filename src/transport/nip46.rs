@@ -1,8 +1,5 @@
 use std::future::Future;
 
-use nostr::nips::nip04;
-use nostr::nips::nip44;
-use nostr::nips::nip44::Version;
 use radroots_nostr::prelude::{
     RadrootsNostrEvent, RadrootsNostrEventBuilder, RadrootsNostrFilter, RadrootsNostrKind,
     RadrootsNostrPublicKey, RadrootsNostrRelayPoolNotification, RadrootsNostrRelayUrl,
@@ -75,12 +72,10 @@ impl MycNip46Handler {
         &self,
         event: &RadrootsNostrEvent,
     ) -> Result<RadrootsNostrConnectRequestMessage, MycError> {
-        let decrypted = nip44::decrypt(
-            self.signer.signer_identity().keys().secret_key(),
-            &event.pubkey,
-            &event.content,
-        )
-        .map_err(|err| MycError::Nip46Decrypt(err.to_string()))?;
+        let decrypted = self
+            .signer
+            .signer_identity()
+            .nip44_decrypt(&event.pubkey, &event.content)?;
         serde_json::from_str(&decrypted)
             .map_err(radroots_nostr_connect::prelude::RadrootsNostrConnectError::from)
             .map_err(Into::into)
@@ -95,13 +90,10 @@ impl MycNip46Handler {
         let envelope = response.into_envelope(request_id.into())?;
         let payload = serde_json::to_string(&envelope)
             .map_err(|err| MycError::Nip46Encrypt(err.to_string()))?;
-        let ciphertext = nip44::encrypt(
-            self.signer.signer_identity().keys().secret_key(),
-            &client_public_key,
-            payload,
-            Version::V2,
-        )
-        .map_err(|err| MycError::Nip46Encrypt(err.to_string()))?;
+        let ciphertext = self
+            .signer
+            .signer_identity()
+            .nip44_encrypt(&client_public_key, payload)?;
 
         Ok(RadrootsNostrEventBuilder::new(
             radroots_nostr_kind(RADROOTS_NOSTR_CONNECT_RPC_KIND),
@@ -541,7 +533,11 @@ impl MycNip46Handler {
             });
         }
 
-        match unsigned_event.sign_with_keys(self.signer.user_identity().keys()) {
+        match self
+            .signer
+            .user_identity()
+            .sign_unsigned_event(unsigned_event, "managed user sign_event")
+        {
             Ok(event) => Ok(RadrootsNostrConnectResponse::SignedEvent(event)),
             Err(error) => Ok(RadrootsNostrConnectResponse::Error {
                 result: None,
@@ -554,12 +550,15 @@ impl MycNip46Handler {
         &self,
         request: RadrootsNostrConnectRequest,
     ) -> Result<RadrootsNostrConnectResponse, MycError> {
-        let user_secret_key = self.signer.user_identity().keys().secret_key();
         Ok(match request {
             RadrootsNostrConnectRequest::Nip04Encrypt {
                 public_key,
                 plaintext,
-            } => match nip04::encrypt(user_secret_key, &public_key, plaintext) {
+            } => match self
+                .signer
+                .user_identity()
+                .nip04_encrypt(&public_key, plaintext)
+            {
                 Ok(ciphertext) => RadrootsNostrConnectResponse::Nip04Encrypt(ciphertext),
                 Err(error) => RadrootsNostrConnectResponse::Error {
                     result: None,
@@ -569,7 +568,11 @@ impl MycNip46Handler {
             RadrootsNostrConnectRequest::Nip04Decrypt {
                 public_key,
                 ciphertext,
-            } => match nip04::decrypt(user_secret_key, &public_key, ciphertext) {
+            } => match self
+                .signer
+                .user_identity()
+                .nip04_decrypt(&public_key, ciphertext)
+            {
                 Ok(plaintext) => RadrootsNostrConnectResponse::Nip04Decrypt(plaintext),
                 Err(error) => RadrootsNostrConnectResponse::Error {
                     result: None,
@@ -579,7 +582,11 @@ impl MycNip46Handler {
             RadrootsNostrConnectRequest::Nip44Encrypt {
                 public_key,
                 plaintext,
-            } => match nip44::encrypt(user_secret_key, &public_key, plaintext, Version::V2) {
+            } => match self
+                .signer
+                .user_identity()
+                .nip44_encrypt(&public_key, plaintext)
+            {
                 Ok(ciphertext) => RadrootsNostrConnectResponse::Nip44Encrypt(ciphertext),
                 Err(error) => RadrootsNostrConnectResponse::Error {
                     result: None,
@@ -589,7 +596,11 @@ impl MycNip46Handler {
             RadrootsNostrConnectRequest::Nip44Decrypt {
                 public_key,
                 ciphertext,
-            } => match nip44::decrypt(user_secret_key, &public_key, ciphertext) {
+            } => match self
+                .signer
+                .user_identity()
+                .nip44_decrypt(&public_key, ciphertext)
+            {
                 Ok(plaintext) => RadrootsNostrConnectResponse::Nip44Decrypt(plaintext),
                 Err(error) => RadrootsNostrConnectResponse::Error {
                     result: None,
@@ -692,18 +703,22 @@ impl MycNip46Service {
             let response_event =
                 self.handler
                     .build_response_event(event.pubkey, request_id.as_str(), response)?;
-            let response_event =
-                match response_event.sign_with_keys(self.handler.signer.signer_identity().keys()) {
-                    Ok(event) => event,
-                    Err(error) => {
-                        self.record_listener_publish_local_rejection(
-                            connection_id.as_ref(),
-                            request_id.as_str(),
-                            format!("failed to sign NIP-46 response event: {error}"),
-                        );
-                        continue;
-                    }
-                };
+            let response_event = match self
+                .handler
+                .signer
+                .signer_identity()
+                .sign_event_builder(response_event, "NIP-46 response")
+            {
+                Ok(event) => event,
+                Err(error) => {
+                    self.record_listener_publish_local_rejection(
+                        connection_id.as_ref(),
+                        request_id.as_str(),
+                        format!("failed to sign NIP-46 response event: {error}"),
+                    );
+                    continue;
+                }
+            };
 
             let mut workflow_id = None;
             if let Some(connect_connection_id) = consume_connect_secret_for.as_ref() {
@@ -1296,8 +1311,9 @@ mod tests {
         let response_builder = handler
             .build_response_event(event.pubkey, "req-1", RadrootsNostrConnectResponse::Pong)
             .expect("response builder");
-        let response_event = response_builder
-            .sign_with_keys(runtime.signer_identity().keys())
+        let response_event = runtime
+            .signer_identity()
+            .sign_event_builder(response_builder, "test response")
             .expect("sign response");
         let decrypted = nip44::decrypt(
             client_keys().secret_key(),

@@ -3,9 +3,10 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use myc::{
-    MycConfig, MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycOperationAuditKind,
-    MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime, MycRuntimeAuditBackend,
-    MycRuntimeStatus, MycSignerStateBackend, MycTransportDeliveryPolicy, collect_status_full,
+    MycActiveIdentity, MycConfig, MycDeliveryOutboxKind, MycDeliveryOutboxRecord,
+    MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime,
+    MycRuntimeAuditBackend, MycRuntimeStatus, MycSignerStateBackend, MycTransportDeliveryPolicy,
+    collect_status_full,
 };
 use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{
@@ -122,9 +123,12 @@ fn write_test_identity(path: &Path, secret_key: &str) {
         .expect("write identity");
 }
 
-fn signed_delivery_event(identity: &RadrootsIdentity, content: &str) -> nostr::Event {
-    RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), content)
-        .sign_with_keys(identity.keys())
+fn signed_delivery_event(identity: &MycActiveIdentity, content: &str) -> nostr::Event {
+    identity
+        .sign_event_builder(
+            RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), content),
+            "operability delivery test event",
+        )
         .expect("sign event")
 }
 

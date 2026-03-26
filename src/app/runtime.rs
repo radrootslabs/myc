@@ -13,7 +13,7 @@ use crate::config::{
     MycAuditConfig, MycConfig, MycIdentitySourceSpec, MycPersistenceConfig, MycRuntimeAuditBackend,
     MycSignerStateBackend, MycTransportDeliveryPolicy,
 };
-use crate::custody::MycIdentityProvider;
+use crate::custody::{MycActiveIdentity, MycIdentityProvider};
 use crate::discovery::MycDiscoveryContext;
 use crate::error::MycError;
 use crate::operability::server::run_observability_server;
@@ -25,7 +25,7 @@ use crate::policy::MycPolicyContext;
 use crate::transport::{
     MycNip46Service, MycNostrTransport, MycPublishOutcome, MycTransportSnapshot,
 };
-use radroots_identity::{RadrootsIdentity, RadrootsIdentityPublic};
+use radroots_identity::RadrootsIdentityPublic;
 use radroots_nostr_signer::prelude::{
     RadrootsNostrFileSignerStore, RadrootsNostrSignerApprovalRequirement,
     RadrootsNostrSignerAuthState, RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerManager,
@@ -73,8 +73,8 @@ pub struct MycStartupSnapshot {
 pub struct MycSignerContext {
     signer_identity_provider: MycIdentityProvider,
     user_identity_provider: MycIdentityProvider,
-    signer_identity: RadrootsIdentity,
-    user_identity: RadrootsIdentity,
+    signer_identity: MycActiveIdentity,
+    user_identity: MycActiveIdentity,
     signer_store: Arc<dyn RadrootsNostrSignerStore>,
     operation_audit_store: Arc<dyn MycOperationAuditStore>,
     policy: MycPolicyContext,
@@ -124,7 +124,7 @@ impl MycRuntime {
         &self.config
     }
 
-    pub fn signer_identity(&self) -> &RadrootsIdentity {
+    pub fn signer_identity(&self) -> &MycActiveIdentity {
         self.signer.signer_identity()
     }
 
@@ -132,7 +132,7 @@ impl MycRuntime {
         self.signer.signer_public_identity()
     }
 
-    pub fn user_identity(&self) -> &RadrootsIdentity {
+    pub fn user_identity(&self) -> &MycActiveIdentity {
         self.signer.user_identity()
     }
 
@@ -698,7 +698,7 @@ impl MycRuntime {
     fn recovery_publisher_identity(
         &self,
         record: &MycDeliveryOutboxRecord,
-    ) -> Result<RadrootsIdentity, MycError> {
+    ) -> Result<MycActiveIdentity, MycError> {
         if record.kind != MycDeliveryOutboxKind::DiscoveryHandlerPublish {
             return Ok(self.signer_identity().clone());
         }
@@ -966,7 +966,7 @@ impl MycRuntimePaths {
 }
 
 impl MycSignerContext {
-    pub fn signer_identity(&self) -> &RadrootsIdentity {
+    pub fn signer_identity(&self) -> &MycActiveIdentity {
         &self.signer_identity
     }
 
@@ -982,7 +982,7 @@ impl MycSignerContext {
         self.signer_identity.to_public()
     }
 
-    pub fn user_identity(&self) -> &RadrootsIdentity {
+    pub fn user_identity(&self) -> &MycActiveIdentity {
         &self.user_identity
     }
 
@@ -1048,8 +1048,8 @@ impl MycSignerContext {
             MycIdentityProvider::from_source("signer", signer_identity_source)?;
         let user_identity_provider =
             MycIdentityProvider::from_source("user", user_identity_source)?;
-        let signer_identity = signer_identity_provider.load_identity()?;
-        let user_identity = user_identity_provider.load_identity()?;
+        let signer_identity = signer_identity_provider.load_active_identity()?;
+        let user_identity = user_identity_provider.load_active_identity()?;
         let signer_store = Self::build_signer_store(persistence, &paths.signer_state_path)?;
         let operation_audit_store =
             Self::build_operation_audit_store(persistence, &paths.audit_dir, audit_config)?;
@@ -1558,8 +1558,12 @@ mod tests {
             .mark_publish_workflow_published(&workflow.workflow_id)
             .expect("mark workflow published");
 
-        let event = RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), "recovery")
-            .sign_with_keys(runtime.signer_identity().keys())
+        let event = runtime
+            .signer_identity()
+            .sign_event_builder(
+                RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), "recovery"),
+                "recovery test",
+            )
             .expect("sign event");
         let outbox_record = MycDeliveryOutboxRecord::new(
             MycDeliveryOutboxKind::ListenerResponsePublish,
@@ -1666,10 +1670,13 @@ mod tests {
         let workflow = manager
             .begin_connect_secret_publish_finalization(&connection.connection_id)
             .expect("begin workflow");
-        let event =
-            RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), "queued-recovery")
-                .sign_with_keys(runtime.signer_identity().keys())
-                .expect("sign event");
+        let event = runtime
+            .signer_identity()
+            .sign_event_builder(
+                RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), "queued-recovery"),
+                "queued recovery test",
+            )
+            .expect("sign event");
         let outbox_record = MycDeliveryOutboxRecord::new(
             MycDeliveryOutboxKind::ListenerResponsePublish,
             event,

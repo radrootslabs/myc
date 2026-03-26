@@ -4,10 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use radroots_identity::RadrootsIdentity;
-use radroots_nostr::prelude::{
-    RadrootsNostrClient, RadrootsNostrRelayStatus, RadrootsNostrRelayUrl,
-};
+use radroots_nostr::prelude::{RadrootsNostrRelayStatus, RadrootsNostrRelayUrl};
 use radroots_nostr_signer::prelude::{
     RadrootsNostrSignerPublishWorkflowRecord, RadrootsNostrSignerPublishWorkflowState,
     RadrootsNostrSignerRequestDecision,
@@ -19,7 +16,7 @@ use tokio::task::JoinSet;
 use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome};
 use crate::config::{MycRuntimeAuditBackend, MycSignerStateBackend, MycTransportDeliveryPolicy};
-use crate::custody::MycIdentityStatusOutput;
+use crate::custody::{MycActiveIdentity, MycIdentityStatusOutput};
 use crate::discovery::MycDiscoveryContext;
 use crate::error::MycError;
 use crate::outbox::{MycDeliveryOutboxRecord, MycDeliveryOutboxStatus, now_unix_secs};
@@ -1176,7 +1173,7 @@ fn required_available_relays(
 }
 
 async fn probe_relays(
-    identity: &RadrootsIdentity,
+    identity: &MycActiveIdentity,
     relays: &[RadrootsNostrRelayUrl],
     connect_timeout_secs: u64,
 ) -> Result<Vec<MycRelayProbe>, MycError> {
@@ -1198,7 +1195,7 @@ async fn probe_relays(
         let Some((relay_index, relay)) = pending.next() else {
             break;
         };
-        let identity = (*identity).clone();
+        let identity = identity.clone();
         join_set.spawn(async move {
             let probe = probe_relay(identity, relay.clone(), connect_timeout_secs).await;
             (relay_index, probe)
@@ -1218,7 +1215,7 @@ async fn probe_relays(
             let Some((relay_index, relay)) = pending.next() else {
                 break;
             };
-            let identity = (*identity).clone();
+            let identity = identity.clone();
             join_set.spawn(async move {
                 let probe = probe_relay(identity, relay.clone(), connect_timeout_secs).await;
                 (relay_index, probe)
@@ -1235,12 +1232,12 @@ async fn probe_relays(
 }
 
 async fn probe_relay(
-    identity: RadrootsIdentity,
+    identity: MycActiveIdentity,
     relay: RadrootsNostrRelayUrl,
     connect_timeout_secs: u64,
 ) -> Result<MycRelayProbe, MycError> {
     let relay_url = relay.to_string();
-    let client = RadrootsNostrClient::from_identity_owned(identity);
+    let client = identity.nostr_client_owned();
     client
         .add_relay(relay.as_str())
         .await

@@ -31,7 +31,7 @@ pub use config::{
     MycTransportDeliveryPolicy,
 };
 pub use control::{MycAcceptedConnectionOutput, MycAuthorizedReplayOutput};
-pub use custody::{MycIdentityProvider, MycIdentityStatusOutput};
+pub use custody::{MycActiveIdentity, MycIdentityProvider, MycIdentityStatusOutput};
 pub use discovery::{
     MycDiscoveryBundleManifest, MycDiscoveryBundleOutput, MycDiscoveryContext,
     MycDiscoveryDiffOutput, MycDiscoveryLiveStatus, MycDiscoveryRelayFetchStatus,

@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::Command;
 
 use myc::{
-    MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycOperationAuditKind,
+    MycActiveIdentity, MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycOperationAuditKind,
     MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime,
 };
 use radroots_identity::RadrootsIdentity;
@@ -53,9 +53,12 @@ MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=1\n",
     env_path
 }
 
-fn signed_event(identity: &RadrootsIdentity) -> nostr::Event {
-    RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), "operability")
-        .sign_with_keys(identity.keys())
+fn signed_event(identity: &MycActiveIdentity) -> nostr::Event {
+    identity
+        .sign_event_builder(
+            RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), "operability"),
+            "operability test event",
+        )
         .expect("sign event")
 }
 

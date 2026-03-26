@@ -158,7 +158,10 @@ pub async fn accept_client_uri(
     )?;
     let response_relays = merge_relays(&client_uri.relays, &preferred_relays);
     let workflow = manager.begin_connect_secret_publish_finalization(&connection.connection_id)?;
-    let event = match event.sign_with_keys(runtime.signer_identity().keys()) {
+    let event = match runtime
+        .signer_identity()
+        .sign_event_builder(event, "connect accept response")
+    {
         Ok(event) => event,
         Err(error) => {
             return Err(cancel_connect_accept_workflow_on_error(
@@ -413,7 +416,10 @@ async fn replay_authorized_request(
     let connection = manager.get_connection(connection_id)?.ok_or_else(|| {
         MycError::InvalidOperation(format!("connection `{connection_id}` was not found"))
     })?;
-    let event = match event.sign_with_keys(runtime.signer_identity().keys()) {
+    let event = match runtime
+        .signer_identity()
+        .sign_event_builder(event, "authorized auth replay response")
+    {
         Ok(event) => event,
         Err(error) => {
             return Err(cancel_auth_replay_workflow_on_error(

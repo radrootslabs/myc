@@ -3,12 +3,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{
-    RadrootsNostrApplicationHandlerSpec, RadrootsNostrClient, RadrootsNostrError,
-    RadrootsNostrEvent, RadrootsNostrFilter, RadrootsNostrKind, RadrootsNostrMetadata,
-    RadrootsNostrRelayUrl, radroots_nostr_build_application_handler_event,
-    radroots_nostr_filter_tag, radroots_nostr_metadata_has_fields, radroots_nostr_tag_first_value,
+    RadrootsNostrApplicationHandlerSpec, RadrootsNostrError, RadrootsNostrEvent,
+    RadrootsNostrFilter, RadrootsNostrKind, RadrootsNostrMetadata, RadrootsNostrRelayUrl,
+    radroots_nostr_build_application_handler_event, radroots_nostr_filter_tag,
+    radroots_nostr_metadata_has_fields, radroots_nostr_tag_first_value,
 };
 use radroots_nostr_connect::prelude::{RadrootsNostrConnectBunkerUri, RadrootsNostrConnectUri};
 use radroots_nostr_signer::prelude::RadrootsNostrSignerRequestId;
@@ -18,7 +17,7 @@ use tokio::task::JoinSet;
 use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
 use crate::config::MycDiscoveryMetadataConfig;
-use crate::custody::MycIdentityProvider;
+use crate::custody::{MycActiveIdentity, MycIdentityProvider};
 use crate::error::MycError;
 use crate::outbox::{MycDeliveryOutboxKind, MycDeliveryOutboxRecord};
 use crate::transport::{MycNostrTransport, MycPublishOutcome, MycRelayPublishResult};
@@ -32,8 +31,8 @@ const DISCOVERY_RELAY_FETCH_CONCURRENCY_LIMIT: usize = 8;
 
 #[derive(Clone)]
 pub struct MycDiscoveryContext {
-    app_identity: RadrootsIdentity,
-    signer_identity: RadrootsIdentity,
+    app_identity: MycActiveIdentity,
+    signer_identity: MycActiveIdentity,
     domain: String,
     handler_identifier: String,
     public_relays: Vec<RadrootsNostrRelayUrl>,
@@ -290,7 +289,7 @@ impl MycDiscoveryContext {
 
         let app_identity = match discovery.app_identity_source() {
             Some(source) => {
-                MycIdentityProvider::from_source("discovery app", source)?.load_identity()?
+                MycIdentityProvider::from_source("discovery app", source)?.load_active_identity()?
             }
             None => runtime.signer_identity().clone(),
         };
@@ -322,11 +321,11 @@ impl MycDiscoveryContext {
         })
     }
 
-    pub fn app_identity(&self) -> &RadrootsIdentity {
+    pub fn app_identity(&self) -> &MycActiveIdentity {
         &self.app_identity
     }
 
-    pub fn signer_identity(&self) -> &RadrootsIdentity {
+    pub fn signer_identity(&self) -> &MycActiveIdentity {
         &self.signer_identity
     }
 
@@ -452,13 +451,8 @@ impl MycDiscoveryContext {
 
     pub fn build_signed_handler_event(&self) -> Result<RadrootsNostrEvent, MycError> {
         let builder = radroots_nostr_build_application_handler_event(&self.build_handler_spec())?;
-        builder
-            .sign_with_keys(self.app_identity.keys())
-            .map_err(|error| {
-                MycError::InvalidOperation(format!(
-                    "failed to sign NIP-89 application handler event: {error}"
-                ))
-            })
+        self.app_identity
+            .sign_event_builder(builder, "NIP-89 application handler")
     }
 
     pub fn write_bundle(
@@ -1436,7 +1430,7 @@ async fn fetch_live_nip89_events_for_relay(
     context: &MycDiscoveryContext,
     relay: &RadrootsNostrRelayUrl,
 ) -> Result<Vec<MycSourcedLiveNip89Event>, MycError> {
-    let client = RadrootsNostrClient::from_identity(context.app_identity());
+    let client = context.app_identity().nostr_client();
     let _ = client.add_relay(relay.as_str()).await?;
     client
         .try_connect_relay(
@@ -2088,7 +2082,7 @@ impl MycDiscoveryBundleOutput {
 
 fn render_nostrconnect_url(
     template: &str,
-    signer_identity: &RadrootsIdentity,
+    signer_identity: &MycActiveIdentity,
     public_relays: &[RadrootsNostrRelayUrl],
 ) -> Result<String, MycError> {
     let bunker_uri = RadrootsNostrConnectUri::Bunker(RadrootsNostrConnectBunkerUri {

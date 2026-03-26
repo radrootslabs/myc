@@ -6,8 +6,8 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use myc::control;
 use myc::{
-    MycConfig, MycConnectionApproval, MycDeliveryOutboxKind, MycDeliveryOutboxRecord,
-    MycDeliveryOutboxStatus, MycDiscoveryContext, MycDiscoveryLiveStatus,
+    MycActiveIdentity, MycConfig, MycConnectionApproval, MycDeliveryOutboxKind,
+    MycDeliveryOutboxRecord, MycDeliveryOutboxStatus, MycDiscoveryContext, MycDiscoveryLiveStatus,
     MycDiscoveryRelayFetchStatus, MycDiscoveryRepairOutcome, MycOperationAuditKind,
     MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime, MycRuntimeAuditBackend,
     MycSignerStateBackend, MycTransportDeliveryPolicy, diff_live_nip89, fetch_live_nip89,
@@ -617,14 +617,17 @@ fn build_external_request_event(
         .expect("sign external request event")
 }
 
-fn build_signer_noise_event(signer_identity: &RadrootsIdentity, created_at_unix: u64) -> Event {
-    EventBuilder::new(
-        Kind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
-        "non-nip44-signer-noise",
-    )
-    .custom_created_at(Timestamp::from(created_at_unix))
-    .sign_with_keys(signer_identity.keys())
-    .expect("sign noise event")
+fn build_signer_noise_event(signer_identity: &MycActiveIdentity, created_at_unix: u64) -> Event {
+    signer_identity
+        .sign_event_builder(
+            RadrootsNostrEventBuilder::new(
+                RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+                "non-nip44-signer-noise",
+            )
+            .custom_created_at(Timestamp::from(created_at_unix)),
+            "signer noise event",
+        )
+        .expect("sign noise event")
 }
 
 fn decrypt_response(
@@ -1660,12 +1663,16 @@ async fn startup_recovery_republishes_queued_listener_connect_secret_job() -> Te
         .with_approval_requirement(RadrootsNostrSignerApprovalRequirement::NotRequired),
     )?;
     let workflow = manager.begin_connect_secret_publish_finalization(&connection.connection_id)?;
-    let event = RadrootsNostrEventBuilder::new(
-        RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
-        "startup-recovery",
-    )
-    .sign_with_keys(runtime.signer_identity().keys())
-    .map_err(|error| format!("failed to sign startup recovery event: {error}"))?;
+    let event = runtime
+        .signer_identity()
+        .sign_event_builder(
+            RadrootsNostrEventBuilder::new(
+                RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+                "startup-recovery",
+            ),
+            "startup recovery",
+        )
+        .map_err(|error| format!("failed to sign startup recovery event: {error}"))?;
     let outbox_record = MycDeliveryOutboxRecord::new(
         MycDeliveryOutboxKind::ListenerResponsePublish,
         event,
@@ -1755,12 +1762,18 @@ async fn startup_recovery_republishes_queued_connect_accept_job() -> TestResult<
         .with_approval_requirement(RadrootsNostrSignerApprovalRequirement::NotRequired),
     )?;
     let workflow = manager.begin_connect_secret_publish_finalization(&connection.connection_id)?;
-    let event = RadrootsNostrEventBuilder::new(
-        RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
-        "startup-recovery-connect-accept",
-    )
-    .sign_with_keys(runtime.signer_identity().keys())
-    .map_err(|error| format!("failed to sign startup recovery connect-accept event: {error}"))?;
+    let event = runtime
+        .signer_identity()
+        .sign_event_builder(
+            RadrootsNostrEventBuilder::new(
+                RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+                "startup-recovery-connect-accept",
+            ),
+            "startup recovery connect accept",
+        )
+        .map_err(|error| {
+            format!("failed to sign startup recovery connect-accept event: {error}")
+        })?;
     let outbox_record = MycDeliveryOutboxRecord::new(
         MycDeliveryOutboxKind::ConnectAcceptPublish,
         event,
@@ -1854,12 +1867,16 @@ async fn startup_recovery_republishes_queued_auth_replay_job() -> TestResult<()>
         ping_request_message("startup-recovery-auth"),
     )?;
     let workflow = manager.begin_auth_replay_publish_finalization(&connection.connection_id)?;
-    let event = RadrootsNostrEventBuilder::new(
-        RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
-        "startup-recovery-auth-replay",
-    )
-    .sign_with_keys(runtime.signer_identity().keys())
-    .map_err(|error| format!("failed to sign startup recovery auth-replay event: {error}"))?;
+    let event = runtime
+        .signer_identity()
+        .sign_event_builder(
+            RadrootsNostrEventBuilder::new(
+                RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+                "startup-recovery-auth-replay",
+            ),
+            "startup recovery auth replay",
+        )
+        .map_err(|error| format!("failed to sign startup recovery auth-replay event: {error}"))?;
     let outbox_record = MycDeliveryOutboxRecord::new(
         MycDeliveryOutboxKind::AuthReplayPublish,
         event,

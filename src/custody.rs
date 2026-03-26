@@ -1,7 +1,12 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use nostr::nips::nip44::Version;
+use nostr::nips::{nip04, nip44};
 use radroots_identity::{RadrootsIdentity, RadrootsIdentityId};
+use radroots_nostr::prelude::{
+    RadrootsNostrClient, RadrootsNostrEvent, RadrootsNostrEventBuilder, RadrootsNostrPublicKey,
+};
 use radroots_nostr_accounts::prelude::{
     RadrootsNostrSecretVault, RadrootsNostrSecretVaultOsKeyring,
 };
@@ -9,6 +14,11 @@ use serde::Serialize;
 
 use crate::config::{MycIdentityBackend, MycIdentitySourceSpec};
 use crate::error::MycError;
+
+#[derive(Clone)]
+pub struct MycActiveIdentity {
+    identity: Arc<RadrootsIdentity>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycIdentityStatusOutput {
@@ -146,8 +156,12 @@ impl MycIdentityProvider {
         }
     }
 
-    pub fn resolved_status(&self, identity: &RadrootsIdentity) -> MycIdentityStatusOutput {
-        self.status_with_result(Ok(identity))
+    pub fn load_active_identity(&self) -> Result<MycActiveIdentity, MycError> {
+        self.load_identity().map(MycActiveIdentity::new)
+    }
+
+    pub fn resolved_status(&self, identity: &MycActiveIdentity) -> MycIdentityStatusOutput {
+        self.status_with_result(Ok(identity.as_identity()))
     }
 
     pub fn probe_status(&self) -> MycIdentityStatusOutput {
@@ -207,6 +221,123 @@ impl MycIdentityProvider {
             profile_path: source.profile_path.clone(),
             vault: Arc::new(RadrootsNostrSecretVaultOsKeyring::new(service_name)),
         })
+    }
+}
+
+impl MycActiveIdentity {
+    pub fn new(identity: RadrootsIdentity) -> Self {
+        Self {
+            identity: Arc::new(identity),
+        }
+    }
+
+    pub fn id(&self) -> RadrootsIdentityId {
+        self.identity.id()
+    }
+
+    pub fn public_key(&self) -> RadrootsNostrPublicKey {
+        self.identity.public_key()
+    }
+
+    pub fn public_key_hex(&self) -> String {
+        self.identity.public_key_hex()
+    }
+
+    pub fn secret_key_hex(&self) -> String {
+        self.identity.secret_key_hex()
+    }
+
+    pub fn to_public(&self) -> radroots_identity::RadrootsIdentityPublic {
+        self.identity.to_public()
+    }
+
+    pub fn nostr_client(&self) -> RadrootsNostrClient {
+        RadrootsNostrClient::from_identity(self.as_identity())
+    }
+
+    pub fn nostr_client_owned(&self) -> RadrootsNostrClient {
+        RadrootsNostrClient::from_identity_owned((*self.identity).clone())
+    }
+
+    pub fn sign_event_builder(
+        &self,
+        builder: RadrootsNostrEventBuilder,
+        operation: &str,
+    ) -> Result<RadrootsNostrEvent, MycError> {
+        builder
+            .sign_with_keys(self.identity.keys())
+            .map_err(|error| {
+                MycError::InvalidOperation(format!("failed to sign {operation} event: {error}"))
+            })
+    }
+
+    pub fn sign_unsigned_event(
+        &self,
+        unsigned_event: nostr::UnsignedEvent,
+        operation: &str,
+    ) -> Result<nostr::Event, MycError> {
+        unsigned_event
+            .sign_with_keys(self.identity.keys())
+            .map_err(|error| {
+                MycError::InvalidOperation(format!("failed to sign {operation}: {error}"))
+            })
+    }
+
+    pub fn nip04_encrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        plaintext: impl Into<String>,
+    ) -> Result<String, MycError> {
+        nip04::encrypt(
+            self.identity.keys().secret_key(),
+            public_key,
+            plaintext.into(),
+        )
+        .map_err(|error| MycError::Nip46Encrypt(error.to_string()))
+    }
+
+    pub fn nip04_decrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        ciphertext: impl AsRef<str>,
+    ) -> Result<String, MycError> {
+        nip04::decrypt(
+            self.identity.keys().secret_key(),
+            public_key,
+            ciphertext.as_ref(),
+        )
+        .map_err(|error| MycError::Nip46Decrypt(error.to_string()))
+    }
+
+    pub fn nip44_encrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        plaintext: impl Into<String>,
+    ) -> Result<String, MycError> {
+        nip44::encrypt(
+            self.identity.keys().secret_key(),
+            public_key,
+            plaintext.into(),
+            Version::V2,
+        )
+        .map_err(|error| MycError::Nip46Encrypt(error.to_string()))
+    }
+
+    pub fn nip44_decrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        ciphertext: impl AsRef<str>,
+    ) -> Result<String, MycError> {
+        nip44::decrypt(
+            self.identity.keys().secret_key(),
+            public_key,
+            ciphertext.as_ref(),
+        )
+        .map_err(|error| MycError::Nip46Decrypt(error.to_string()))
+    }
+
+    pub(crate) fn as_identity(&self) -> &RadrootsIdentity {
+        self.identity.as_ref()
     }
 }
 
