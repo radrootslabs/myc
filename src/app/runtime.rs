@@ -288,16 +288,30 @@ async fn observe_shutdown_signal(mut shutdown_rx: tokio::sync::watch::Receiver<b
 }
 
 impl MycRuntimePaths {
+    pub(crate) fn audit_dir_for_state_dir(state_dir: &Path) -> PathBuf {
+        state_dir.join("audit")
+    }
+
+    pub(crate) fn signer_state_path_for_backend(
+        state_dir: &Path,
+        backend: MycSignerStateBackend,
+    ) -> PathBuf {
+        state_dir.join(match backend {
+            MycSignerStateBackend::JsonFile => "signer-state.json",
+            MycSignerStateBackend::Sqlite => "signer-state.sqlite",
+        })
+    }
+
     fn from_config(config: &MycConfig) -> Self {
         let state_dir = config.paths.state_dir.clone();
         Self {
             signer_identity_path: config.paths.signer_identity_path.clone(),
             user_identity_path: config.paths.user_identity_path.clone(),
-            signer_state_path: state_dir.join(match config.persistence.signer_state_backend {
-                MycSignerStateBackend::JsonFile => "signer-state.json",
-                MycSignerStateBackend::Sqlite => "signer-state.sqlite",
-            }),
-            audit_dir: state_dir.join("audit"),
+            signer_state_path: Self::signer_state_path_for_backend(
+                &state_dir,
+                config.persistence.signer_state_backend,
+            ),
+            audit_dir: Self::audit_dir_for_state_dir(&state_dir),
             state_dir,
         }
     }

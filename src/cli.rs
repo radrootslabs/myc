@@ -24,6 +24,7 @@ use crate::operability::{
     collect_metrics, collect_status_full, collect_status_summary, increment_outcome_counts,
     is_aggregate_publish_operation, operation_kind_label, render_metrics_text,
 };
+use crate::persistence::{MycPersistenceImportSelection, import_json_to_sqlite};
 
 #[derive(Debug, Parser)]
 #[command(name = "myc")]
@@ -45,6 +46,10 @@ pub enum MycCommand {
     Metrics {
         #[arg(long, value_enum, default_value_t = MycMetricsFormat::Prometheus)]
         format: MycMetricsFormat,
+    },
+    Persistence {
+        #[command(subcommand)]
+        command: MycPersistenceCommand,
     },
     Connections {
         #[command(subcommand)]
@@ -74,6 +79,16 @@ pub enum MycConnectionsCommand {
     Approve(MycConnectionApprovalArgs),
     Reject(MycConnectionReasonArgs),
     Revoke(MycConnectionReasonArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum MycPersistenceCommand {
+    ImportJsonToSqlite {
+        #[arg(long)]
+        signer_state: bool,
+        #[arg(long)]
+        runtime_audit: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -303,6 +318,18 @@ pub async fn run_from_env() -> Result<(), MycError> {
                 }
             }
         }
+        MycCommand::Persistence { command } => match command {
+            MycPersistenceCommand::ImportJsonToSqlite {
+                signer_state,
+                runtime_audit,
+            } => {
+                let output = import_json_to_sqlite(
+                    &config,
+                    MycPersistenceImportSelection::new(signer_state, runtime_audit),
+                )?;
+                print_json(&output)
+            }
+        },
         MycCommand::Connections { command } => {
             let runtime = MycRuntime::bootstrap(config)?;
             match command {

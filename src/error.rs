@@ -183,6 +183,14 @@ pub enum MycError {
         configured_identity_id: String,
         persisted_identity_id: String,
     },
+    #[error(
+        "configured signer identity `{configured_identity_id}` does not match imported signer identity `{imported_identity_id}` from {state_path}"
+    )]
+    SignerIdentityImportMismatch {
+        state_path: PathBuf,
+        configured_identity_id: String,
+        imported_identity_id: String,
+    },
 }
 
 impl MycError {
