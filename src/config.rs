@@ -21,6 +21,7 @@ pub struct MycConfig {
     pub service: MycServiceConfig,
     pub logging: MycLoggingConfig,
     pub paths: MycPathsConfig,
+    pub persistence: MycPersistenceConfig,
     pub audit: MycAuditConfig,
     pub observability: MycObservabilityConfig,
     pub discovery: MycDiscoveryConfig,
@@ -56,6 +57,13 @@ pub struct MycPathsConfig {
     pub user_identity_keyring_account_id: Option<String>,
     pub user_identity_keyring_service_name: String,
     pub user_identity_profile_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MycPersistenceConfig {
+    pub signer_state_backend: MycSignerStateBackend,
+    pub runtime_audit_backend: MycRuntimeAuditBackend,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,6 +137,18 @@ pub enum MycIdentityBackend {
     OsKeyring,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MycSignerStateBackend {
+    JsonFile,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MycRuntimeAuditBackend {
+    JsonlFile,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycIdentitySourceSpec {
     pub backend: MycIdentityBackend,
@@ -170,6 +190,7 @@ impl Default for MycConfig {
             service: MycServiceConfig::default(),
             logging: MycLoggingConfig::default(),
             paths: MycPathsConfig::default(),
+            persistence: MycPersistenceConfig::default(),
             audit: MycAuditConfig::default(),
             observability: MycObservabilityConfig::default(),
             discovery: MycDiscoveryConfig::default(),
@@ -226,6 +247,15 @@ impl Default for MycTransportConfig {
             publish_max_attempts: 1,
             publish_initial_backoff_millis: 250,
             publish_max_backoff_millis: 2_000,
+        }
+    }
+}
+
+impl Default for MycPersistenceConfig {
+    fn default() -> Self {
+        Self {
+            signer_state_backend: MycSignerStateBackend::JsonFile,
+            runtime_audit_backend: MycRuntimeAuditBackend::JsonlFile,
         }
     }
 }
@@ -329,6 +359,22 @@ impl MycIdentityBackend {
         match self {
             Self::Filesystem => "filesystem",
             Self::OsKeyring => "os_keyring",
+        }
+    }
+}
+
+impl MycSignerStateBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::JsonFile => "json_file",
+        }
+    }
+}
+
+impl MycRuntimeAuditBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::JsonlFile => "jsonl_file",
         }
     }
 }
@@ -479,6 +525,16 @@ impl MycConfig {
             &mut lines,
             "MYC_PATHS_USER_IDENTITY_PROFILE_PATH",
             self.paths.user_identity_profile_path.as_ref(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_PERSISTENCE_SIGNER_STATE_BACKEND",
+            self.persistence.signer_state_backend.as_str(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_PERSISTENCE_RUNTIME_AUDIT_BACKEND",
+            self.persistence.runtime_audit_backend.as_str(),
         );
         push_env_line(
             &mut lines,
@@ -1019,6 +1075,14 @@ fn apply_env_entry(
         "MYC_PATHS_USER_IDENTITY_PROFILE_PATH" => {
             config.paths.user_identity_profile_path = parse_optional_path_env(value);
         }
+        "MYC_PERSISTENCE_SIGNER_STATE_BACKEND" => {
+            config.persistence.signer_state_backend =
+                parse_signer_state_backend_env(key, value, path, line_number)?;
+        }
+        "MYC_PERSISTENCE_RUNTIME_AUDIT_BACKEND" => {
+            config.persistence.runtime_audit_backend =
+                parse_runtime_audit_backend_env(key, value, path, line_number)?;
+        }
         "MYC_AUDIT_DEFAULT_READ_LIMIT" => {
             config.audit.default_read_limit = parse_usize_env(key, value, path, line_number)?;
         }
@@ -1274,6 +1338,38 @@ fn parse_delivery_policy_env(
             path,
             line_number,
             format!("{key} must be `any`, `quorum`, or `all`"),
+        )),
+    }
+}
+
+fn parse_signer_state_backend_env(
+    key: &str,
+    value: &str,
+    path: &Path,
+    line_number: usize,
+) -> Result<MycSignerStateBackend, MycError> {
+    match value {
+        "json_file" => Ok(MycSignerStateBackend::JsonFile),
+        _ => Err(config_parse_error(
+            path,
+            line_number,
+            format!("{key} must be `json_file`"),
+        )),
+    }
+}
+
+fn parse_runtime_audit_backend_env(
+    key: &str,
+    value: &str,
+    path: &Path,
+    line_number: usize,
+) -> Result<MycRuntimeAuditBackend, MycError> {
+    match value {
+        "jsonl_file" => Ok(MycRuntimeAuditBackend::JsonlFile),
+        _ => Err(config_parse_error(
+            path,
+            line_number,
+            format!("{key} must be `jsonl_file`"),
         )),
     }
 }
@@ -1646,6 +1742,14 @@ mod tests {
         );
         assert_eq!(config.paths.user_identity_profile_path, None);
         assert_eq!(
+            config.persistence.signer_state_backend,
+            MycSignerStateBackend::JsonFile
+        );
+        assert_eq!(
+            config.persistence.runtime_audit_backend,
+            MycRuntimeAuditBackend::JsonlFile
+        );
+        assert_eq!(
             config.policy.connection_approval,
             MycConnectionApproval::ExplicitUser
         );
@@ -1701,6 +1805,8 @@ MYC_PATHS_SIGNER_IDENTITY_BACKEND=filesystem
 MYC_PATHS_SIGNER_IDENTITY_PATH=/tmp/myc-identity.json
 MYC_PATHS_USER_IDENTITY_BACKEND=filesystem
 MYC_PATHS_USER_IDENTITY_PATH=/tmp/myc-user.json
+MYC_PERSISTENCE_SIGNER_STATE_BACKEND=json_file
+MYC_PERSISTENCE_RUNTIME_AUDIT_BACKEND=jsonl_file
 MYC_AUDIT_DEFAULT_READ_LIMIT=50
 MYC_AUDIT_MAX_ACTIVE_FILE_BYTES=4096
 MYC_AUDIT_MAX_ARCHIVED_FILES=3
@@ -1764,6 +1870,14 @@ MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS=800
         assert_eq!(
             config.paths.user_identity_path,
             PathBuf::from("/tmp/myc-user.json")
+        );
+        assert_eq!(
+            config.persistence.signer_state_backend,
+            MycSignerStateBackend::JsonFile
+        );
+        assert_eq!(
+            config.persistence.runtime_audit_backend,
+            MycRuntimeAuditBackend::JsonlFile
         );
         assert_eq!(config.audit.default_read_limit, 50);
         assert_eq!(config.audit.max_active_file_bytes, 4096);
@@ -2090,6 +2204,14 @@ MYC_DISCOVERY_APP_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
             config.policy.connection_approval,
             MycConnectionApproval::ExplicitUser
         );
+        assert_eq!(
+            config.persistence.signer_state_backend,
+            MycSignerStateBackend::JsonFile
+        );
+        assert_eq!(
+            config.persistence.runtime_audit_backend,
+            MycRuntimeAuditBackend::JsonlFile
+        );
         assert_eq!(config.policy.auth_pending_ttl_secs, 900);
         assert_eq!(config.transport.delivery_quorum, None);
         assert_eq!(config.transport.publish_max_attempts, 1);
@@ -2118,6 +2240,8 @@ MYC_PATHS_SIGNER_IDENTITY_PROFILE_PATH=/tmp/signer-profile.json
 MYC_PATHS_USER_IDENTITY_BACKEND=filesystem
 MYC_PATHS_USER_IDENTITY_PATH=/tmp/myc-user.json
 MYC_PATHS_USER_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.user
+MYC_PERSISTENCE_SIGNER_STATE_BACKEND=json_file
+MYC_PERSISTENCE_RUNTIME_AUDIT_BACKEND=jsonl_file
 MYC_AUDIT_DEFAULT_READ_LIMIT=50
 MYC_AUDIT_MAX_ACTIVE_FILE_BYTES=4096
 MYC_AUDIT_MAX_ARCHIVED_FILES=3

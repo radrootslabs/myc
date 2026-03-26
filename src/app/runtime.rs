@@ -2,9 +2,13 @@ use std::fs;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use crate::audit::{MycOperationAuditRecord, MycOperationAuditStore};
-use crate::config::{MycAuditConfig, MycConfig, MycIdentitySourceSpec};
+use crate::audit::{MycJsonlOperationAuditStore, MycOperationAuditRecord, MycOperationAuditStore};
+use crate::config::{
+    MycAuditConfig, MycConfig, MycIdentitySourceSpec, MycPersistenceConfig, MycRuntimeAuditBackend,
+    MycSignerStateBackend,
+};
 use crate::custody::MycIdentityProvider;
 use crate::error::MycError;
 use crate::operability::server::run_observability_server;
@@ -13,10 +17,9 @@ use crate::transport::{MycNip46Service, MycNostrTransport, MycTransportSnapshot}
 use radroots_identity::{RadrootsIdentity, RadrootsIdentityPublic};
 use radroots_nostr_signer::prelude::{
     RadrootsNostrFileSignerStore, RadrootsNostrSignerApprovalRequirement,
-    RadrootsNostrSignerManager,
+    RadrootsNostrSignerManager, RadrootsNostrSignerStore,
 };
 use serde::Serialize;
-use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MycRuntimePaths {
@@ -53,9 +56,8 @@ pub struct MycSignerContext {
     user_identity_provider: MycIdentityProvider,
     signer_identity: RadrootsIdentity,
     user_identity: RadrootsIdentity,
-    signer_state_path: PathBuf,
-    audit_dir: PathBuf,
-    audit_config: MycAuditConfig,
+    signer_store: Arc<dyn RadrootsNostrSignerStore>,
+    operation_audit_store: Arc<dyn MycOperationAuditStore>,
     policy: MycPolicyContext,
     connection_approval_requirement: RadrootsNostrSignerApprovalRequirement,
 }
@@ -76,6 +78,7 @@ impl MycRuntime {
         Self::prepare_filesystem_for(&paths)?;
         let signer = MycSignerContext::bootstrap(
             &paths,
+            &config.persistence,
             config.audit.clone(),
             MycPolicyContext::from_config(&config.policy)?,
             config.paths.signer_identity_source(),
@@ -123,7 +126,7 @@ impl MycRuntime {
         self.transport.as_ref()
     }
 
-    pub fn operation_audit_store(&self) -> MycOperationAuditStore {
+    pub fn operation_audit_store(&self) -> Arc<dyn MycOperationAuditStore> {
         self.signer.operation_audit_store()
     }
 
@@ -330,16 +333,16 @@ impl MycSignerContext {
     }
 
     pub fn load_signer_manager(&self) -> Result<RadrootsNostrSignerManager, MycError> {
-        Self::load_signer_manager_from_path(&self.signer_state_path)
+        Self::load_signer_manager_from_store(self.signer_store.clone())
     }
 
-    pub fn operation_audit_store(&self) -> MycOperationAuditStore {
-        MycOperationAuditStore::new(&self.audit_dir, self.audit_config.clone())
+    pub fn operation_audit_store(&self) -> Arc<dyn MycOperationAuditStore> {
+        self.operation_audit_store.clone()
     }
 
     pub fn record_operation_audit(&self, record: &MycOperationAuditRecord) {
         emit_operation_audit_trace(record);
-        if let Err(error) = self.operation_audit_store().append(record) {
+        if let Err(error) = self.operation_audit_store.append(record) {
             tracing::error!(
                 operation = ?record.operation,
                 outcome = ?record.outcome,
@@ -369,6 +372,7 @@ impl MycSignerContext {
 
     fn bootstrap(
         paths: &MycRuntimePaths,
+        persistence: &MycPersistenceConfig,
         audit_config: MycAuditConfig,
         policy: MycPolicyContext,
         signer_identity_source: MycIdentitySourceSpec,
@@ -380,7 +384,10 @@ impl MycSignerContext {
             MycIdentityProvider::from_source("user", user_identity_source)?;
         let signer_identity = signer_identity_provider.load_identity()?;
         let user_identity = user_identity_provider.load_identity()?;
-        let manager = Self::load_signer_manager_from_path(&paths.signer_state_path)?;
+        let signer_store = Self::build_signer_store(persistence, &paths.signer_state_path);
+        let operation_audit_store =
+            Self::build_operation_audit_store(persistence, &paths.audit_dir, audit_config);
+        let manager = Self::load_signer_manager_from_store(signer_store.clone())?;
         let configured_public = signer_identity.to_public();
 
         match manager.signer_identity()? {
@@ -401,18 +408,38 @@ impl MycSignerContext {
             user_identity_provider,
             signer_identity,
             user_identity,
-            signer_state_path: paths.signer_state_path.clone(),
-            audit_dir: paths.audit_dir.clone(),
-            audit_config,
+            signer_store,
+            operation_audit_store,
             connection_approval_requirement: policy.default_approval_requirement(),
             policy,
         })
     }
 
-    fn load_signer_manager_from_path(path: &Path) -> Result<RadrootsNostrSignerManager, MycError> {
-        Ok(RadrootsNostrSignerManager::new(Arc::new(
-            RadrootsNostrFileSignerStore::new(path),
-        ))?)
+    fn build_signer_store(
+        persistence: &MycPersistenceConfig,
+        path: &Path,
+    ) -> Arc<dyn RadrootsNostrSignerStore> {
+        match persistence.signer_state_backend {
+            MycSignerStateBackend::JsonFile => Arc::new(RadrootsNostrFileSignerStore::new(path)),
+        }
+    }
+
+    fn build_operation_audit_store(
+        persistence: &MycPersistenceConfig,
+        audit_dir: &Path,
+        audit_config: MycAuditConfig,
+    ) -> Arc<dyn MycOperationAuditStore> {
+        match persistence.runtime_audit_backend {
+            MycRuntimeAuditBackend::JsonlFile => {
+                Arc::new(MycJsonlOperationAuditStore::new(audit_dir, audit_config))
+            }
+        }
+    }
+
+    fn load_signer_manager_from_store(
+        store: Arc<dyn RadrootsNostrSignerStore>,
+    ) -> Result<RadrootsNostrSignerManager, MycError> {
+        Ok(RadrootsNostrSignerManager::new(store)?)
     }
 }
 

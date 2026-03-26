@@ -78,8 +78,44 @@ pub struct MycOperationAuditRecord {
     pub relay_outcome_summary: String,
 }
 
+pub trait MycOperationAuditStore: Send + Sync {
+    fn config(&self) -> &MycAuditConfig;
+    fn append(&self, record: &MycOperationAuditRecord) -> Result<(), MycError>;
+    fn list(&self) -> Result<Vec<MycOperationAuditRecord>, MycError> {
+        self.list_with_limit(self.config().default_read_limit)
+    }
+    fn list_all(&self) -> Result<Vec<MycOperationAuditRecord>, MycError>;
+    fn list_with_limit(&self, limit: usize) -> Result<Vec<MycOperationAuditRecord>, MycError>;
+    fn list_for_connection(
+        &self,
+        connection_id: &RadrootsNostrSignerConnectionId,
+    ) -> Result<Vec<MycOperationAuditRecord>, MycError> {
+        self.list_for_connection_with_limit(connection_id, self.config().default_read_limit)
+    }
+    fn list_for_connection_with_limit(
+        &self,
+        connection_id: &RadrootsNostrSignerConnectionId,
+        limit: usize,
+    ) -> Result<Vec<MycOperationAuditRecord>, MycError>;
+    fn list_for_attempt_id(
+        &self,
+        attempt_id: &str,
+    ) -> Result<Vec<MycOperationAuditRecord>, MycError> {
+        self.list_for_attempt_id_with_limit(attempt_id, usize::MAX)
+    }
+    fn list_for_attempt_id_with_limit(
+        &self,
+        attempt_id: &str,
+        limit: usize,
+    ) -> Result<Vec<MycOperationAuditRecord>, MycError>;
+    fn latest_attempt_id_for_operation(
+        &self,
+        operation: MycOperationAuditKind,
+    ) -> Result<Option<String>, MycError>;
+}
+
 #[derive(Debug, Clone)]
-pub struct MycOperationAuditStore {
+pub struct MycJsonlOperationAuditStore {
     audit_dir: PathBuf,
     config: MycAuditConfig,
 }
@@ -157,7 +193,7 @@ impl MycOperationAuditRecord {
     }
 }
 
-impl MycOperationAuditStore {
+impl MycJsonlOperationAuditStore {
     pub fn new(audit_dir: impl AsRef<Path>, config: MycAuditConfig) -> Self {
         Self {
             audit_dir: audit_dir.as_ref().to_path_buf(),
@@ -683,6 +719,47 @@ impl MycOperationAuditStore {
     }
 }
 
+impl MycOperationAuditStore for MycJsonlOperationAuditStore {
+    fn config(&self) -> &MycAuditConfig {
+        &self.config
+    }
+
+    fn append(&self, record: &MycOperationAuditRecord) -> Result<(), MycError> {
+        MycJsonlOperationAuditStore::append(self, record)
+    }
+
+    fn list_all(&self) -> Result<Vec<MycOperationAuditRecord>, MycError> {
+        MycJsonlOperationAuditStore::list_all(self)
+    }
+
+    fn list_with_limit(&self, limit: usize) -> Result<Vec<MycOperationAuditRecord>, MycError> {
+        MycJsonlOperationAuditStore::list_with_limit(self, limit)
+    }
+
+    fn list_for_connection_with_limit(
+        &self,
+        connection_id: &RadrootsNostrSignerConnectionId,
+        limit: usize,
+    ) -> Result<Vec<MycOperationAuditRecord>, MycError> {
+        MycJsonlOperationAuditStore::list_for_connection_with_limit(self, connection_id, limit)
+    }
+
+    fn list_for_attempt_id_with_limit(
+        &self,
+        attempt_id: &str,
+        limit: usize,
+    ) -> Result<Vec<MycOperationAuditRecord>, MycError> {
+        MycJsonlOperationAuditStore::list_for_attempt_id_with_limit(self, attempt_id, limit)
+    }
+
+    fn latest_attempt_id_for_operation(
+        &self,
+        operation: MycOperationAuditKind,
+    ) -> Result<Option<String>, MycError> {
+        MycJsonlOperationAuditStore::latest_attempt_id_for_operation(self, operation)
+    }
+}
+
 fn parse_archive_index(file_name: &str) -> Option<usize> {
     file_name
         .strip_prefix(MYC_OPERATION_AUDIT_ARCHIVE_PREFIX)?
@@ -742,8 +819,8 @@ mod tests {
     use crate::config::MycAuditConfig;
 
     use super::{
-        MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord,
-        MycOperationAuditStore,
+        MycJsonlOperationAuditStore, MycOperationAuditKind, MycOperationAuditOutcome,
+        MycOperationAuditRecord,
     };
 
     fn config() -> MycAuditConfig {
@@ -757,7 +834,7 @@ mod tests {
     #[test]
     fn append_and_list_operation_audit_records() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let store = MycOperationAuditStore::new(temp.path(), config());
+        let store = MycJsonlOperationAuditStore::new(temp.path(), config());
         let connection_id =
             RadrootsNostrSignerConnectionId::parse("connection-1").expect("connection id");
 
@@ -809,7 +886,7 @@ mod tests {
     #[test]
     fn list_returns_empty_when_audit_file_is_missing() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let store = MycOperationAuditStore::new(temp.path(), config());
+        let store = MycJsonlOperationAuditStore::new(temp.path(), config());
 
         assert!(store.list().expect("list missing records").is_empty());
     }
@@ -817,7 +894,7 @@ mod tests {
     #[test]
     fn rotation_and_bounded_reads_keep_recent_records() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let store = MycOperationAuditStore::new(
+        let store = MycJsonlOperationAuditStore::new(
             temp.path(),
             MycAuditConfig {
                 default_read_limit: 3,
@@ -855,7 +932,7 @@ mod tests {
     #[test]
     fn list_for_attempt_and_latest_attempt_id_work() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let store = MycOperationAuditStore::new(temp.path(), config());
+        let store = MycJsonlOperationAuditStore::new(temp.path(), config());
 
         store
             .append(
@@ -938,7 +1015,7 @@ mod tests {
     #[test]
     fn attempt_lookup_rebuilds_indexes_from_retained_logs() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let store = MycOperationAuditStore::new(temp.path(), config());
+        let store = MycJsonlOperationAuditStore::new(temp.path(), config());
 
         store
             .append(

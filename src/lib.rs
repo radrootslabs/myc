@@ -15,13 +15,14 @@ pub mod transport;
 
 pub use app::{MycApp, MycRuntime, MycRuntimePaths, MycSignerContext, MycStartupSnapshot};
 pub use audit::{
-    MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord,
-    MycOperationAuditStore,
+    MycJsonlOperationAuditStore, MycOperationAuditKind, MycOperationAuditOutcome,
+    MycOperationAuditRecord, MycOperationAuditStore,
 };
 pub use config::{
     DEFAULT_ENV_PATH, MycAuditConfig, MycConfig, MycConnectionApproval, MycDiscoveryConfig,
     MycDiscoveryMetadataConfig, MycIdentityBackend, MycIdentitySourceSpec, MycLoggingConfig,
-    MycObservabilityConfig, MycPathsConfig, MycPolicyConfig, MycServiceConfig, MycTransportConfig,
+    MycObservabilityConfig, MycPathsConfig, MycPersistenceConfig, MycPolicyConfig,
+    MycRuntimeAuditBackend, MycServiceConfig, MycSignerStateBackend, MycTransportConfig,
     MycTransportDeliveryPolicy,
 };
 pub use control::{MycAcceptedConnectionOutput, MycAuthorizedReplayOutput};
