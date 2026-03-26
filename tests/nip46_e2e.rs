@@ -28,7 +28,8 @@ use nostr::{
 };
 use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{
-    RadrootsNostrApplicationHandlerSpec, RadrootsNostrClient, RadrootsNostrMetadata,
+    RadrootsNostrApplicationHandlerSpec, RadrootsNostrClient, RadrootsNostrEventBuilder,
+    RadrootsNostrKind, RadrootsNostrMetadata, RadrootsNostrRelayUrl,
     radroots_nostr_build_application_handler_event,
 };
 use radroots_nostr_connect::prelude::{
@@ -1628,6 +1629,96 @@ async fn live_listener_works_with_sqlite_signer_state_and_runtime_audit() -> Tes
 
     let _ = shutdown_tx.send(());
     listener_task.await??;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn startup_recovery_republishes_queued_listener_connect_secret_job() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new_with_transport_relays(
+        &[relay.url()],
+        MycConnectionApproval::NotRequired,
+    );
+    let MycTestRuntime {
+        _temp: _tempdir,
+        runtime,
+    } = test_runtime;
+    let signer_public_key = runtime.signer_identity().public_key();
+    let config = runtime.config().clone();
+    let client_identity =
+        identity("5454545454545454545454545454545454545454545454545454545454545454");
+    let relay_url: RadrootsNostrRelayUrl = relay.url().parse()?;
+
+    let manager = runtime.signer_manager()?;
+    let connection = manager.register_connection(
+        RadrootsNostrSignerConnectionDraft::new(
+            client_identity.public_key(),
+            runtime.user_public_identity(),
+        )
+        .with_connect_secret("startup-recovery-secret")
+        .with_relays(vec![relay_url.clone()])
+        .with_approval_requirement(RadrootsNostrSignerApprovalRequirement::NotRequired),
+    )?;
+    let workflow = manager.begin_connect_secret_publish_finalization(&connection.connection_id)?;
+    let event = RadrootsNostrEventBuilder::new(
+        RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+        "startup-recovery",
+    )
+    .sign_with_keys(runtime.signer_identity().keys())
+    .map_err(|error| format!("failed to sign startup recovery event: {error}"))?;
+    let outbox_record = MycDeliveryOutboxRecord::new(
+        MycDeliveryOutboxKind::ListenerResponsePublish,
+        event,
+        vec![relay_url],
+    )?
+    .with_connection_id(&connection.connection_id)
+    .with_request_id("startup-recovery-connect")
+    .with_signer_publish_workflow_id(&workflow.workflow_id);
+    runtime.delivery_outbox_store().enqueue(&outbox_record)?;
+
+    runtime.run_until(async {}).await?;
+
+    let published = relay
+        .wait_for_published_events_by_author(signer_public_key, 1)
+        .await?;
+    assert_eq!(published.len(), 1);
+
+    let restarted_runtime = MycRuntime::bootstrap(config)?;
+    let recovered_connection = restarted_runtime
+        .signer_manager()?
+        .get_connection(&connection.connection_id)?
+        .expect("persisted connection");
+    assert!(recovered_connection.connect_secret_is_consumed());
+    assert!(
+        restarted_runtime
+            .signer_manager()?
+            .list_publish_workflows()?
+            .is_empty()
+    );
+    let outbox_records = restarted_runtime.delivery_outbox_store().list_all()?;
+    assert_eq!(outbox_records.len(), 1);
+    assert_eq!(outbox_records[0].status, MycDeliveryOutboxStatus::Finalized);
+    assert_eq!(
+        outbox_records[0].request_id.as_deref(),
+        Some("startup-recovery-connect")
+    );
+    assert!(outbox_records[0].published_at_unix.is_some());
+    assert!(outbox_records[0].finalized_at_unix.is_some());
+    let audit_records = restarted_runtime.operation_audit_store().list_all()?;
+    assert_eq!(audit_records.len(), 1);
+    assert_eq!(
+        audit_records[0].operation,
+        MycOperationAuditKind::ListenerResponsePublish
+    );
+    assert_eq!(
+        audit_records[0].outcome,
+        MycOperationAuditOutcome::Succeeded
+    );
+    assert_eq!(
+        audit_records[0].request_id.as_deref(),
+        Some("startup-recovery-connect")
+    );
+
     Ok(())
 }
 
