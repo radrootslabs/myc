@@ -13,6 +13,8 @@ use crate::config::{
 use crate::custody::MycIdentityProvider;
 use crate::error::MycError;
 use crate::operability::server::run_observability_server;
+use crate::outbox::MycDeliveryOutboxStore;
+use crate::outbox_sqlite::MycSqliteDeliveryOutboxStore;
 use crate::policy::MycPolicyContext;
 use crate::transport::{MycNip46Service, MycNostrTransport, MycTransportSnapshot};
 use radroots_identity::{RadrootsIdentity, RadrootsIdentityPublic};
@@ -30,6 +32,7 @@ pub struct MycRuntimePaths {
     pub user_identity_path: PathBuf,
     pub signer_state_path: PathBuf,
     pub runtime_audit_path: PathBuf,
+    pub delivery_outbox_path: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -73,6 +76,7 @@ pub struct MycRuntime {
     paths: MycRuntimePaths,
     signer: MycSignerContext,
     transport: Option<MycNostrTransport>,
+    delivery_outbox_store: Arc<dyn MycDeliveryOutboxStore>,
 }
 
 impl MycRuntime {
@@ -90,11 +94,13 @@ impl MycRuntime {
             config.paths.user_identity_source(),
         )?;
         let transport = MycNostrTransport::bootstrap(&config.transport, &signer.signer_identity)?;
+        let delivery_outbox_store = Arc::new(MycSqliteDeliveryOutboxStore::open(&paths.state_dir)?);
         let runtime = Self {
             paths,
             config,
             signer,
             transport,
+            delivery_outbox_store,
         };
         Ok(runtime)
     }
@@ -133,6 +139,10 @@ impl MycRuntime {
 
     pub fn operation_audit_store(&self) -> Arc<dyn MycOperationAuditStore> {
         self.signer.operation_audit_store()
+    }
+
+    pub fn delivery_outbox_store(&self) -> Arc<dyn MycDeliveryOutboxStore> {
+        self.delivery_outbox_store.clone()
     }
 
     pub fn record_operation_audit(&self, record: &MycOperationAuditRecord) {
@@ -322,6 +332,10 @@ impl MycRuntimePaths {
         })
     }
 
+    pub(crate) fn delivery_outbox_path_for_state_dir(state_dir: &Path) -> PathBuf {
+        state_dir.join("delivery-outbox.sqlite")
+    }
+
     fn from_config(config: &MycConfig) -> Self {
         let state_dir = config.paths.state_dir.clone();
         let audit_dir = Self::audit_dir_for_state_dir(&state_dir);
@@ -336,6 +350,7 @@ impl MycRuntimePaths {
                 &audit_dir,
                 config.persistence.runtime_audit_backend,
             ),
+            delivery_outbox_path: Self::delivery_outbox_path_for_state_dir(&state_dir),
             audit_dir,
             state_dir,
         }
@@ -548,11 +563,10 @@ mod tests {
         RadrootsNostrFileSignerStore, RadrootsNostrSignerManager, RadrootsNostrSqliteSignerStore,
     };
 
+    use super::MycRuntime;
     use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
     use crate::config::{MycConfig, MycRuntimeAuditBackend, MycSignerStateBackend};
     use crate::error::MycError;
-
-    use super::MycRuntime;
 
     fn write_test_identity(path: &std::path::Path, secret_key: &str) {
         RadrootsIdentity::from_secret_key_str(secret_key)
@@ -595,6 +609,20 @@ mod tests {
                 .ends_with("signer-state.json")
         );
         assert!(runtime.paths().signer_state_path.is_file());
+        assert!(
+            runtime
+                .paths()
+                .delivery_outbox_path
+                .ends_with("delivery-outbox.sqlite")
+        );
+        assert!(runtime.paths().delivery_outbox_path.is_file());
+        assert!(
+            runtime
+                .delivery_outbox_store()
+                .list_all()
+                .expect("list outbox jobs")
+                .is_empty()
+        );
         assert_eq!(
             runtime
                 .signer_manager()
@@ -744,6 +772,7 @@ mod tests {
                 .ends_with("signer-state.sqlite")
         );
         assert!(runtime.paths().signer_state_path.is_file());
+        assert!(runtime.paths().delivery_outbox_path.is_file());
     }
 
     #[test]
@@ -828,5 +857,6 @@ mod tests {
                 .join("operations.sqlite")
                 .is_file()
         );
+        assert!(runtime.paths().delivery_outbox_path.is_file());
     }
 }

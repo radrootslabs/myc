@@ -86,6 +86,28 @@ pub enum MycError {
         #[source]
         source: serde_json::Error,
     },
+    #[error("delivery outbox sqlite error at {path}: {source}")]
+    DeliveryOutboxSql {
+        path: PathBuf,
+        #[source]
+        source: SqlError,
+    },
+    #[error("delivery outbox sqlite decode error at {path}: {source}")]
+    DeliveryOutboxSqlDecode {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("failed to serialize delivery outbox record at {path}: {source}")]
+    DeliveryOutboxSerialize {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("invalid delivery outbox job id `{0}`")]
+    InvalidDeliveryOutboxJobId(String),
+    #[error("delivery outbox job not found: {0}")]
+    DeliveryOutboxJobNotFound(String),
     #[error("discovery io error at {path}: {source}")]
     DiscoveryIo {
         path: PathBuf,

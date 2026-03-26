@@ -11,6 +11,8 @@ pub mod discovery;
 pub mod error;
 pub mod logging;
 pub mod operability;
+pub mod outbox;
+mod outbox_sqlite;
 pub mod persistence;
 pub mod policy;
 pub mod transport;
@@ -50,6 +52,11 @@ pub use operability::{
     MycStatusSummaryOutput, MycTransportStatusOutput, collect_metrics, collect_status_full,
     collect_status_summary, render_metrics_text,
 };
+pub use outbox::{
+    MycDeliveryOutboxJobId, MycDeliveryOutboxKind, MycDeliveryOutboxRecord,
+    MycDeliveryOutboxStatus, MycDeliveryOutboxStore,
+};
+pub use outbox_sqlite::MycSqliteDeliveryOutboxStore;
 pub use persistence::{
     MycPersistenceImportJsonToSqliteOutput, MycPersistenceImportSelection,
     MycRuntimeAuditImportOutput, MycSignerStateImportOutput, import_json_to_sqlite,
