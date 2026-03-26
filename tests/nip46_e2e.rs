@@ -2477,6 +2477,22 @@ async fn explicit_nip89_publish_uses_app_identity_and_records_audit() -> TestRes
             .relay_outcome_summary
             .contains("1/1 relays acknowledged publish")
     );
+    let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
+        records.len() >= 1 && records[0].status == MycDeliveryOutboxStatus::Finalized
+    })
+    .await?;
+    assert_eq!(
+        outbox_records[0].kind,
+        MycDeliveryOutboxKind::DiscoveryHandlerPublish
+    );
+    assert_eq!(
+        outbox_records[0].request_id.as_deref(),
+        Some(published_event_id.as_str())
+    );
+    assert!(outbox_records[0].attempt_id.is_none());
+    assert!(outbox_records[0].signer_publish_workflow_id.is_none());
+    assert!(outbox_records[0].published_at_unix.is_some());
+    assert!(outbox_records[0].finalized_at_unix.is_some());
 
     Ok(())
 }
@@ -2526,6 +2542,20 @@ async fn explicit_nip89_publish_retries_cleanly_after_rejection() -> TestResult<
             .relay_outcome_summary
             .contains("blocked by test relay")
     );
+    let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
+        records.len() >= 1 && records[0].status == MycDeliveryOutboxStatus::Failed
+    })
+    .await?;
+    assert_eq!(
+        outbox_records[0].kind,
+        MycDeliveryOutboxKind::DiscoveryHandlerPublish
+    );
+    assert_eq!(
+        outbox_records[0].request_id.as_deref(),
+        first_audit[0].request_id.as_deref()
+    );
+    assert!(outbox_records[0].attempt_id.is_none());
+    assert!(outbox_records[0].signer_publish_workflow_id.is_none());
 
     let published = publish_nip89_event(&runtime).await?;
     let published_events = relay
@@ -2552,6 +2582,23 @@ async fn explicit_nip89_publish_retries_cleanly_after_rejection() -> TestResult<
             .relay_outcome_summary
             .contains("1/1 relays acknowledged publish")
     );
+    let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
+        records.len() >= 2 && records[1].status == MycDeliveryOutboxStatus::Finalized
+    })
+    .await?;
+    assert_eq!(outbox_records[0].status, MycDeliveryOutboxStatus::Failed);
+    assert_eq!(
+        outbox_records[1].kind,
+        MycDeliveryOutboxKind::DiscoveryHandlerPublish
+    );
+    assert_eq!(
+        outbox_records[1].request_id.as_deref(),
+        Some(published.event.id.to_hex().as_str())
+    );
+    assert!(outbox_records[1].attempt_id.is_none());
+    assert!(outbox_records[1].signer_publish_workflow_id.is_none());
+    assert!(outbox_records[1].published_at_unix.is_some());
+    assert!(outbox_records[1].finalized_at_unix.is_some());
 
     Ok(())
 }
@@ -2791,6 +2838,29 @@ async fn refresh_nip89_publishes_when_live_handler_is_missing() -> TestResult<()
         MycOperationAuditKind::DiscoveryHandlerRepair
     );
     assert_eq!(audit[2].outcome, MycOperationAuditOutcome::Succeeded);
+    let published = refreshed
+        .published
+        .as_ref()
+        .expect("published discovery output");
+    let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
+        records.len() >= 1 && records[0].status == MycDeliveryOutboxStatus::Finalized
+    })
+    .await?;
+    assert_eq!(
+        outbox_records[0].kind,
+        MycDeliveryOutboxKind::DiscoveryHandlerPublish
+    );
+    assert_eq!(
+        outbox_records[0].request_id.as_deref(),
+        Some(published.event.id.to_hex().as_str())
+    );
+    assert_eq!(
+        outbox_records[0].attempt_id.as_deref(),
+        Some(refreshed.attempt_id.as_str())
+    );
+    assert!(outbox_records[0].signer_publish_workflow_id.is_none());
+    assert!(outbox_records[0].published_at_unix.is_some());
+    assert!(outbox_records[0].finalized_at_unix.is_some());
 
     Ok(())
 }
