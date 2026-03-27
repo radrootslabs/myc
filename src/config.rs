@@ -135,6 +135,7 @@ pub enum MycConnectionApproval {
 pub enum MycIdentityBackend {
     Filesystem,
     OsKeyring,
+    ManagedAccount,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -361,6 +362,7 @@ impl MycIdentityBackend {
         match self {
             Self::Filesystem => "filesystem",
             Self::OsKeyring => "os_keyring",
+            Self::ManagedAccount => "managed_account",
         }
     }
 }
@@ -388,21 +390,23 @@ impl MycPathsConfig {
         MycIdentitySourceSpec {
             backend: self.signer_identity_backend,
             path: match self.signer_identity_backend {
-                MycIdentityBackend::Filesystem => Some(self.signer_identity_path.clone()),
+                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => {
+                    Some(self.signer_identity_path.clone())
+                }
                 MycIdentityBackend::OsKeyring => None,
             },
             keyring_account_id: match self.signer_identity_backend {
-                MycIdentityBackend::Filesystem => None,
+                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => None,
                 MycIdentityBackend::OsKeyring => self.signer_identity_keyring_account_id.clone(),
             },
             keyring_service_name: match self.signer_identity_backend {
                 MycIdentityBackend::Filesystem => None,
-                MycIdentityBackend::OsKeyring => {
+                MycIdentityBackend::OsKeyring | MycIdentityBackend::ManagedAccount => {
                     Some(self.signer_identity_keyring_service_name.clone())
                 }
             },
             profile_path: match self.signer_identity_backend {
-                MycIdentityBackend::Filesystem => None,
+                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => None,
                 MycIdentityBackend::OsKeyring => self.signer_identity_profile_path.clone(),
             },
         }
@@ -412,21 +416,23 @@ impl MycPathsConfig {
         MycIdentitySourceSpec {
             backend: self.user_identity_backend,
             path: match self.user_identity_backend {
-                MycIdentityBackend::Filesystem => Some(self.user_identity_path.clone()),
+                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => {
+                    Some(self.user_identity_path.clone())
+                }
                 MycIdentityBackend::OsKeyring => None,
             },
             keyring_account_id: match self.user_identity_backend {
-                MycIdentityBackend::Filesystem => None,
+                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => None,
                 MycIdentityBackend::OsKeyring => self.user_identity_keyring_account_id.clone(),
             },
             keyring_service_name: match self.user_identity_backend {
                 MycIdentityBackend::Filesystem => None,
-                MycIdentityBackend::OsKeyring => {
+                MycIdentityBackend::OsKeyring | MycIdentityBackend::ManagedAccount => {
                     Some(self.user_identity_keyring_service_name.clone())
                 }
             },
             profile_path: match self.user_identity_backend {
-                MycIdentityBackend::Filesystem => None,
+                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => None,
                 MycIdentityBackend::OsKeyring => self.user_identity_profile_path.clone(),
             },
         }
@@ -1308,10 +1314,11 @@ fn parse_identity_backend_env(
     match value {
         "filesystem" => Ok(MycIdentityBackend::Filesystem),
         "os_keyring" => Ok(MycIdentityBackend::OsKeyring),
+        "managed_account" => Ok(MycIdentityBackend::ManagedAccount),
         _ => Err(config_parse_error(
             path,
             line_number,
-            format!("{key} must be `filesystem` or `os_keyring`"),
+            format!("{key} must be `filesystem`, `os_keyring`, or `managed_account`"),
         )),
     }
 }
@@ -1505,6 +1512,38 @@ fn validate_identity_source_config(
                 )));
             }
         }
+        MycIdentityBackend::ManagedAccount => {
+            let Some(path) = source.path.as_ref() else {
+                return Err(MycError::InvalidConfig(format!(
+                    "{label}.path must be set when backend is `managed_account`"
+                )));
+            };
+            if path.as_os_str().is_empty() {
+                return Err(MycError::InvalidConfig(format!(
+                    "{label}.path must not be empty when backend is `managed_account`"
+                )));
+            }
+            let Some(service_name) = source.keyring_service_name.as_deref() else {
+                return Err(MycError::InvalidConfig(format!(
+                    "{label}.keyring_service_name must be set when backend is `managed_account`"
+                )));
+            };
+            if service_name.trim().is_empty() {
+                return Err(MycError::InvalidConfig(format!(
+                    "{label}.keyring_service_name must not be empty when backend is `managed_account`"
+                )));
+            }
+            if source.keyring_account_id.is_some() {
+                return Err(MycError::InvalidConfig(format!(
+                    "{label}.keyring_account_id must not be set when backend is `managed_account`"
+                )));
+            }
+            if source.profile_path.is_some() {
+                return Err(MycError::InvalidConfig(format!(
+                    "{label}.profile_path must not be set when backend is `managed_account`"
+                )));
+            }
+        }
     }
 
     Ok(())
@@ -1536,19 +1575,23 @@ impl MycDiscoveryConfig {
         Some(MycIdentitySourceSpec {
             backend,
             path: match backend {
-                MycIdentityBackend::Filesystem => self.app_identity_path.clone(),
+                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => {
+                    self.app_identity_path.clone()
+                }
                 MycIdentityBackend::OsKeyring => None,
             },
             keyring_account_id: match backend {
-                MycIdentityBackend::Filesystem => None,
+                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => None,
                 MycIdentityBackend::OsKeyring => self.app_identity_keyring_account_id.clone(),
             },
             keyring_service_name: match backend {
                 MycIdentityBackend::Filesystem => None,
-                MycIdentityBackend::OsKeyring => self.app_identity_keyring_service_name.clone(),
+                MycIdentityBackend::OsKeyring | MycIdentityBackend::ManagedAccount => {
+                    self.app_identity_keyring_service_name.clone()
+                }
             },
             profile_path: match backend {
-                MycIdentityBackend::Filesystem => None,
+                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => None,
                 MycIdentityBackend::OsKeyring => self.app_identity_profile_path.clone(),
             },
         })
@@ -2183,6 +2226,62 @@ MYC_DISCOVERY_APP_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
                 .app_identity_keyring_service_name
                 .as_deref(),
             Some("org.radroots.myc.test.discovery")
+        );
+    }
+
+    #[test]
+    fn parse_and_validate_managed_account_identity_backends() {
+        let config = MycConfig::from_env_str(
+            r#"
+MYC_PATHS_SIGNER_IDENTITY_BACKEND=managed_account
+MYC_PATHS_SIGNER_IDENTITY_PATH=/var/lib/myc/custody/signer-accounts.json
+MYC_PATHS_SIGNER_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.signer
+MYC_PATHS_USER_IDENTITY_BACKEND=managed_account
+MYC_PATHS_USER_IDENTITY_PATH=/var/lib/myc/custody/user-accounts.json
+MYC_PATHS_USER_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.user
+MYC_DISCOVERY_ENABLED=true
+MYC_DISCOVERY_DOMAIN=myc.example.com
+MYC_DISCOVERY_PUBLIC_RELAYS=wss://relay.example.com
+MYC_DISCOVERY_APP_IDENTITY_BACKEND=managed_account
+MYC_DISCOVERY_APP_IDENTITY_PATH=/var/lib/myc/custody/discovery-accounts.json
+MYC_DISCOVERY_APP_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
+            "#,
+        )
+        .expect("config");
+
+        assert_eq!(
+            config.paths.signer_identity_backend,
+            MycIdentityBackend::ManagedAccount
+        );
+        assert_eq!(
+            config.paths.signer_identity_source().path,
+            Some(PathBuf::from("/var/lib/myc/custody/signer-accounts.json"))
+        );
+        assert_eq!(
+            config
+                .paths
+                .signer_identity_source()
+                .keyring_service_name
+                .as_deref(),
+            Some("org.radroots.myc.test.signer")
+        );
+        assert_eq!(
+            config.paths.user_identity_backend,
+            MycIdentityBackend::ManagedAccount
+        );
+        assert_eq!(
+            config.discovery.app_identity_backend,
+            Some(MycIdentityBackend::ManagedAccount)
+        );
+        assert_eq!(
+            config
+                .discovery
+                .app_identity_source()
+                .expect("app identity source")
+                .path,
+            Some(PathBuf::from(
+                "/var/lib/myc/custody/discovery-accounts.json"
+            ))
         );
     }
 

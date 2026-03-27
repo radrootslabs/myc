@@ -31,7 +31,10 @@ pub use config::{
     MycTransportDeliveryPolicy,
 };
 pub use control::{MycAcceptedConnectionOutput, MycAuthorizedReplayOutput};
-pub use custody::{MycActiveIdentity, MycIdentityProvider, MycIdentityStatusOutput};
+pub use custody::{
+    MycActiveIdentity, MycIdentityProvider, MycIdentityStatusOutput,
+    MycManagedAccountMutationOutput, MycManagedAccountSelectionState, MycManagedAccountsOutput,
+};
 pub use discovery::{
     MycDiscoveryBundleManifest, MycDiscoveryBundleOutput, MycDiscoveryContext,
     MycDiscoveryDiffOutput, MycDiscoveryLiveStatus, MycDiscoveryRelayFetchStatus,

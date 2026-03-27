@@ -134,6 +134,12 @@ pub enum MycError {
         #[source]
         source: Box<MycError>,
     },
+    #[error("custody manager error for {role} identity: {source}")]
+    CustodyManager {
+        role: String,
+        #[source]
+        source: RadrootsNostrAccountsError,
+    },
     #[error("custody vault error for {role} identity: {source}")]
     CustodyVault {
         role: String,
@@ -165,6 +171,17 @@ pub enum MycError {
         path: PathBuf,
         account_id: String,
         profile_identity_id: String,
+    },
+    #[error("no selected managed account configured for {role} identity store {path}")]
+    CustodyManagedAccountNotConfigured { role: String, path: PathBuf },
+    #[error(
+        "selected managed account `{account_id}` in {path} for {role} identity has no secret in keyring service `{service_name}`"
+    )]
+    CustodyManagedAccountPublicOnly {
+        role: String,
+        path: PathBuf,
+        service_name: String,
+        account_id: String,
     },
     #[error(transparent)]
     Identity(#[from] IdentityError),

@@ -51,6 +51,10 @@ pub enum MycCommand {
         #[command(subcommand)]
         command: MycPersistenceCommand,
     },
+    Custody {
+        #[command(subcommand)]
+        command: MycCustodyCommand,
+    },
     Connections {
         #[command(subcommand)]
         command: MycConnectionsCommand,
@@ -88,6 +92,44 @@ pub enum MycPersistenceCommand {
         signer_state: bool,
         #[arg(long)]
         runtime_audit: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum MycCustodyCommand {
+    List {
+        #[arg(long, value_enum)]
+        role: MycCustodyRole,
+    },
+    Generate {
+        #[arg(long, value_enum)]
+        role: MycCustodyRole,
+        #[arg(long)]
+        label: Option<String>,
+        #[arg(long)]
+        select: bool,
+    },
+    ImportFile {
+        #[arg(long, value_enum)]
+        role: MycCustodyRole,
+        #[arg(long)]
+        path: PathBuf,
+        #[arg(long)]
+        label: Option<String>,
+        #[arg(long)]
+        select: bool,
+    },
+    Select {
+        #[arg(long, value_enum)]
+        role: MycCustodyRole,
+        #[arg(long)]
+        account_id: String,
+    },
+    Remove {
+        #[arg(long, value_enum)]
+        role: MycCustodyRole,
+        #[arg(long)]
+        account_id: String,
     },
 }
 
@@ -148,6 +190,13 @@ pub enum MycStatusView {
 pub enum MycMetricsFormat {
     Json,
     Prometheus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum MycCustodyRole {
+    Signer,
+    User,
+    DiscoveryApp,
 }
 
 #[derive(Debug, Subcommand)]
@@ -330,6 +379,33 @@ pub async fn run_from_env() -> Result<(), MycError> {
                 print_json(&output)
             }
         },
+        MycCommand::Custody { command } => {
+            let provider = custody_provider_for_command(&config, &command)?;
+            match command {
+                MycCustodyCommand::List { .. } => print_json(&provider.list_managed_accounts()?),
+                MycCustodyCommand::Generate { label, select, .. } => {
+                    let output = provider.generate_managed_account(label, select)?;
+                    print_json(&output)
+                }
+                MycCustodyCommand::ImportFile {
+                    path,
+                    label,
+                    select,
+                    ..
+                } => {
+                    let output = provider.import_managed_account_file(path, label, select)?;
+                    print_json(&output)
+                }
+                MycCustodyCommand::Select { account_id, .. } => {
+                    let output = provider.select_managed_account(account_id.as_str())?;
+                    print_json(&output)
+                }
+                MycCustodyCommand::Remove { account_id, .. } => {
+                    let output = provider.remove_managed_account(account_id.as_str())?;
+                    print_json(&output)
+                }
+            }
+        }
         MycCommand::Connections { command } => {
             let runtime = MycRuntime::bootstrap(config)?;
             match command {
@@ -502,6 +578,45 @@ fn load_config(path: Option<&Path>) -> Result<MycConfig, MycError> {
     match path {
         Some(path) => MycConfig::load_from_env_path(path),
         None => MycConfig::load_from_env_path(DEFAULT_ENV_PATH),
+    }
+}
+
+fn custody_provider_for_command(
+    config: &MycConfig,
+    command: &MycCustodyCommand,
+) -> Result<crate::custody::MycIdentityProvider, MycError> {
+    let role = match command {
+        MycCustodyCommand::List { role }
+        | MycCustodyCommand::Generate { role, .. }
+        | MycCustodyCommand::ImportFile { role, .. }
+        | MycCustodyCommand::Select { role, .. }
+        | MycCustodyCommand::Remove { role, .. } => *role,
+    };
+
+    custody_provider_for_role(config, role)
+}
+
+fn custody_provider_for_role(
+    config: &MycConfig,
+    role: MycCustodyRole,
+) -> Result<crate::custody::MycIdentityProvider, MycError> {
+    match role {
+        MycCustodyRole::Signer => crate::custody::MycIdentityProvider::from_source(
+            "signer",
+            config.paths.signer_identity_source(),
+        ),
+        MycCustodyRole::User => crate::custody::MycIdentityProvider::from_source(
+            "user",
+            config.paths.user_identity_source(),
+        ),
+        MycCustodyRole::DiscoveryApp => {
+            let Some(source) = config.discovery.app_identity_source() else {
+                return Err(MycError::InvalidOperation(
+                    "discovery app identity is not separately configured; it currently reuses the signer identity".to_owned(),
+                ));
+            };
+            crate::custody::MycIdentityProvider::from_source("discovery app", source)
+        }
     }
 }
 
@@ -833,6 +948,7 @@ fn print_text(value: &str) {
 mod tests {
     use std::path::PathBuf;
 
+    use clap::Parser;
     use nostr::Timestamp;
     use radroots_identity::RadrootsIdentity;
     use radroots_nostr_connect::prelude::RadrootsNostrConnectRequest;
@@ -843,7 +959,8 @@ mod tests {
     use crate::config::MycConfig;
 
     use super::{
-        MycAuditScope, granted_permissions_for_approval, load_audit_output, summarize_audit_output,
+        MycAuditScope, MycCli, MycCommand, MycCustodyCommand, MycCustodyRole,
+        granted_permissions_for_approval, load_audit_output, summarize_audit_output,
     };
     use crate::app::MycRuntime;
 
@@ -1165,5 +1282,59 @@ mod tests {
                 .rejected,
             1
         );
+    }
+
+    #[test]
+    fn parses_custody_list_command() {
+        let cli = MycCli::try_parse_from(["myc", "custody", "list", "--role", "signer"])
+            .expect("parse custody list");
+
+        assert!(matches!(
+            cli.command,
+            Some(MycCommand::Custody {
+                command: MycCustodyCommand::List {
+                    role: MycCustodyRole::Signer
+                }
+            })
+        ));
+    }
+
+    #[test]
+    fn parses_custody_generate_and_import_commands() {
+        let generate = MycCli::try_parse_from([
+            "myc", "custody", "generate", "--role", "user", "--label", "primary", "--select",
+        ])
+        .expect("parse custody generate");
+        assert!(matches!(
+            generate.command,
+            Some(MycCommand::Custody {
+                command: MycCustodyCommand::Generate {
+                    role: MycCustodyRole::User,
+                    select: true,
+                    ..
+                }
+            })
+        ));
+
+        let import = MycCli::try_parse_from([
+            "myc",
+            "custody",
+            "import-file",
+            "--role",
+            "discovery-app",
+            "--path",
+            "/tmp/discovery.json",
+        ])
+        .expect("parse custody import");
+        assert!(matches!(
+            import.command,
+            Some(MycCommand::Custody {
+                command: MycCustodyCommand::ImportFile {
+                    role: MycCustodyRole::DiscoveryApp,
+                    select: false,
+                    ..
+                }
+            })
+        ));
     }
 }
