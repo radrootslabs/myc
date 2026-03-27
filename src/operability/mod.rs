@@ -2,12 +2,13 @@ pub mod server;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use radroots_nostr::prelude::{RadrootsNostrRelayStatus, RadrootsNostrRelayUrl};
 use radroots_nostr_signer::prelude::{
     RadrootsNostrSignerPublishWorkflowRecord, RadrootsNostrSignerPublishWorkflowState,
-    RadrootsNostrSignerRequestDecision,
+    RadrootsNostrSignerRequestAuditRecord, RadrootsNostrSignerRequestDecision,
 };
 use radroots_sql_core::{SqlExecutor, SqliteExecutor};
 use serde::{Deserialize, Serialize};
@@ -236,6 +237,24 @@ pub struct MycMetricsSnapshot {
     pub delivery_outbox_critical_blocked_count: usize,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct MycLiveMetricsState {
+    signer_request_total: usize,
+    signer_request_decisions: MycAuditDecisionCounts,
+    runtime_operation_total: usize,
+    runtime_operation_outcomes: MycOperationOutcomeCounts,
+    runtime_operation_by_kind: BTreeMap<String, MycOperationOutcomeCounts>,
+    runtime_aggregate_publish_rejection_count: usize,
+    runtime_repair_success_count: usize,
+    runtime_repair_rejection_count: usize,
+    runtime_unavailable_count: usize,
+    runtime_replay_restore_count: usize,
+    delivery_recovery_success_count: usize,
+    delivery_recovery_rejection_count: usize,
+}
+
+pub(crate) type MycLiveMetricsHandle = Arc<Mutex<MycLiveMetricsState>>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MycTransportStatusEvaluation {
     output: MycTransportStatusOutput,
@@ -458,95 +477,8 @@ fn collect_persistence_status(runtime: &MycRuntime) -> MycPersistenceStatusEvalu
 }
 
 pub fn collect_metrics(runtime: &MycRuntime) -> Result<MycMetricsSnapshot, MycError> {
-    let manager = runtime.signer_manager()?;
-    let signer_request_audit = manager.list_audit_records()?;
-    let runtime_operation_audit = runtime.operation_audit_store().list_all()?;
     let outbox_status = collect_delivery_outbox_status(runtime)?;
-
-    let mut signer_request_decisions = MycAuditDecisionCounts::default();
-    for record in &signer_request_audit {
-        match record.decision {
-            RadrootsNostrSignerRequestDecision::Allowed => signer_request_decisions.allowed += 1,
-            RadrootsNostrSignerRequestDecision::Denied => signer_request_decisions.denied += 1,
-            RadrootsNostrSignerRequestDecision::Challenged => {
-                signer_request_decisions.challenged += 1;
-            }
-        }
-    }
-
-    let mut runtime_operation_outcomes = MycOperationOutcomeCounts::default();
-    let mut runtime_operation_by_kind = BTreeMap::new();
-    let mut runtime_aggregate_publish_rejection_count = 0;
-    let mut runtime_repair_success_count = 0;
-    let mut runtime_repair_rejection_count = 0;
-    let mut runtime_unavailable_count = 0;
-    let mut runtime_replay_restore_count = 0;
-    let mut delivery_recovery_success_count = 0;
-    let mut delivery_recovery_rejection_count = 0;
-    for record in &runtime_operation_audit {
-        increment_outcome_counts(&mut runtime_operation_outcomes, record.outcome);
-        increment_outcome_counts(
-            runtime_operation_by_kind
-                .entry(operation_kind_label(record.operation))
-                .or_default(),
-            record.outcome,
-        );
-        if is_aggregate_publish_operation(record.operation)
-            && record.outcome == MycOperationAuditOutcome::Rejected
-        {
-            runtime_aggregate_publish_rejection_count += 1;
-        }
-        if record.operation == MycOperationAuditKind::DiscoveryHandlerRepair {
-            match record.outcome {
-                MycOperationAuditOutcome::Succeeded => runtime_repair_success_count += 1,
-                MycOperationAuditOutcome::Rejected => runtime_repair_rejection_count += 1,
-                _ => {}
-            }
-        }
-        if record.outcome == MycOperationAuditOutcome::Unavailable {
-            runtime_unavailable_count += 1;
-        }
-        if record.operation == MycOperationAuditKind::AuthReplayRestore
-            && record.outcome == MycOperationAuditOutcome::Restored
-        {
-            runtime_replay_restore_count += 1;
-        }
-        if record.operation == MycOperationAuditKind::DeliveryRecovery {
-            match record.outcome {
-                MycOperationAuditOutcome::Succeeded => delivery_recovery_success_count += 1,
-                MycOperationAuditOutcome::Rejected => delivery_recovery_rejection_count += 1,
-                _ => {}
-            }
-        }
-    }
-
-    Ok(MycMetricsSnapshot {
-        signer_request_total: signer_request_audit.len(),
-        signer_request_decisions,
-        runtime_operation_total: runtime_operation_audit.len(),
-        runtime_operation_outcomes,
-        runtime_operation_by_kind,
-        runtime_aggregate_publish_rejection_count,
-        runtime_repair_success_count,
-        runtime_repair_rejection_count,
-        runtime_unavailable_count,
-        runtime_replay_restore_count,
-        delivery_recovery_success_count,
-        delivery_recovery_rejection_count,
-        delivery_outbox_total: outbox_status.output.total_job_count,
-        delivery_outbox_queued_count: outbox_status.output.queued_job_count,
-        delivery_outbox_published_pending_finalize_count: outbox_status
-            .output
-            .published_pending_finalize_job_count,
-        delivery_outbox_failed_count: outbox_status.output.failed_job_count,
-        delivery_outbox_finalized_count: outbox_status.output.finalized_job_count,
-        delivery_outbox_unfinished_count: outbox_status.output.unfinished_job_count,
-        delivery_outbox_critical_unfinished_count: outbox_status
-            .output
-            .critical_unfinished_job_count,
-        delivery_outbox_blocked_count: outbox_status.output.blocked_job_count,
-        delivery_outbox_critical_blocked_count: outbox_status.output.critical_blocked_job_count,
-    })
+    Ok(runtime.metrics_snapshot(&outbox_status.output))
 }
 
 pub fn render_metrics_text(snapshot: &MycMetricsSnapshot) -> String {
@@ -679,6 +611,114 @@ pub fn render_metrics_text(snapshot: &MycMetricsSnapshot) -> String {
     );
 
     lines.join("\n")
+}
+
+impl MycLiveMetricsState {
+    pub(crate) fn from_records(
+        signer_request_audit: &[RadrootsNostrSignerRequestAuditRecord],
+        runtime_operation_audit: &[crate::audit::MycOperationAuditRecord],
+    ) -> Self {
+        let mut state = Self::default();
+        for record in signer_request_audit {
+            state.record_signer_request_audit(record);
+        }
+        for record in runtime_operation_audit {
+            state.record_runtime_operation(record);
+        }
+        state
+    }
+
+    pub(crate) fn record_signer_request_audit(
+        &mut self,
+        record: &RadrootsNostrSignerRequestAuditRecord,
+    ) {
+        self.signer_request_total += 1;
+        match record.decision {
+            RadrootsNostrSignerRequestDecision::Allowed => {
+                self.signer_request_decisions.allowed += 1;
+            }
+            RadrootsNostrSignerRequestDecision::Denied => {
+                self.signer_request_decisions.denied += 1;
+            }
+            RadrootsNostrSignerRequestDecision::Challenged => {
+                self.signer_request_decisions.challenged += 1;
+            }
+        }
+    }
+
+    pub(crate) fn record_runtime_operation(
+        &mut self,
+        record: &crate::audit::MycOperationAuditRecord,
+    ) {
+        self.runtime_operation_total += 1;
+        increment_outcome_counts(&mut self.runtime_operation_outcomes, record.outcome);
+        increment_outcome_counts(
+            self.runtime_operation_by_kind
+                .entry(operation_kind_label(record.operation))
+                .or_default(),
+            record.outcome,
+        );
+        if is_aggregate_publish_operation(record.operation)
+            && record.outcome == MycOperationAuditOutcome::Rejected
+        {
+            self.runtime_aggregate_publish_rejection_count += 1;
+        }
+        if record.operation == MycOperationAuditKind::DiscoveryHandlerRepair {
+            match record.outcome {
+                MycOperationAuditOutcome::Succeeded => self.runtime_repair_success_count += 1,
+                MycOperationAuditOutcome::Rejected => self.runtime_repair_rejection_count += 1,
+                _ => {}
+            }
+        }
+        if record.outcome == MycOperationAuditOutcome::Unavailable {
+            self.runtime_unavailable_count += 1;
+        }
+        if record.operation == MycOperationAuditKind::AuthReplayRestore
+            && record.outcome == MycOperationAuditOutcome::Restored
+        {
+            self.runtime_replay_restore_count += 1;
+        }
+        if record.operation == MycOperationAuditKind::DeliveryRecovery {
+            match record.outcome {
+                MycOperationAuditOutcome::Succeeded => self.delivery_recovery_success_count += 1,
+                MycOperationAuditOutcome::Rejected => {
+                    self.delivery_recovery_rejection_count += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub(crate) fn snapshot(
+        &self,
+        outbox_status: &MycDeliveryOutboxStatusOutput,
+    ) -> MycMetricsSnapshot {
+        MycMetricsSnapshot {
+            signer_request_total: self.signer_request_total,
+            signer_request_decisions: self.signer_request_decisions.clone(),
+            runtime_operation_total: self.runtime_operation_total,
+            runtime_operation_outcomes: self.runtime_operation_outcomes.clone(),
+            runtime_operation_by_kind: self.runtime_operation_by_kind.clone(),
+            runtime_aggregate_publish_rejection_count: self
+                .runtime_aggregate_publish_rejection_count,
+            runtime_repair_success_count: self.runtime_repair_success_count,
+            runtime_repair_rejection_count: self.runtime_repair_rejection_count,
+            runtime_unavailable_count: self.runtime_unavailable_count,
+            runtime_replay_restore_count: self.runtime_replay_restore_count,
+            delivery_recovery_success_count: self.delivery_recovery_success_count,
+            delivery_recovery_rejection_count: self.delivery_recovery_rejection_count,
+            delivery_outbox_total: outbox_status.total_job_count,
+            delivery_outbox_queued_count: outbox_status.queued_job_count,
+            delivery_outbox_published_pending_finalize_count: outbox_status
+                .published_pending_finalize_job_count,
+            delivery_outbox_failed_count: outbox_status.failed_job_count,
+            delivery_outbox_finalized_count: outbox_status.finalized_job_count,
+            delivery_outbox_unfinished_count: outbox_status.unfinished_job_count,
+            delivery_outbox_critical_unfinished_count: outbox_status.critical_unfinished_job_count,
+            delivery_outbox_blocked_count: outbox_status.blocked_job_count,
+            delivery_outbox_critical_blocked_count: outbox_status.critical_blocked_job_count,
+        }
+    }
 }
 
 pub fn increment_outcome_counts(
@@ -1505,14 +1545,30 @@ fn push_labeled_counter_pair(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::path::Path;
     use std::path::PathBuf;
 
+    use nostr::PublicKey;
+    use radroots_identity::RadrootsIdentity;
+    use radroots_nostr_signer::prelude::{
+        RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerConnectionDraft,
+        RadrootsNostrSignerRequestDecision,
+    };
+
     use super::{
-        MycMetricsSnapshot, MycOperationOutcomeCounts, MycRuntimeStatus,
+        MycMetricsSnapshot, MycOperationOutcomeCounts, MycRuntimeStatus, collect_metrics,
         inspect_runtime_audit_sqlite_schema, render_metrics_text, worse_runtime_status,
     };
-    use crate::app::MycRuntimePaths;
-    use crate::config::MycRuntimeAuditBackend;
+    use crate::app::{MycRuntime, MycRuntimePaths};
+    use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
+    use crate::config::{MycConfig, MycRuntimeAuditBackend};
+
+    fn write_test_identity(path: &Path, secret_key: &str) {
+        RadrootsIdentity::from_secret_key_str(secret_key)
+            .expect("identity from secret")
+            .save_json(path)
+            .expect("write identity");
+    }
 
     #[test]
     fn runtime_status_prefers_the_worst_state() {
@@ -1596,5 +1652,68 @@ mod tests {
             status.error.as_deref(),
             Some("sqlite persistence file is missing")
         );
+    }
+
+    #[test]
+    fn collect_metrics_uses_live_state_after_bootstrap() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut config = MycConfig::default();
+        config.paths.state_dir = temp.path().join("state");
+        config.paths.signer_identity_path = temp.path().join("signer.json");
+        config.paths.user_identity_path = temp.path().join("user.json");
+        write_test_identity(
+            &config.paths.signer_identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_test_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
+
+        let runtime = MycRuntime::bootstrap(config.clone()).expect("runtime");
+        let manager = runtime.signer_manager().expect("manager");
+        let client_public_key =
+            PublicKey::parse("7777777777777777777777777777777777777777777777777777777777777777")
+                .expect("client public key");
+        let connection = manager
+            .register_connection(
+                RadrootsNostrSignerConnectionDraft::new(
+                    client_public_key,
+                    runtime.user_public_identity(),
+                )
+                .with_approval_requirement(RadrootsNostrSignerApprovalRequirement::NotRequired),
+            )
+            .expect("register connection");
+        manager
+            .record_request(
+                &connection.connection_id,
+                "req-live-metrics",
+                radroots_nostr_connect::prelude::RadrootsNostrConnectMethod::Ping,
+                RadrootsNostrSignerRequestDecision::Allowed,
+                None,
+            )
+            .expect("record request");
+        runtime.record_operation_audit(&MycOperationAuditRecord::new(
+            MycOperationAuditKind::DeliveryRecovery,
+            MycOperationAuditOutcome::Succeeded,
+            None,
+            None,
+            1,
+            1,
+            "startup recovery succeeded",
+        ));
+        drop(runtime);
+
+        let runtime = MycRuntime::bootstrap(config).expect("runtime restart");
+        std::fs::remove_file(&runtime.paths().signer_state_path).expect("remove signer state");
+        std::fs::remove_file(&runtime.paths().runtime_audit_path).expect("remove runtime audit");
+
+        let metrics = collect_metrics(&runtime).expect("collect metrics");
+
+        assert_eq!(metrics.signer_request_total, 1);
+        assert_eq!(metrics.signer_request_decisions.allowed, 1);
+        assert_eq!(metrics.runtime_operation_total, 1);
+        assert_eq!(metrics.runtime_operation_outcomes.succeeded, 1);
+        assert_eq!(metrics.delivery_recovery_success_count, 1);
     }
 }

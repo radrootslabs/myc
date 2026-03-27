@@ -16,7 +16,10 @@ use crate::config::{
 use crate::custody::{MycActiveIdentity, MycIdentityProvider};
 use crate::discovery::MycDiscoveryContext;
 use crate::error::MycError;
-use crate::operability::server::run_observability_server;
+use crate::operability::{
+    MycDeliveryOutboxStatusOutput, MycLiveMetricsHandle, MycLiveMetricsState, MycMetricsSnapshot,
+    server::run_observability_server,
+};
 use crate::outbox::{
     MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycDeliveryOutboxStatus, MycDeliveryOutboxStore,
 };
@@ -30,8 +33,8 @@ use radroots_nostr_signer::prelude::{
     RadrootsNostrFileSignerStore, RadrootsNostrSignerApprovalRequirement,
     RadrootsNostrSignerAuthState, RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerManager,
     RadrootsNostrSignerPublishWorkflowKind, RadrootsNostrSignerPublishWorkflowRecord,
-    RadrootsNostrSignerPublishWorkflowState, RadrootsNostrSignerStore,
-    RadrootsNostrSqliteSignerStore,
+    RadrootsNostrSignerPublishWorkflowState, RadrootsNostrSignerRequestAuditRecord,
+    RadrootsNostrSignerStore, RadrootsNostrSqliteSignerStore,
 };
 use serde::Serialize;
 
@@ -77,6 +80,7 @@ pub struct MycSignerContext {
     user_identity: MycActiveIdentity,
     signer_store: Arc<dyn RadrootsNostrSignerStore>,
     operation_audit_store: Arc<dyn MycOperationAuditStore>,
+    live_metrics: MycLiveMetricsHandle,
     policy: MycPolicyContext,
     connection_approval_requirement: RadrootsNostrSignerApprovalRequirement,
 }
@@ -150,6 +154,13 @@ impl MycRuntime {
 
     pub fn operation_audit_store(&self) -> Arc<dyn MycOperationAuditStore> {
         self.signer.operation_audit_store()
+    }
+
+    pub(crate) fn metrics_snapshot(
+        &self,
+        outbox_status: &MycDeliveryOutboxStatusOutput,
+    ) -> MycMetricsSnapshot {
+        self.signer.metrics_snapshot(outbox_status)
     }
 
     pub fn delivery_outbox_store(&self) -> Arc<dyn MycDeliveryOutboxStore> {
@@ -1006,26 +1017,54 @@ impl MycSignerContext {
         self.operation_audit_store.clone()
     }
 
+    pub fn record_signer_request_audit(&self, record: &RadrootsNostrSignerRequestAuditRecord) {
+        let mut metrics = self
+            .live_metrics
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        metrics.record_signer_request_audit(record);
+    }
+
     pub fn record_operation_audit(&self, record: &MycOperationAuditRecord) {
         emit_operation_audit_trace(record);
-        if let Err(error) = self.operation_audit_store.append(record) {
-            tracing::error!(
-                operation = ?record.operation,
-                outcome = ?record.outcome,
-                relay_url = record.relay_url.as_deref().unwrap_or(""),
-                connection_id = record.connection_id.as_deref().unwrap_or(""),
-                request_id = record.request_id.as_deref().unwrap_or(""),
-                attempt_id = record.attempt_id.as_deref().unwrap_or(""),
-                delivery_policy = ?record.delivery_policy,
-                required_acknowledged_relay_count = record.required_acknowledged_relay_count.unwrap_or_default(),
-                publish_attempt_count = record.publish_attempt_count.unwrap_or_default(),
-                relay_count = record.relay_count,
-                acknowledged_relay_count = record.acknowledged_relay_count,
-                relay_outcome_summary = %record.relay_outcome_summary,
-                error = %error,
-                "failed to persist myc operation audit record"
-            );
+        match self.operation_audit_store.append(record) {
+            Ok(()) => {
+                let mut metrics = self
+                    .live_metrics
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                metrics.record_runtime_operation(record);
+            }
+            Err(error) => {
+                tracing::error!(
+                    operation = ?record.operation,
+                    outcome = ?record.outcome,
+                    relay_url = record.relay_url.as_deref().unwrap_or(""),
+                    connection_id = record.connection_id.as_deref().unwrap_or(""),
+                    request_id = record.request_id.as_deref().unwrap_or(""),
+                    attempt_id = record.attempt_id.as_deref().unwrap_or(""),
+                    delivery_policy = ?record.delivery_policy,
+                    required_acknowledged_relay_count = record.required_acknowledged_relay_count.unwrap_or_default(),
+                    publish_attempt_count = record.publish_attempt_count.unwrap_or_default(),
+                    relay_count = record.relay_count,
+                    acknowledged_relay_count = record.acknowledged_relay_count,
+                    relay_outcome_summary = %record.relay_outcome_summary,
+                    error = %error,
+                    "failed to persist myc operation audit record"
+                );
+            }
         }
+    }
+
+    pub fn metrics_snapshot(
+        &self,
+        outbox_status: &MycDeliveryOutboxStatusOutput,
+    ) -> MycMetricsSnapshot {
+        let metrics = self
+            .live_metrics
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        metrics.snapshot(outbox_status)
     }
 
     pub fn connection_approval_requirement(&self) -> RadrootsNostrSignerApprovalRequirement {
@@ -1054,6 +1093,10 @@ impl MycSignerContext {
         let operation_audit_store =
             Self::build_operation_audit_store(persistence, &paths.audit_dir, audit_config)?;
         let manager = Self::load_signer_manager_from_store(signer_store.clone())?;
+        let live_metrics = Arc::new(std::sync::Mutex::new(MycLiveMetricsState::from_records(
+            &manager.list_audit_records()?,
+            &operation_audit_store.list_all()?,
+        )));
         let configured_public = signer_identity.to_public();
 
         match manager.signer_identity()? {
@@ -1083,6 +1126,7 @@ impl MycSignerContext {
             user_identity,
             signer_store,
             operation_audit_store,
+            live_metrics,
             connection_approval_requirement: policy.default_approval_requirement(),
             policy,
         })

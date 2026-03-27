@@ -9,7 +9,8 @@ use radroots_nostr_connect::prelude::{
 };
 use radroots_nostr_signer::prelude::{
     RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerConnectionRecord,
-    RadrootsNostrSignerManager, RadrootsNostrSignerRequestDecision,
+    RadrootsNostrSignerManager, RadrootsNostrSignerRequestAuditRecord,
+    RadrootsNostrSignerRequestDecision,
 };
 
 use crate::config::{MycConnectionApproval, MycPolicyConfig};
@@ -251,16 +252,15 @@ impl MycPolicyContext {
         connection: &RadrootsNostrSignerConnectionRecord,
         request_message: &RadrootsNostrConnectRequestMessage,
         reason: impl Into<String>,
-    ) -> Result<String, MycError> {
+    ) -> Result<RadrootsNostrSignerRequestAuditRecord, MycError> {
         let reason = reason.into();
-        manager.record_request(
+        Ok(manager.record_request(
             &connection.connection_id,
             &request_message.id,
             request_message.request.method(),
             RadrootsNostrSignerRequestDecision::Denied,
             Some(reason.clone()),
-        )?;
-        Ok(reason)
+        )?)
     }
 
     fn client_is_denied(&self, client_public_key: &PublicKey) -> bool {

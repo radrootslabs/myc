@@ -354,6 +354,9 @@ async fn replay_authorized_request(
             ));
         }
     };
+    runtime
+        .signer_context()
+        .record_signer_request_audit(&evaluation.audit);
     let handled_request = match handler
         .handle_authorized_request_evaluation(pending_request.request_message.clone(), evaluation)
     {

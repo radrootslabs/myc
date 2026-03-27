@@ -493,18 +493,23 @@ impl MycNip46Handler {
                 .policy()
                 .prepare_request(&manager, connection, &request_message)?
         {
-            let reason = self.signer.policy().record_policy_denied_request(
+            let audit = self.signer.policy().record_policy_denied_request(
                 &manager,
                 connection,
                 &request_message,
                 reason,
             )?;
-            return Ok(MycPreparedRequestEvaluation::Denied(reason));
+            self.signer.record_signer_request_audit(&audit);
+            return Ok(MycPreparedRequestEvaluation::Denied(
+                audit
+                    .message
+                    .unwrap_or_else(|| "request denied by policy".to_owned()),
+            ));
         }
 
-        Ok(MycPreparedRequestEvaluation::Evaluation(
-            manager.evaluate_request(&connection.connection_id, request_message)?,
-        ))
+        let evaluation = manager.evaluate_request(&connection.connection_id, request_message)?;
+        self.signer.record_signer_request_audit(&evaluation.audit);
+        Ok(MycPreparedRequestEvaluation::Evaluation(evaluation))
     }
 
     fn lookup_connection(
