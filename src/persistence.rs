@@ -641,20 +641,33 @@ mod tests {
 
     use nostr::PublicKey;
     use radroots_identity::RadrootsIdentity;
+    use radroots_nostr::prelude::{
+        RadrootsNostrEvent, RadrootsNostrEventBuilder, RadrootsNostrKind,
+    };
     use radroots_nostr_signer::prelude::{
         RADROOTS_NOSTR_SIGNER_STORE_VERSION, RadrootsNostrFileSignerStore,
         RadrootsNostrSignerConnectionDraft, RadrootsNostrSignerConnectionId,
-        RadrootsNostrSignerStore, RadrootsNostrSignerStoreState, RadrootsNostrSqliteSignerStore,
+        RadrootsNostrSignerStore, RadrootsNostrSignerStoreState, RadrootsNostrSignerWorkflowId,
+        RadrootsNostrSqliteSignerStore,
     };
 
     use super::{
         MycPersistenceImportSelection, import_json_to_sqlite, signer_store_state_is_empty,
+        verify_restored_delivery_state,
     };
     use crate::app::MycRuntime;
     use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
     use crate::audit_sqlite::MycSqliteOperationAuditStore;
     use crate::config::{MycConfig, MycRuntimeAuditBackend, MycSignerStateBackend};
     use crate::error::MycError;
+    use crate::outbox::{MycDeliveryOutboxKind, MycDeliveryOutboxRecord};
+
+    const SIGNER_SECRET_KEY: &str =
+        "1111111111111111111111111111111111111111111111111111111111111111";
+    const USER_SECRET_KEY: &str =
+        "2222222222222222222222222222222222222222222222222222222222222222";
+    const OTHER_SECRET_KEY: &str =
+        "3333333333333333333333333333333333333333333333333333333333333333";
 
     fn write_identity(path: &Path, secret_key: &str) {
         RadrootsIdentity::from_secret_key_str(secret_key)
@@ -663,19 +676,60 @@ mod tests {
             .expect("save identity");
     }
 
+    fn identity(secret_key: &str) -> RadrootsIdentity {
+        RadrootsIdentity::from_secret_key_str(secret_key).expect("identity")
+    }
+
+    fn signer_identity() -> RadrootsIdentity {
+        identity(SIGNER_SECRET_KEY)
+    }
+
+    fn user_identity() -> RadrootsIdentity {
+        identity(USER_SECRET_KEY)
+    }
+
+    fn signed_event(secret_key: &str) -> RadrootsNostrEvent {
+        RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), "hello")
+            .sign_with_keys(identity(secret_key).keys())
+            .expect("sign event")
+    }
+
+    fn outbox_record(kind: MycDeliveryOutboxKind, secret_key: &str) -> MycDeliveryOutboxRecord {
+        MycDeliveryOutboxRecord::new(
+            kind,
+            signed_event(secret_key),
+            vec!["wss://relay.example.com".parse().expect("relay")],
+        )
+        .expect("record")
+    }
+
+    fn client_public_key(value: &str) -> PublicKey {
+        PublicKey::from_hex(value).expect("pubkey")
+    }
+
+    fn load_json_signer_state(temp: &Path) -> RadrootsNostrSignerStoreState {
+        RadrootsNostrFileSignerStore::new(temp.join("state").join("signer-state.json"))
+            .load()
+            .expect("load signer state")
+    }
+
+    fn empty_signer_state() -> RadrootsNostrSignerStoreState {
+        RadrootsNostrSignerStoreState {
+            version: RADROOTS_NOSTR_SIGNER_STORE_VERSION,
+            signer_identity: None,
+            connections: Vec::new(),
+            audit_records: Vec::new(),
+            publish_workflows: Vec::new(),
+        }
+    }
+
     fn base_config(temp: &Path) -> MycConfig {
         let mut config = MycConfig::default();
         config.paths.state_dir = temp.join("state");
         config.paths.signer_identity_path = temp.join("signer.json");
         config.paths.user_identity_path = temp.join("user.json");
-        write_identity(
-            &config.paths.signer_identity_path,
-            "1111111111111111111111111111111111111111111111111111111111111111",
-        );
-        write_identity(
-            &config.paths.user_identity_path,
-            "2222222222222222222222222222222222222222222222222222222222222222",
-        );
+        write_identity(&config.paths.signer_identity_path, SIGNER_SECRET_KEY);
+        write_identity(&config.paths.user_identity_path, USER_SECRET_KEY);
         config
     }
 
@@ -702,6 +756,261 @@ mod tests {
         assert!(
             !signer_store_state_is_empty(&state),
             "publish workflows must make the signer-state destination non-empty"
+        );
+    }
+
+    #[test]
+    fn verify_restore_rejects_orphaned_signer_publish_workflows() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime = bootstrap_json_runtime(temp.path());
+        let manager = runtime.signer_manager().expect("manager");
+        let connection = manager
+            .register_connection(
+                RadrootsNostrSignerConnectionDraft::new(
+                    client_public_key(
+                        "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+                    ),
+                    runtime.user_public_identity(),
+                )
+                .with_connect_secret("orphan-secret"),
+            )
+            .expect("register connection");
+        manager
+            .begin_connect_secret_publish_finalization(&connection.connection_id)
+            .expect("begin workflow");
+
+        let signer_state = load_json_signer_state(temp.path());
+        let err = verify_restored_delivery_state(
+            &signer_state,
+            &[],
+            signer_identity().public_key(),
+            None,
+        )
+        .expect_err("orphaned workflow should fail restore verification");
+
+        assert!(
+            err.to_string()
+                .contains("orphaned signer publish workflows")
+        );
+    }
+
+    #[test]
+    fn verify_restore_rejects_discovery_author_mismatch() {
+        let signer_state = empty_signer_state();
+        let record = outbox_record(
+            MycDeliveryOutboxKind::DiscoveryHandlerPublish,
+            OTHER_SECRET_KEY,
+        );
+
+        let err = verify_restored_delivery_state(
+            &signer_state,
+            &[record],
+            signer_identity().public_key(),
+            Some(user_identity().public_key()),
+        )
+        .expect_err("unexpected discovery author should fail restore verification");
+
+        assert!(
+            err.to_string()
+                .contains("configured signer/discovery identities do not match")
+        );
+    }
+
+    #[test]
+    fn verify_restore_rejects_missing_workflow_before_finalize() {
+        let signer_state = empty_signer_state();
+        let workflow_id =
+            RadrootsNostrSignerWorkflowId::parse("missing-workflow").expect("workflow id");
+        let record = outbox_record(
+            MycDeliveryOutboxKind::ListenerResponsePublish,
+            SIGNER_SECRET_KEY,
+        )
+        .with_signer_publish_workflow_id(&workflow_id);
+
+        let err = verify_restored_delivery_state(
+            &signer_state,
+            &[record],
+            signer_identity().public_key(),
+            None,
+        )
+        .expect_err("missing unfinished workflow should fail restore verification");
+
+        assert!(
+            err.to_string()
+                .contains("referencing a missing signer publish workflow before finalize")
+        );
+    }
+
+    #[test]
+    fn verify_restore_accepts_published_pending_finalize_job_after_connect_finalization() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime = bootstrap_json_runtime(temp.path());
+        let manager = runtime.signer_manager().expect("manager");
+        let connection = manager
+            .register_connection(
+                RadrootsNostrSignerConnectionDraft::new(
+                    client_public_key(
+                        "c6047f9441ed7d6d3045406e95c07cd85a65f77e53bde42a6d0f46b4f0f92b4f",
+                    ),
+                    runtime.user_public_identity(),
+                )
+                .with_connect_secret("accepted-secret"),
+            )
+            .expect("register connection");
+        let workflow = manager
+            .begin_connect_secret_publish_finalization(&connection.connection_id)
+            .expect("begin workflow");
+        manager
+            .mark_publish_workflow_published(&workflow.workflow_id)
+            .expect("mark published");
+        manager
+            .finalize_publish_workflow(&workflow.workflow_id)
+            .expect("finalize workflow");
+
+        let signer_state = load_json_signer_state(temp.path());
+        let mut record = outbox_record(
+            MycDeliveryOutboxKind::ListenerResponsePublish,
+            SIGNER_SECRET_KEY,
+        )
+        .with_connection_id(&connection.connection_id)
+        .with_signer_publish_workflow_id(&workflow.workflow_id);
+        record
+            .mark_published_pending_finalize(1, record.created_at_unix + 1)
+            .expect("mark published");
+
+        verify_restored_delivery_state(
+            &signer_state,
+            &[record],
+            signer_identity().public_key(),
+            None,
+        )
+        .expect("already-finalized connect workflow should be accepted");
+    }
+
+    #[test]
+    fn verify_restore_rejects_wrong_workflow_kind() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime = bootstrap_json_runtime(temp.path());
+        let manager = runtime.signer_manager().expect("manager");
+        let connection = manager
+            .register_connection(
+                RadrootsNostrSignerConnectionDraft::new(
+                    client_public_key(
+                        "f9308a019258c3106f85b9d5b3e8c8f923dc4bde7b5b6d8f8f9ad7881e5341e5",
+                    ),
+                    runtime.user_public_identity(),
+                )
+                .with_connect_secret("kind-secret"),
+            )
+            .expect("register connection");
+        let workflow = manager
+            .begin_connect_secret_publish_finalization(&connection.connection_id)
+            .expect("begin workflow");
+
+        let signer_state = load_json_signer_state(temp.path());
+        let record = outbox_record(MycDeliveryOutboxKind::AuthReplayPublish, SIGNER_SECRET_KEY)
+            .with_connection_id(&connection.connection_id)
+            .with_signer_publish_workflow_id(&workflow.workflow_id);
+
+        let err = verify_restored_delivery_state(
+            &signer_state,
+            &[record],
+            signer_identity().public_key(),
+            None,
+        )
+        .expect_err("workflow kind mismatch should fail restore verification");
+
+        assert!(err.to_string().contains("expecting signer workflow kind"));
+    }
+
+    #[test]
+    fn verify_restore_rejects_wrong_connection_binding() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime = bootstrap_json_runtime(temp.path());
+        let manager = runtime.signer_manager().expect("manager");
+        let first = manager
+            .register_connection(
+                RadrootsNostrSignerConnectionDraft::new(
+                    client_public_key(
+                        "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+                    ),
+                    runtime.user_public_identity(),
+                )
+                .with_connect_secret("first-secret"),
+            )
+            .expect("register first");
+        let second = manager
+            .register_connection(
+                RadrootsNostrSignerConnectionDraft::new(
+                    client_public_key(
+                        "c6047f9441ed7d6d3045406e95c07cd85a65f77e53bde42a6d0f46b4f0f92b4f",
+                    ),
+                    runtime.user_public_identity(),
+                )
+                .with_connect_secret("second-secret"),
+            )
+            .expect("register second");
+        let workflow = manager
+            .begin_connect_secret_publish_finalization(&first.connection_id)
+            .expect("begin workflow");
+
+        let signer_state = load_json_signer_state(temp.path());
+        let record = outbox_record(
+            MycDeliveryOutboxKind::ListenerResponsePublish,
+            SIGNER_SECRET_KEY,
+        )
+        .with_connection_id(&second.connection_id)
+        .with_signer_publish_workflow_id(&workflow.workflow_id);
+
+        let err = verify_restored_delivery_state(
+            &signer_state,
+            &[record],
+            signer_identity().public_key(),
+            None,
+        )
+        .expect_err("workflow connection mismatch should fail restore verification");
+
+        assert!(err.to_string().contains("is bound to"));
+    }
+
+    #[test]
+    fn verify_restore_rejects_missing_connection_id_for_workflow_job() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime = bootstrap_json_runtime(temp.path());
+        let manager = runtime.signer_manager().expect("manager");
+        let connection = manager
+            .register_connection(
+                RadrootsNostrSignerConnectionDraft::new(
+                    client_public_key(
+                        "f9308a019258c3106f85b9d5b3e8c8f923dc4bde7b5b6d8f8f9ad7881e5341e5",
+                    ),
+                    runtime.user_public_identity(),
+                )
+                .with_connect_secret("missing-connection-id-secret"),
+            )
+            .expect("register connection");
+        let workflow = manager
+            .begin_connect_secret_publish_finalization(&connection.connection_id)
+            .expect("begin workflow");
+
+        let signer_state = load_json_signer_state(temp.path());
+        let record = outbox_record(
+            MycDeliveryOutboxKind::ListenerResponsePublish,
+            SIGNER_SECRET_KEY,
+        )
+        .with_signer_publish_workflow_id(&workflow.workflow_id);
+
+        let err = verify_restored_delivery_state(
+            &signer_state,
+            &[record],
+            signer_identity().public_key(),
+            None,
+        )
+        .expect_err("missing connection id should fail restore verification");
+
+        assert!(
+            err.to_string()
+                .contains("missing a connection id required for signer workflow verification")
         );
     }
 
