@@ -185,6 +185,10 @@ pub struct MycPolicyConfig {
     pub auth_pending_ttl_secs: u64,
     pub auth_authorized_ttl_secs: Option<u64>,
     pub reauth_after_inactivity_secs: Option<u64>,
+    pub connect_rate_limit_window_secs: Option<u64>,
+    pub connect_rate_limit_max_attempts: Option<usize>,
+    pub auth_challenge_rate_limit_window_secs: Option<u64>,
+    pub auth_challenge_rate_limit_max_attempts: Option<usize>,
 }
 
 impl Default for MycConfig {
@@ -328,6 +332,10 @@ impl Default for MycPolicyConfig {
             auth_pending_ttl_secs: 900,
             auth_authorized_ttl_secs: None,
             reauth_after_inactivity_secs: None,
+            connect_rate_limit_window_secs: None,
+            connect_rate_limit_max_attempts: None,
+            auth_challenge_rate_limit_window_secs: None,
+            auth_challenge_rate_limit_max_attempts: None,
         }
     }
 }
@@ -712,6 +720,26 @@ impl MycConfig {
             "MYC_POLICY_REAUTH_AFTER_INACTIVITY_SECS",
             self.policy.reauth_after_inactivity_secs,
         );
+        push_optional_u64_env_line(
+            &mut lines,
+            "MYC_POLICY_CONNECT_RATE_LIMIT_WINDOW_SECS",
+            self.policy.connect_rate_limit_window_secs,
+        );
+        push_optional_usize_env_line(
+            &mut lines,
+            "MYC_POLICY_CONNECT_RATE_LIMIT_MAX_ATTEMPTS",
+            self.policy.connect_rate_limit_max_attempts,
+        );
+        push_optional_u64_env_line(
+            &mut lines,
+            "MYC_POLICY_AUTH_CHALLENGE_RATE_LIMIT_WINDOW_SECS",
+            self.policy.auth_challenge_rate_limit_window_secs,
+        );
+        push_optional_usize_env_line(
+            &mut lines,
+            "MYC_POLICY_AUTH_CHALLENGE_RATE_LIMIT_MAX_ATTEMPTS",
+            self.policy.auth_challenge_rate_limit_max_attempts,
+        );
         push_env_line(
             &mut lines,
             "MYC_TRANSPORT_ENABLED",
@@ -880,6 +908,16 @@ impl MycConfig {
                     .to_owned(),
             ));
         }
+        validate_optional_rate_limit(
+            "policy.connect_rate_limit",
+            self.policy.connect_rate_limit_window_secs,
+            self.policy.connect_rate_limit_max_attempts,
+        )?;
+        validate_optional_rate_limit(
+            "policy.auth_challenge_rate_limit",
+            self.policy.auth_challenge_rate_limit_window_secs,
+            self.policy.auth_challenge_rate_limit_max_attempts,
+        )?;
 
         let trusted_client_pubkeys =
             normalize_policy_client_pubkeys(&self.policy.trusted_client_pubkeys)?;
@@ -1192,6 +1230,22 @@ fn apply_env_entry(
             config.policy.reauth_after_inactivity_secs =
                 Some(parse_u64_env(key, value, path, line_number)?);
         }
+        "MYC_POLICY_CONNECT_RATE_LIMIT_WINDOW_SECS" => {
+            config.policy.connect_rate_limit_window_secs =
+                Some(parse_u64_env(key, value, path, line_number)?);
+        }
+        "MYC_POLICY_CONNECT_RATE_LIMIT_MAX_ATTEMPTS" => {
+            config.policy.connect_rate_limit_max_attempts =
+                Some(parse_usize_env(key, value, path, line_number)?);
+        }
+        "MYC_POLICY_AUTH_CHALLENGE_RATE_LIMIT_WINDOW_SECS" => {
+            config.policy.auth_challenge_rate_limit_window_secs =
+                Some(parse_u64_env(key, value, path, line_number)?);
+        }
+        "MYC_POLICY_AUTH_CHALLENGE_RATE_LIMIT_MAX_ATTEMPTS" => {
+            config.policy.auth_challenge_rate_limit_max_attempts =
+                Some(parse_usize_env(key, value, path, line_number)?);
+        }
         "MYC_TRANSPORT_ENABLED" => {
             config.transport.enabled = parse_bool_env(key, value, path, line_number)?;
         }
@@ -1427,6 +1481,32 @@ fn parse_u16_list_env(
             })
         })
         .collect()
+}
+
+fn validate_optional_rate_limit(
+    label: &str,
+    window_secs: Option<u64>,
+    max_attempts: Option<usize>,
+) -> Result<(), MycError> {
+    match (window_secs, max_attempts) {
+        (None, None) => Ok(()),
+        (Some(window_secs), Some(max_attempts)) => {
+            if window_secs == 0 {
+                return Err(MycError::InvalidConfig(format!(
+                    "{label}.window_secs must be greater than zero when set"
+                )));
+            }
+            if max_attempts == 0 {
+                return Err(MycError::InvalidConfig(format!(
+                    "{label}.max_attempts must be greater than zero when set"
+                )));
+            }
+            Ok(())
+        }
+        _ => Err(MycError::InvalidConfig(format!(
+            "{label}.window_secs and {label}.max_attempts must be set together"
+        ))),
+    }
 }
 
 fn normalize_policy_client_pubkeys(values: &[String]) -> Result<BTreeSet<String>, MycError> {
@@ -1810,6 +1890,10 @@ mod tests {
         assert_eq!(config.policy.auth_pending_ttl_secs, 900);
         assert_eq!(config.policy.auth_authorized_ttl_secs, None);
         assert_eq!(config.policy.reauth_after_inactivity_secs, None);
+        assert_eq!(config.policy.connect_rate_limit_window_secs, None);
+        assert_eq!(config.policy.connect_rate_limit_max_attempts, None);
+        assert_eq!(config.policy.auth_challenge_rate_limit_window_secs, None);
+        assert_eq!(config.policy.auth_challenge_rate_limit_max_attempts, None);
         assert_eq!(config.audit.default_read_limit, 200);
         assert_eq!(config.audit.max_active_file_bytes, 262_144);
         assert_eq!(config.audit.max_archived_files, 8);
@@ -1884,6 +1968,10 @@ MYC_POLICY_AUTH_URL=https://auth.example.com/challenge
 MYC_POLICY_AUTH_PENDING_TTL_SECS=300
 MYC_POLICY_AUTHORIZED_TTL_SECS=3600
 MYC_POLICY_REAUTH_AFTER_INACTIVITY_SECS=600
+MYC_POLICY_CONNECT_RATE_LIMIT_WINDOW_SECS=60
+MYC_POLICY_CONNECT_RATE_LIMIT_MAX_ATTEMPTS=5
+MYC_POLICY_AUTH_CHALLENGE_RATE_LIMIT_WINDOW_SECS=120
+MYC_POLICY_AUTH_CHALLENGE_RATE_LIMIT_MAX_ATTEMPTS=3
 MYC_TRANSPORT_ENABLED=true
 MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=15
 MYC_TRANSPORT_RELAYS=wss://relay.example.com,wss://relay2.example.com
@@ -1992,6 +2080,16 @@ MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS=800
         assert_eq!(config.policy.auth_pending_ttl_secs, 300);
         assert_eq!(config.policy.auth_authorized_ttl_secs, Some(3600));
         assert_eq!(config.policy.reauth_after_inactivity_secs, Some(600));
+        assert_eq!(config.policy.connect_rate_limit_window_secs, Some(60));
+        assert_eq!(config.policy.connect_rate_limit_max_attempts, Some(5));
+        assert_eq!(
+            config.policy.auth_challenge_rate_limit_window_secs,
+            Some(120)
+        );
+        assert_eq!(
+            config.policy.auth_challenge_rate_limit_max_attempts,
+            Some(3)
+        );
         assert!(config.transport.enabled);
         assert_eq!(config.transport.connect_timeout_secs, 15);
         assert_eq!(
@@ -2182,6 +2280,25 @@ MYC_UNKNOWN=nope
 
         let err = config.validate().expect_err("missing auth url");
         assert!(err.to_string().contains("policy.auth_url"));
+    }
+
+    #[test]
+    fn validate_requires_complete_rate_limit_pairs() {
+        let mut config = MycConfig::default();
+        config.policy.connect_rate_limit_window_secs = Some(60);
+
+        let err = config
+            .validate()
+            .expect_err("incomplete connect rate limit");
+        assert!(err.to_string().contains("policy.connect_rate_limit"));
+
+        let mut config = MycConfig::default();
+        config.policy.auth_challenge_rate_limit_max_attempts = Some(2);
+
+        let err = config
+            .validate()
+            .expect_err("incomplete auth challenge rate limit");
+        assert!(err.to_string().contains("policy.auth_challenge_rate_limit"));
     }
 
     #[test]
@@ -2376,6 +2493,10 @@ MYC_POLICY_AUTH_URL=https://auth.example.com/challenge
 MYC_POLICY_AUTH_PENDING_TTL_SECS=300
 MYC_POLICY_AUTHORIZED_TTL_SECS=3600
 MYC_POLICY_REAUTH_AFTER_INACTIVITY_SECS=600
+MYC_POLICY_CONNECT_RATE_LIMIT_WINDOW_SECS=60
+MYC_POLICY_CONNECT_RATE_LIMIT_MAX_ATTEMPTS=5
+MYC_POLICY_AUTH_CHALLENGE_RATE_LIMIT_WINDOW_SECS=120
+MYC_POLICY_AUTH_CHALLENGE_RATE_LIMIT_MAX_ATTEMPTS=3
 MYC_TRANSPORT_ENABLED=true
 MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=15
 MYC_TRANSPORT_RELAYS=wss://relay.example.com,wss://relay2.example.com

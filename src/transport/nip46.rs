@@ -170,6 +170,20 @@ impl MycNip46Handler {
                 }
             }
         }
+        if !matches!(connect_decision, crate::policy::MycConnectDecision::Deny) {
+            if let Some(reason) = self
+                .signer
+                .policy()
+                .connect_rate_limit_denied_reason(&client_public_key)
+            {
+                return Ok(MycNip46HandledRequest::respond(
+                    RadrootsNostrConnectResponse::Error {
+                        result: None,
+                        error: reason,
+                    },
+                ));
+            }
+        }
         let evaluation = manager.evaluate_connect_request(client_public_key, request)?;
 
         match evaluation {
@@ -1507,6 +1521,73 @@ mod tests {
     }
 
     #[test]
+    fn connect_requests_are_throttled_after_configured_limit() {
+        let runtime = runtime_with_config(MycConnectionApproval::NotRequired, |config| {
+            config.policy.connect_rate_limit_window_secs = Some(1);
+            config.policy.connect_rate_limit_max_attempts = Some(1);
+        });
+        let handler = handler(&runtime);
+
+        let first = handler
+            .handle_request_response(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect-1",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: None,
+                        requested_permissions: Default::default(),
+                    },
+                ),
+            )
+            .expect("first connect response");
+        assert_eq!(first, RadrootsNostrConnectResponse::ConnectAcknowledged);
+
+        let second = handler
+            .handle_request_response(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect-2",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: None,
+                        requested_permissions: Default::default(),
+                    },
+                ),
+            )
+            .expect("second connect response");
+        assert!(matches!(
+            second,
+            RadrootsNostrConnectResponse::Error { error, .. }
+                if error.contains("connect attempts throttled by policy")
+        ));
+
+        let connection = connection_for(&runtime, client_keys().public_key());
+        runtime
+            .signer_manager()
+            .expect("manager")
+            .revoke_connection(&connection.connection_id, Some("test reset".to_owned()))
+            .expect("revoke connection");
+
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        let third = handler
+            .handle_request_response(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect-3",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: None,
+                        requested_permissions: Default::default(),
+                    },
+                ),
+            )
+            .expect("third connect response");
+        assert_eq!(third, RadrootsNostrConnectResponse::ConnectAcknowledged);
+    }
+
+    #[test]
     fn connect_preserves_pending_status_when_explicit_approval_is_required() {
         let runtime = runtime_with_explicit_approval();
         let handler = handler(&runtime);
@@ -1760,6 +1841,76 @@ mod tests {
             second,
             RadrootsNostrConnectResponse::AuthUrl("https://auth.example/challenge".to_owned())
         );
+    }
+
+    #[test]
+    fn trusted_client_auth_challenge_reissue_is_throttled() {
+        let trusted_client_keys = client_keys_from_hex(
+            "5858585858585858585858585858585858585858585858585858585858585858",
+        );
+        let runtime = runtime_with_config(MycConnectionApproval::ExplicitUser, |config| {
+            config.policy.trusted_client_pubkeys = vec![trusted_client_keys.public_key().to_hex()];
+            config.policy.permission_ceiling = vec![sign_event_permission(1)].into();
+            config.policy.allowed_sign_event_kinds = vec![1];
+            config.policy.auth_url = Some("https://auth.example/challenge".to_owned());
+            config.policy.auth_pending_ttl_secs = 1;
+            config.policy.auth_challenge_rate_limit_window_secs = Some(60);
+            config.policy.auth_challenge_rate_limit_max_attempts = Some(1);
+        });
+        let handler = handler(&runtime);
+
+        let _ = handler
+            .handle_request_response(
+                trusted_client_keys.public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-connect",
+                    RadrootsNostrConnectRequest::Connect {
+                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        secret: None,
+                        requested_permissions: vec![sign_event_permission(1)].into(),
+                    },
+                ),
+            )
+            .expect("connect");
+
+        let first = handler
+            .handle_request_response(
+                trusted_client_keys.public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-sign-1",
+                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                        runtime.user_identity().public_key(),
+                        1,
+                        "first",
+                    )),
+                ),
+            )
+            .expect("first sign request");
+        assert_eq!(
+            first,
+            RadrootsNostrConnectResponse::AuthUrl("https://auth.example/challenge".to_owned())
+        );
+
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        let second = handler
+            .handle_request_response(
+                trusted_client_keys.public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-sign-2",
+                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                        runtime.user_identity().public_key(),
+                        1,
+                        "second",
+                    )),
+                ),
+            )
+            .expect("second sign request");
+        assert!(matches!(
+            second,
+            RadrootsNostrConnectResponse::Error { error, .. }
+                if error.contains("auth challenge issuance throttled by policy")
+        ));
     }
 
     #[test]

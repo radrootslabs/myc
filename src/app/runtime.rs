@@ -1068,6 +1068,13 @@ impl MycSignerContext {
             Some(_) => manager.set_signer_identity(configured_public.clone())?,
             None => manager.set_signer_identity(configured_public.clone())?,
         }
+        let stale_session_cleanup_count = policy.cleanup_stale_sessions(&manager)?;
+        if stale_session_cleanup_count > 0 {
+            tracing::info!(
+                stale_session_cleanup_count,
+                "cleaned stale trusted auth sessions during myc bootstrap"
+            );
+        }
 
         Ok(Self {
             signer_identity_provider,
@@ -1166,12 +1173,13 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
+    use nostr::PublicKey;
     use radroots_identity::RadrootsIdentity;
     use radroots_nostr::prelude::{RadrootsNostrEventBuilder, RadrootsNostrKind};
     use radroots_nostr_signer::prelude::{
         RadrootsNostrFileSignerStore, RadrootsNostrSignerApprovalRequirement,
-        RadrootsNostrSignerConnectionDraft, RadrootsNostrSignerManager,
-        RadrootsNostrSqliteSignerStore,
+        RadrootsNostrSignerAuthState, RadrootsNostrSignerConnectionDraft,
+        RadrootsNostrSignerManager, RadrootsNostrSqliteSignerStore,
     };
 
     use super::MycRuntime;
@@ -1329,6 +1337,64 @@ mod tests {
             runtime.snapshot().signer_identity_id,
             runtime.snapshot().user_identity_id
         );
+    }
+
+    #[test]
+    fn bootstrap_cleans_stale_trusted_authorized_sessions() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut config = MycConfig::default();
+        config.paths.state_dir = temp.path().join("state");
+        config.paths.signer_identity_path = temp.path().join("signer.json");
+        config.paths.user_identity_path = temp.path().join("user.json");
+        config.policy.auth_url = Some("https://auth.example/challenge".to_owned());
+        config.policy.auth_authorized_ttl_secs = Some(1);
+        let client_public_key =
+            PublicKey::parse("4545454545454545454545454545454545454545454545454545454545454545")
+                .expect("client public key");
+        config.policy.trusted_client_pubkeys = vec![client_public_key.to_hex()];
+        write_test_identity(
+            &config.paths.signer_identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_test_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
+
+        let runtime = MycRuntime::bootstrap(config.clone()).expect("runtime");
+        let manager = runtime.signer_manager().expect("manager");
+        let connection = manager
+            .register_connection(
+                RadrootsNostrSignerConnectionDraft::new(
+                    client_public_key,
+                    runtime.user_public_identity(),
+                )
+                .with_approval_requirement(RadrootsNostrSignerApprovalRequirement::NotRequired),
+            )
+            .expect("register connection");
+        manager
+            .require_auth_challenge(
+                &connection.connection_id,
+                config.policy.auth_url.as_deref().expect("auth url"),
+            )
+            .expect("require auth");
+        manager
+            .authorize_auth_challenge(&connection.connection_id)
+            .expect("authorize auth");
+
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        drop(runtime);
+
+        let runtime = MycRuntime::bootstrap(config).expect("runtime restart");
+        let reloaded = runtime
+            .signer_manager()
+            .expect("manager")
+            .get_connection(&connection.connection_id)
+            .expect("load connection")
+            .expect("connection");
+
+        assert_eq!(reloaded.auth_state, RadrootsNostrSignerAuthState::Pending);
+        assert!(reloaded.auth_challenge.is_some());
     }
 
     #[test]

@@ -1,4 +1,5 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use nostr::PublicKey;
@@ -32,6 +33,15 @@ pub struct MycPolicyContext {
     auth_pending_ttl_secs: u64,
     auth_authorized_ttl_secs: Option<u64>,
     reauth_after_inactivity_secs: Option<u64>,
+    connect_rate_limiter: Option<MycPolicyRateLimiter>,
+    auth_challenge_rate_limiter: Option<MycPolicyRateLimiter>,
+}
+
+#[derive(Debug, Clone)]
+struct MycPolicyRateLimiter {
+    window_secs: u64,
+    max_attempts: usize,
+    entries: Arc<Mutex<HashMap<String, VecDeque<u64>>>>,
 }
 
 impl MycPolicyContext {
@@ -50,6 +60,14 @@ impl MycPolicyContext {
             auth_pending_ttl_secs: config.auth_pending_ttl_secs,
             auth_authorized_ttl_secs: config.auth_authorized_ttl_secs,
             reauth_after_inactivity_secs: config.reauth_after_inactivity_secs,
+            connect_rate_limiter: build_rate_limiter(
+                config.connect_rate_limit_window_secs,
+                config.connect_rate_limit_max_attempts,
+            ),
+            auth_challenge_rate_limiter: build_rate_limiter(
+                config.auth_challenge_rate_limit_window_secs,
+                config.auth_challenge_rate_limit_max_attempts,
+            ),
         })
     }
 
@@ -84,6 +102,17 @@ impl MycPolicyContext {
             }
             MycConnectDecision::Deny => None,
         }
+    }
+
+    pub fn connect_rate_limit_denied_reason(
+        &self,
+        client_public_key: &PublicKey,
+    ) -> Option<String> {
+        self.connect_rate_limiter.as_ref().and_then(|limiter| {
+            limiter
+                .check_and_record(&client_public_key.to_hex())
+                .map(|retry_after_secs| throttled_reason("connect attempts", retry_after_secs))
+        })
     }
 
     pub fn auto_granted_permissions(
@@ -165,14 +194,22 @@ impl MycPolicyContext {
             && self.auth_challenge_is_expired(connection)
         {
             if self.request_uses_automatic_auth(connection, &request_message.request) {
-                manager.require_auth_challenge(&connection.connection_id, self.auth_url()?)?;
+                if let Some(reason) =
+                    self.require_auth_challenge_with_guardrails(manager, connection)?
+                {
+                    return Ok(Some(reason));
+                }
             } else {
                 return Ok(Some(
                     "auth challenge expired; require a new auth challenge".to_owned(),
                 ));
             }
         } else if self.should_require_fresh_auth(connection, &request_message.request) {
-            manager.require_auth_challenge(&connection.connection_id, self.auth_url()?)?;
+            if let Some(reason) =
+                self.require_auth_challenge_with_guardrails(manager, connection)?
+            {
+                return Ok(Some(reason));
+            }
         }
 
         Ok(None)
@@ -191,6 +228,21 @@ impl MycPolicyContext {
             ));
         }
         Ok(())
+    }
+
+    pub fn cleanup_stale_sessions(
+        &self,
+        manager: &RadrootsNostrSignerManager,
+    ) -> Result<usize, MycError> {
+        let mut cleaned = 0usize;
+        for connection in manager.list_connections()? {
+            if !self.stale_session_requires_cleanup(&connection) {
+                continue;
+            }
+            self.require_auth_challenge(manager, &connection)?;
+            cleaned += 1;
+        }
+        Ok(cleaned)
     }
 
     pub fn record_policy_denied_request(
@@ -271,9 +323,7 @@ impl MycPolicyContext {
         connection: &RadrootsNostrSignerConnectionRecord,
         request: &RadrootsNostrConnectRequest,
     ) -> bool {
-        self.auth_url.is_some()
-            && self.client_is_trusted(&connection.client_public_key)
-            && request_requires_auth(request)
+        self.automatic_auth_enabled_for_connection(connection) && request_requires_auth(request)
     }
 
     fn should_require_fresh_auth(
@@ -327,6 +377,102 @@ impl MycPolicyContext {
                 "automatic auth policy requires policy.auth_url to be configured".to_owned(),
             )
         })
+    }
+
+    fn automatic_auth_enabled_for_connection(
+        &self,
+        connection: &RadrootsNostrSignerConnectionRecord,
+    ) -> bool {
+        self.auth_url.is_some() && self.client_is_trusted(&connection.client_public_key)
+    }
+
+    fn require_auth_challenge_with_guardrails(
+        &self,
+        manager: &RadrootsNostrSignerManager,
+        connection: &RadrootsNostrSignerConnectionRecord,
+    ) -> Result<Option<String>, MycError> {
+        if let Some(retry_after_secs) = self
+            .auth_challenge_rate_limiter
+            .as_ref()
+            .and_then(|limiter| limiter.check_and_record(&connection.client_public_key.to_hex()))
+        {
+            return Ok(Some(throttled_reason(
+                "auth challenge issuance",
+                retry_after_secs,
+            )));
+        }
+        self.require_auth_challenge(manager, connection)?;
+        Ok(None)
+    }
+
+    fn require_auth_challenge(
+        &self,
+        manager: &RadrootsNostrSignerManager,
+        connection: &RadrootsNostrSignerConnectionRecord,
+    ) -> Result<(), MycError> {
+        manager.require_auth_challenge(&connection.connection_id, self.auth_url()?)?;
+        Ok(())
+    }
+
+    fn stale_session_requires_cleanup(
+        &self,
+        connection: &RadrootsNostrSignerConnectionRecord,
+    ) -> bool {
+        if connection.is_terminal()
+            || connection.auth_state
+                != radroots_nostr_signer::prelude::RadrootsNostrSignerAuthState::Authorized
+            || !self.automatic_auth_enabled_for_connection(connection)
+        {
+            return false;
+        }
+
+        let Some(last_authenticated_at_unix) = connection.last_authenticated_at_unix else {
+            return true;
+        };
+        let now_unix = now_unix_secs();
+
+        if self
+            .auth_authorized_ttl_secs
+            .is_some_and(|ttl| now_unix > last_authenticated_at_unix.saturating_add(ttl))
+        {
+            return true;
+        }
+
+        self.reauth_after_inactivity_secs.is_some_and(|ttl| {
+            connection
+                .last_request_at_unix
+                .is_some_and(|last_request_at_unix| {
+                    now_unix > last_request_at_unix.saturating_add(ttl)
+                })
+        })
+    }
+}
+
+impl MycPolicyRateLimiter {
+    fn check_and_record(&self, key: &str) -> Option<u64> {
+        let now_unix = now_unix_secs();
+        let mut guard = self
+            .entries
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let attempts = guard.entry(key.to_owned()).or_default();
+        prune_attempts(attempts, now_unix, self.window_secs);
+        if attempts.len() >= self.max_attempts {
+            return Some(
+                attempts
+                    .front()
+                    .copied()
+                    .map(|oldest_attempt_unix| {
+                        oldest_attempt_unix
+                            .saturating_add(self.window_secs)
+                            .saturating_sub(now_unix)
+                            .max(1)
+                    })
+                    .unwrap_or(1),
+            );
+        }
+        attempts.push_back(now_unix);
+        None
     }
 }
 
@@ -440,6 +586,34 @@ fn request_requires_auth(request: &RadrootsNostrConnectRequest) -> bool {
             | RadrootsNostrConnectRequest::GetPublicKey
             | RadrootsNostrConnectRequest::Ping
     )
+}
+
+fn build_rate_limiter(
+    window_secs: Option<u64>,
+    max_attempts: Option<usize>,
+) -> Option<MycPolicyRateLimiter> {
+    match (window_secs, max_attempts) {
+        (Some(window_secs), Some(max_attempts)) => Some(MycPolicyRateLimiter {
+            window_secs,
+            max_attempts,
+            entries: Arc::new(Mutex::new(HashMap::new())),
+        }),
+        _ => None,
+    }
+}
+
+fn prune_attempts(attempts: &mut VecDeque<u64>, now_unix: u64, window_secs: u64) {
+    while attempts
+        .front()
+        .copied()
+        .is_some_and(|attempt_unix| now_unix > attempt_unix.saturating_add(window_secs))
+    {
+        let _ = attempts.pop_front();
+    }
+}
+
+fn throttled_reason(label: &str, retry_after_secs: u64) -> String {
+    format!("{label} throttled by policy; retry after {retry_after_secs}s")
 }
 
 fn now_unix_secs() -> u64 {
