@@ -75,8 +75,20 @@ mod tests {
 
         assert!(snapshot.state_dir.ends_with("state"));
         assert!(snapshot.audit_dir.ends_with("audit"));
-        assert!(snapshot.signer_identity_path.ends_with("identity.json"));
-        assert!(snapshot.user_identity_path.ends_with("user.json"));
+        assert!(
+            snapshot
+                .signer_identity_path
+                .as_ref()
+                .expect("filesystem signer path")
+                .ends_with("identity.json")
+        );
+        assert!(
+            snapshot
+                .user_identity_path
+                .as_ref()
+                .expect("filesystem user path")
+                .ends_with("user.json")
+        );
         assert_eq!(
             snapshot.signer_identity_source.backend.as_str(),
             "filesystem"

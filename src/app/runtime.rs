@@ -57,8 +57,10 @@ pub struct MycStartupSnapshot {
     pub observability_bind_addr: SocketAddr,
     pub state_dir: PathBuf,
     pub audit_dir: PathBuf,
-    pub signer_identity_path: PathBuf,
-    pub user_identity_path: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signer_identity_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_identity_path: Option<PathBuf>,
     pub signer_identity_source: MycIdentitySourceSpec,
     pub user_identity_source: MycIdentitySourceSpec,
     pub signer_state_backend: MycSignerStateBackend,
@@ -92,6 +94,15 @@ pub struct MycRuntime {
     signer: MycSignerContext,
     transport: Option<MycNostrTransport>,
     delivery_outbox_store: Arc<dyn MycDeliveryOutboxStore>,
+}
+
+fn startup_identity_path(source: &MycIdentitySourceSpec) -> Option<PathBuf> {
+    source.path.clone()
+}
+
+fn format_startup_identity_path(path: Option<&Path>) -> String {
+    path.map(|path| path.display().to_string())
+        .unwrap_or_default()
 }
 
 impl MycRuntime {
@@ -185,8 +196,8 @@ impl MycRuntime {
             observability_bind_addr: self.config.observability.bind_addr,
             state_dir: self.paths.state_dir.clone(),
             audit_dir: self.paths.audit_dir.clone(),
-            signer_identity_path: self.paths.signer_identity_path.clone(),
-            user_identity_path: self.paths.user_identity_path.clone(),
+            signer_identity_path: startup_identity_path(self.signer.signer_identity_source()),
+            user_identity_path: startup_identity_path(self.signer.user_identity_source()),
             signer_identity_source: self.signer.signer_identity_source().clone(),
             user_identity_source: self.signer.user_identity_source().clone(),
             signer_state_backend: self.config.persistence.signer_state_backend,
@@ -214,12 +225,16 @@ impl MycRuntime {
         F: Future<Output = ()>,
     {
         let snapshot = self.snapshot();
+        let signer_identity_path =
+            format_startup_identity_path(snapshot.signer_identity_path.as_deref());
+        let user_identity_path =
+            format_startup_identity_path(snapshot.user_identity_path.as_deref());
         tracing::info!(
             instance_name = %snapshot.instance_name,
             state_dir = %snapshot.state_dir.display(),
             audit_dir = %snapshot.audit_dir.display(),
-            signer_identity_path = %snapshot.signer_identity_path.display(),
-            user_identity_path = %snapshot.user_identity_path.display(),
+            signer_identity_path = %signer_identity_path,
+            user_identity_path = %user_identity_path,
             signer_identity_backend = %snapshot.signer_identity_source.backend.as_str(),
             user_identity_backend = %snapshot.user_identity_source.backend.as_str(),
             signer_keyring_account_id = snapshot.signer_identity_source.keyring_account_id.as_deref().unwrap_or(""),
@@ -1226,9 +1241,11 @@ mod tests {
         RadrootsNostrSignerManager, RadrootsNostrSqliteSignerStore,
     };
 
-    use super::MycRuntime;
+    use super::{MycRuntime, startup_identity_path};
     use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
-    use crate::config::{MycConfig, MycRuntimeAuditBackend, MycSignerStateBackend};
+    use crate::config::{
+        MycConfig, MycIdentityBackend, MycRuntimeAuditBackend, MycSignerStateBackend,
+    };
     use crate::error::MycError;
     use crate::outbox::{MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycDeliveryOutboxStatus};
 
@@ -1580,6 +1597,26 @@ mod tests {
                 .is_file()
         );
         assert!(runtime.paths().delivery_outbox_path.is_file());
+    }
+
+    #[test]
+    fn startup_identity_path_reporting_matches_backend_sources() {
+        let mut config = MycConfig::default();
+        config.paths.signer_identity_backend = MycIdentityBackend::OsKeyring;
+        config.paths.signer_identity_keyring_account_id =
+            Some("1111111111111111111111111111111111111111111111111111111111111111".to_owned());
+        config.paths.signer_identity_profile_path = Some(PathBuf::from("/tmp/signer-profile.json"));
+        config.paths.user_identity_backend = MycIdentityBackend::ManagedAccount;
+        config.paths.user_identity_path = PathBuf::from("/tmp/user-accounts.json");
+
+        assert_eq!(
+            startup_identity_path(&config.paths.signer_identity_source()),
+            None
+        );
+        assert_eq!(
+            startup_identity_path(&config.paths.user_identity_source()),
+            Some(PathBuf::from("/tmp/user-accounts.json"))
+        );
     }
 
     #[tokio::test]
