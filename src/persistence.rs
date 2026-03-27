@@ -367,6 +367,7 @@ fn signer_store_state_is_empty(
     state.signer_identity.is_none()
         && state.connections.is_empty()
         && state.audit_records.is_empty()
+        && state.publish_workflows.is_empty()
 }
 
 fn require_existing_restore_file(path: &std::path::Path, label: String) -> Result<(), MycError> {
@@ -641,11 +642,14 @@ mod tests {
     use nostr::PublicKey;
     use radroots_identity::RadrootsIdentity;
     use radroots_nostr_signer::prelude::{
-        RadrootsNostrFileSignerStore, RadrootsNostrSignerConnectionDraft, RadrootsNostrSignerStore,
-        RadrootsNostrSqliteSignerStore,
+        RADROOTS_NOSTR_SIGNER_STORE_VERSION, RadrootsNostrFileSignerStore,
+        RadrootsNostrSignerConnectionDraft, RadrootsNostrSignerConnectionId,
+        RadrootsNostrSignerStore, RadrootsNostrSignerStoreState, RadrootsNostrSqliteSignerStore,
     };
 
-    use super::{MycPersistenceImportSelection, import_json_to_sqlite};
+    use super::{
+        MycPersistenceImportSelection, import_json_to_sqlite, signer_store_state_is_empty,
+    };
     use crate::app::MycRuntime;
     use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
     use crate::audit_sqlite::MycSqliteOperationAuditStore;
@@ -678,6 +682,27 @@ mod tests {
     fn bootstrap_json_runtime(temp: &Path) -> MycRuntime {
         let config = base_config(temp);
         MycRuntime::bootstrap(config).expect("runtime")
+    }
+
+    #[test]
+    fn signer_store_state_is_not_empty_when_only_publish_workflows_are_present() {
+        let workflow = radroots_nostr_signer::prelude::RadrootsNostrSignerPublishWorkflowRecord::new_connect_secret_finalization(
+            RadrootsNostrSignerConnectionId::parse("workflow-only-connection")
+                .expect("workflow connection id"),
+            17,
+        );
+        let state = RadrootsNostrSignerStoreState {
+            version: RADROOTS_NOSTR_SIGNER_STORE_VERSION,
+            signer_identity: None,
+            connections: Vec::new(),
+            audit_records: Vec::new(),
+            publish_workflows: vec![workflow],
+        };
+
+        assert!(
+            !signer_store_state_is_empty(&state),
+            "publish workflows must make the signer-state destination non-empty"
+        );
     }
 
     #[test]
