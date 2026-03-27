@@ -1676,7 +1676,8 @@ async fn external_nostr_client_recovers_connect_response_after_restart() -> Test
     let response_envelope =
         RadrootsNostrConnectResponse::ConnectAcknowledged.into_envelope(connect_request_id)?;
     let response_payload = serde_json::to_string(&response_envelope)?;
-    let signer_identity = identity(runtime.signer_identity().secret_key_hex().as_str());
+    let signer_identity =
+        identity("1111111111111111111111111111111111111111111111111111111111111111");
     let response_ciphertext = nip44::encrypt(
         signer_identity.keys().secret_key(),
         &client_identity.public_key(),

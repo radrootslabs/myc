@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use nostr::nips::nip44::Version;
 use nostr::nips::{nip04, nip44};
-use radroots_identity::{RadrootsIdentity, RadrootsIdentityId};
+use radroots_identity::{RadrootsIdentity, RadrootsIdentityId, RadrootsIdentityPublic};
 use radroots_nostr::prelude::{
     RadrootsNostrClient, RadrootsNostrEvent, RadrootsNostrEventBuilder, RadrootsNostrPublicKey,
 };
@@ -20,7 +20,9 @@ use crate::error::MycError;
 
 #[derive(Clone)]
 pub struct MycActiveIdentity {
-    identity: Arc<RadrootsIdentity>,
+    public_identity: RadrootsIdentityPublic,
+    public_key: RadrootsNostrPublicKey,
+    operations: Arc<dyn MycIdentityOperations>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -103,6 +105,128 @@ enum MycIdentityProviderBackend {
         service_name: String,
         manager: RadrootsNostrAccountsManager,
     },
+}
+
+trait MycIdentityOperations: Send + Sync {
+    fn nostr_client(&self) -> RadrootsNostrClient;
+    fn nostr_client_owned(&self) -> RadrootsNostrClient;
+    fn sign_event_builder(
+        &self,
+        builder: RadrootsNostrEventBuilder,
+        operation: &str,
+    ) -> Result<RadrootsNostrEvent, MycError>;
+    fn sign_unsigned_event(
+        &self,
+        unsigned_event: nostr::UnsignedEvent,
+        operation: &str,
+    ) -> Result<nostr::Event, MycError>;
+    fn nip04_encrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        plaintext: String,
+    ) -> Result<String, MycError>;
+    fn nip04_decrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        ciphertext: &str,
+    ) -> Result<String, MycError>;
+    fn nip44_encrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        plaintext: String,
+    ) -> Result<String, MycError>;
+    fn nip44_decrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        ciphertext: &str,
+    ) -> Result<String, MycError>;
+}
+
+struct MycLoadedIdentityOperations {
+    identity: Arc<RadrootsIdentity>,
+}
+
+impl MycLoadedIdentityOperations {
+    fn new(identity: RadrootsIdentity) -> Self {
+        Self {
+            identity: Arc::new(identity),
+        }
+    }
+}
+
+impl MycIdentityOperations for MycLoadedIdentityOperations {
+    fn nostr_client(&self) -> RadrootsNostrClient {
+        RadrootsNostrClient::from_identity(self.identity.as_ref())
+    }
+
+    fn nostr_client_owned(&self) -> RadrootsNostrClient {
+        RadrootsNostrClient::from_identity_owned((*self.identity).clone())
+    }
+
+    fn sign_event_builder(
+        &self,
+        builder: RadrootsNostrEventBuilder,
+        operation: &str,
+    ) -> Result<RadrootsNostrEvent, MycError> {
+        builder
+            .sign_with_keys(self.identity.keys())
+            .map_err(|error| {
+                MycError::InvalidOperation(format!("failed to sign {operation} event: {error}"))
+            })
+    }
+
+    fn sign_unsigned_event(
+        &self,
+        unsigned_event: nostr::UnsignedEvent,
+        operation: &str,
+    ) -> Result<nostr::Event, MycError> {
+        unsigned_event
+            .sign_with_keys(self.identity.keys())
+            .map_err(|error| {
+                MycError::InvalidOperation(format!("failed to sign {operation}: {error}"))
+            })
+    }
+
+    fn nip04_encrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        plaintext: String,
+    ) -> Result<String, MycError> {
+        nip04::encrypt(self.identity.keys().secret_key(), public_key, plaintext)
+            .map_err(|error| MycError::Nip46Encrypt(error.to_string()))
+    }
+
+    fn nip04_decrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        ciphertext: &str,
+    ) -> Result<String, MycError> {
+        nip04::decrypt(self.identity.keys().secret_key(), public_key, ciphertext)
+            .map_err(|error| MycError::Nip46Decrypt(error.to_string()))
+    }
+
+    fn nip44_encrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        plaintext: String,
+    ) -> Result<String, MycError> {
+        nip44::encrypt(
+            self.identity.keys().secret_key(),
+            public_key,
+            plaintext,
+            Version::V2,
+        )
+        .map_err(|error| MycError::Nip46Encrypt(error.to_string()))
+    }
+
+    fn nip44_decrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        ciphertext: &str,
+    ) -> Result<String, MycError> {
+        nip44::decrypt(self.identity.keys().secret_key(), public_key, ciphertext)
+            .map_err(|error| MycError::Nip46Decrypt(error.to_string()))
+    }
 }
 
 impl MycIdentityProvider {
@@ -253,21 +377,23 @@ impl MycIdentityProvider {
 
     pub fn resolved_status(&self, identity: &MycActiveIdentity) -> MycIdentityStatusOutput {
         match &self.backend {
-            MycIdentityProviderBackend::ManagedAccount { .. } => self.managed_account_status(
-                Ok(identity.as_identity()),
-                self.selected_managed_account_record_result(),
-            ),
-            _ => self.status_with_result(Ok(identity.as_identity())),
+            MycIdentityProviderBackend::ManagedAccount { .. } => {
+                self.managed_account_status(Ok(()), self.selected_managed_account_record_result())
+            }
+            _ => self.status_with_public_identity(identity.public_identity()),
         }
     }
 
     pub fn probe_status(&self) -> MycIdentityStatusOutput {
         match &self.backend {
             MycIdentityProviderBackend::ManagedAccount { .. } => self.managed_account_status(
-                self.load_identity().as_ref(),
+                self.load_identity_public().as_ref().map(|_| ()),
                 self.selected_managed_account_record_result(),
             ),
-            _ => self.status_with_result(self.load_identity().as_ref()),
+            _ => match self.load_identity_public() {
+                Ok(identity) => self.status_with_public_identity(&identity),
+                Err(error) => self.status_with_error(&error),
+            },
         }
     }
 
@@ -372,41 +498,46 @@ impl MycIdentityProvider {
         })
     }
 
-    fn status_with_result(
+    fn load_identity_public(&self) -> Result<RadrootsIdentityPublic, MycError> {
+        self.load_identity().map(|identity| identity.to_public())
+    }
+
+    fn status_with_public_identity(
         &self,
-        result: Result<&RadrootsIdentity, &MycError>,
+        identity: &RadrootsIdentityPublic,
     ) -> MycIdentityStatusOutput {
-        match result {
-            Ok(identity) => MycIdentityStatusOutput {
-                backend: self.source.backend,
-                path: self.source.path.clone(),
-                keyring_account_id: self.source.keyring_account_id.clone(),
-                keyring_service_name: self.source.keyring_service_name.clone(),
-                profile_path: self.source.profile_path.clone(),
-                inherited_from: None,
-                resolved: true,
-                selected_account_id: None,
-                selected_account_label: None,
-                selected_account_state: None,
-                identity_id: Some(identity.id().to_string()),
-                public_key_hex: Some(identity.public_key_hex()),
-                error: None,
-            },
-            Err(error) => MycIdentityStatusOutput {
-                backend: self.source.backend,
-                path: self.source.path.clone(),
-                keyring_account_id: self.source.keyring_account_id.clone(),
-                keyring_service_name: self.source.keyring_service_name.clone(),
-                profile_path: self.source.profile_path.clone(),
-                inherited_from: None,
-                resolved: false,
-                selected_account_id: None,
-                selected_account_label: None,
-                selected_account_state: None,
-                identity_id: None,
-                public_key_hex: None,
-                error: Some(error.to_string()),
-            },
+        MycIdentityStatusOutput {
+            backend: self.source.backend,
+            path: self.source.path.clone(),
+            keyring_account_id: self.source.keyring_account_id.clone(),
+            keyring_service_name: self.source.keyring_service_name.clone(),
+            profile_path: self.source.profile_path.clone(),
+            inherited_from: None,
+            resolved: true,
+            selected_account_id: None,
+            selected_account_label: None,
+            selected_account_state: None,
+            identity_id: Some(identity.id.to_string()),
+            public_key_hex: Some(identity.public_key_hex.clone()),
+            error: None,
+        }
+    }
+
+    fn status_with_error(&self, error: &MycError) -> MycIdentityStatusOutput {
+        MycIdentityStatusOutput {
+            backend: self.source.backend,
+            path: self.source.path.clone(),
+            keyring_account_id: self.source.keyring_account_id.clone(),
+            keyring_service_name: self.source.keyring_service_name.clone(),
+            profile_path: self.source.profile_path.clone(),
+            inherited_from: None,
+            resolved: false,
+            selected_account_id: None,
+            selected_account_label: None,
+            selected_account_state: None,
+            identity_id: None,
+            public_key_hex: None,
+            error: Some(error.to_string()),
         }
     }
 
@@ -424,7 +555,7 @@ impl MycIdentityProvider {
 
     fn managed_account_status(
         &self,
-        identity_result: Result<&RadrootsIdentity, &MycError>,
+        identity_result: Result<(), &MycError>,
         account_result: Result<Option<RadrootsNostrAccountRecord>, MycError>,
     ) -> MycIdentityStatusOutput {
         let MycIdentityProviderBackend::ManagedAccount {
@@ -433,7 +564,10 @@ impl MycIdentityProvider {
             manager,
         } = &self.backend
         else {
-            return self.status_with_result(identity_result);
+            return match self.load_identity_public() {
+                Ok(identity) => self.status_with_public_identity(&identity),
+                Err(error) => self.status_with_error(&error),
+            };
         };
 
         let (selected_account_id, selected_account_label, identity_id, public_key_hex) =
@@ -651,37 +785,41 @@ impl MycIdentityProvider {
 
 impl MycActiveIdentity {
     pub fn new(identity: RadrootsIdentity) -> Self {
+        let public_identity = identity.to_public();
+        let public_key = identity.public_key();
         Self {
-            identity: Arc::new(identity),
+            public_identity,
+            public_key,
+            operations: Arc::new(MycLoadedIdentityOperations::new(identity)),
         }
     }
 
     pub fn id(&self) -> RadrootsIdentityId {
-        self.identity.id()
+        self.public_identity.id.clone()
     }
 
     pub fn public_key(&self) -> RadrootsNostrPublicKey {
-        self.identity.public_key()
+        self.public_key
     }
 
     pub fn public_key_hex(&self) -> String {
-        self.identity.public_key_hex()
+        self.public_identity.public_key_hex.clone()
     }
 
-    pub fn secret_key_hex(&self) -> String {
-        self.identity.secret_key_hex()
+    pub fn to_public(&self) -> RadrootsIdentityPublic {
+        self.public_identity.clone()
     }
 
-    pub fn to_public(&self) -> radroots_identity::RadrootsIdentityPublic {
-        self.identity.to_public()
+    pub fn public_identity(&self) -> &RadrootsIdentityPublic {
+        &self.public_identity
     }
 
     pub fn nostr_client(&self) -> RadrootsNostrClient {
-        RadrootsNostrClient::from_identity(self.as_identity())
+        self.operations.nostr_client()
     }
 
     pub fn nostr_client_owned(&self) -> RadrootsNostrClient {
-        RadrootsNostrClient::from_identity_owned((*self.identity).clone())
+        self.operations.nostr_client_owned()
     }
 
     pub fn sign_event_builder(
@@ -689,11 +827,7 @@ impl MycActiveIdentity {
         builder: RadrootsNostrEventBuilder,
         operation: &str,
     ) -> Result<RadrootsNostrEvent, MycError> {
-        builder
-            .sign_with_keys(self.identity.keys())
-            .map_err(|error| {
-                MycError::InvalidOperation(format!("failed to sign {operation} event: {error}"))
-            })
+        self.operations.sign_event_builder(builder, operation)
     }
 
     pub fn sign_unsigned_event(
@@ -701,11 +835,8 @@ impl MycActiveIdentity {
         unsigned_event: nostr::UnsignedEvent,
         operation: &str,
     ) -> Result<nostr::Event, MycError> {
-        unsigned_event
-            .sign_with_keys(self.identity.keys())
-            .map_err(|error| {
-                MycError::InvalidOperation(format!("failed to sign {operation}: {error}"))
-            })
+        self.operations
+            .sign_unsigned_event(unsigned_event, operation)
     }
 
     pub fn nip04_encrypt(
@@ -713,12 +844,7 @@ impl MycActiveIdentity {
         public_key: &RadrootsNostrPublicKey,
         plaintext: impl Into<String>,
     ) -> Result<String, MycError> {
-        nip04::encrypt(
-            self.identity.keys().secret_key(),
-            public_key,
-            plaintext.into(),
-        )
-        .map_err(|error| MycError::Nip46Encrypt(error.to_string()))
+        self.operations.nip04_encrypt(public_key, plaintext.into())
     }
 
     pub fn nip04_decrypt(
@@ -726,12 +852,8 @@ impl MycActiveIdentity {
         public_key: &RadrootsNostrPublicKey,
         ciphertext: impl AsRef<str>,
     ) -> Result<String, MycError> {
-        nip04::decrypt(
-            self.identity.keys().secret_key(),
-            public_key,
-            ciphertext.as_ref(),
-        )
-        .map_err(|error| MycError::Nip46Decrypt(error.to_string()))
+        self.operations
+            .nip04_decrypt(public_key, ciphertext.as_ref())
     }
 
     pub fn nip44_encrypt(
@@ -739,13 +861,7 @@ impl MycActiveIdentity {
         public_key: &RadrootsNostrPublicKey,
         plaintext: impl Into<String>,
     ) -> Result<String, MycError> {
-        nip44::encrypt(
-            self.identity.keys().secret_key(),
-            public_key,
-            plaintext.into(),
-            Version::V2,
-        )
-        .map_err(|error| MycError::Nip46Encrypt(error.to_string()))
+        self.operations.nip44_encrypt(public_key, plaintext.into())
     }
 
     pub fn nip44_decrypt(
@@ -753,16 +869,8 @@ impl MycActiveIdentity {
         public_key: &RadrootsNostrPublicKey,
         ciphertext: impl AsRef<str>,
     ) -> Result<String, MycError> {
-        nip44::decrypt(
-            self.identity.keys().secret_key(),
-            public_key,
-            ciphertext.as_ref(),
-        )
-        .map_err(|error| MycError::Nip46Decrypt(error.to_string()))
-    }
-
-    pub(crate) fn as_identity(&self) -> &RadrootsIdentity {
-        self.identity.as_ref()
+        self.operations
+            .nip44_decrypt(public_key, ciphertext.as_ref())
     }
 }
 
