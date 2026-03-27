@@ -1,8 +1,10 @@
+pub mod backend;
 pub mod runtime;
 
 use crate::config::MycConfig;
 use crate::error::MycError;
 
+pub use backend::MycSignerBackend;
 pub use runtime::{MycRuntime, MycRuntimePaths, MycSignerContext, MycStartupSnapshot};
 
 #[derive(Clone)]

@@ -5,9 +5,10 @@ use radroots_nostr_connect::prelude::{
     RadrootsNostrConnectResponse, RadrootsNostrConnectUri,
 };
 use radroots_nostr_signer::prelude::{
-    RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerConnectionId,
-    RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerRequestId,
-    RadrootsNostrSignerWorkflowId,
+    RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerBackend,
+    RadrootsNostrSignerConnectionId, RadrootsNostrSignerConnectionRecord,
+    RadrootsNostrSignerPublishTransition, RadrootsNostrSignerPublishWorkflowRecord,
+    RadrootsNostrSignerRequestId, RadrootsNostrSignerWorkflowId,
 };
 use serde::Serialize;
 
@@ -34,20 +35,23 @@ pub async fn authorize_auth_challenge(
     runtime: &MycRuntime,
     connection_id: &RadrootsNostrSignerConnectionId,
 ) -> Result<MycAuthorizedReplayOutput, MycError> {
-    let manager = runtime.signer_manager()?;
-    let connection = manager.get_connection(connection_id)?.ok_or_else(|| {
+    let backend = runtime.signer_backend();
+    let connection = backend.get_connection(connection_id)?.ok_or_else(|| {
         MycError::InvalidOperation(format!("connection `{connection_id}` was not found"))
     })?;
     runtime
         .signer_context()
         .policy()
         .ensure_authorize_auth_challenge_allowed(&connection)?;
-    let workflow = manager.begin_auth_replay_publish_finalization(connection_id)?;
+    let workflow = workflow_from_transition(
+        backend.begin_auth_replay_publish_finalization(connection_id)?,
+        "auth replay",
+    )?;
     let replayed_request_id =
         replay_authorized_request(runtime, &connection.connection_id, &workflow.workflow_id)
             .await?;
     let connection = runtime
-        .signer_manager()?
+        .signer_backend()
         .get_connection(connection_id)?
         .ok_or_else(|| {
             MycError::InvalidOperation(format!("connection `{connection_id}` was not found"))
@@ -88,7 +92,7 @@ pub async fn accept_client_uri(
         secret: Some(client_uri.secret.clone()),
         requested_permissions: client_uri.metadata.requested_permissions.clone(),
     };
-    let manager = runtime.signer_manager()?;
+    let backend = runtime.signer_backend();
     let Some(approval_requirement) = runtime
         .signer_context()
         .policy()
@@ -98,7 +102,7 @@ pub async fn accept_client_uri(
             "client public key denied by policy".to_owned(),
         ));
     };
-    let connection = match manager.evaluate_connect_request(client_uri.client_public_key, request)? {
+    let connection = match backend.evaluate_connect_request(client_uri.client_public_key, request)? {
         radroots_nostr_signer::prelude::RadrootsNostrSignerConnectEvaluation::ExistingConnection(
             connection,
         ) => {
@@ -132,7 +136,7 @@ pub async fn accept_client_uri(
                 .with_requested_permissions(requested_permissions)
                 .with_relays(preferred_relays.clone())
                 .with_approval_requirement(approval_requirement);
-            let connection = manager.register_connection(draft)?;
+            let connection = backend.register_connection(draft)?;
             if approval_requirement
                 == RadrootsNostrSignerApprovalRequirement::NotRequired
             {
@@ -140,7 +144,7 @@ pub async fn accept_client_uri(
                     .signer_context()
                     .policy()
                     .auto_granted_permissions(&connection.requested_permissions);
-                let _ = manager.set_granted_permissions(
+                let _ = backend.set_granted_permissions(
                     &connection.connection_id,
                     granted_permissions,
                 )?;
@@ -157,7 +161,10 @@ pub async fn accept_client_uri(
         RadrootsNostrConnectResponse::ConnectSecretEcho(client_uri.secret),
     )?;
     let response_relays = merge_relays(&client_uri.relays, &preferred_relays);
-    let workflow = manager.begin_connect_secret_publish_finalization(&connection.connection_id)?;
+    let workflow = workflow_from_transition(
+        backend.begin_connect_secret_publish_finalization(&connection.connection_id)?,
+        "connect accept",
+    )?;
     let event = match runtime
         .signer_identity()
         .sign_event_builder(event, "connect accept response")
@@ -223,7 +230,7 @@ pub async fn accept_client_uri(
             ));
         }
     };
-    if let Err(error) = manager.mark_publish_workflow_published(&workflow.workflow_id) {
+    if let Err(error) = backend.mark_publish_workflow_published(&workflow.workflow_id) {
         record_post_publish_failure(
             runtime,
             MycOperationAuditKind::ConnectAcceptPublish,
@@ -248,7 +255,7 @@ pub async fn accept_client_uri(
         );
         return Err(error);
     }
-    if let Err(error) = manager.finalize_publish_workflow(&workflow.workflow_id) {
+    if let Err(error) = backend.finalize_publish_workflow(&workflow.workflow_id) {
         record_post_publish_failure(
             runtime,
             MycOperationAuditKind::ConnectAcceptPublish,
@@ -283,11 +290,8 @@ pub async fn accept_client_uri(
     );
 
     Ok(MycAcceptedConnectionOutput {
-        connection: runtime
-            .signer_manager()?
-            .list_connections()?
-            .into_iter()
-            .find(|record| record.connection_id == connection.connection_id)
+        connection: backend
+            .get_connection(&connection.connection_id)?
             .ok_or_else(|| {
                 MycError::InvalidOperation("accepted connection was not persisted".to_owned())
             })?,
@@ -319,8 +323,8 @@ async fn replay_authorized_request(
     connection_id: &RadrootsNostrSignerConnectionId,
     workflow_id: &RadrootsNostrSignerWorkflowId,
 ) -> Result<Option<String>, MycError> {
-    let manager = runtime.signer_manager()?;
-    let workflow = manager.get_publish_workflow(workflow_id)?.ok_or_else(|| {
+    let backend = runtime.signer_backend();
+    let workflow = backend.get_publish_workflow(workflow_id)?.ok_or_else(|| {
         MycError::InvalidOperation(format!("publish workflow `{workflow_id}` was not found"))
     })?;
     let Some(pending_request) = workflow.pending_request.clone() else {
@@ -342,7 +346,7 @@ async fn replay_authorized_request(
         }
     };
     let handler = MycNip46Handler::new(runtime.signer_context(), transport.relays().to_vec());
-    let evaluation = match manager.evaluate_auth_replay_publish_workflow(workflow_id) {
+    let evaluation = match backend.evaluate_auth_replay_publish_workflow(workflow_id) {
         Ok(evaluation) => evaluation,
         Err(error) => {
             return Err(cancel_auth_replay_workflow_on_error(
@@ -396,7 +400,7 @@ async fn replay_authorized_request(
         ));
     }
     let event = match handler.build_response_event(
-        manager
+        backend
             .get_connection(connection_id)?
             .ok_or_else(|| {
                 MycError::InvalidOperation(format!("connection `{connection_id}` was not found"))
@@ -416,7 +420,7 @@ async fn replay_authorized_request(
             ));
         }
     };
-    let connection = manager.get_connection(connection_id)?.ok_or_else(|| {
+    let connection = backend.get_connection(connection_id)?.ok_or_else(|| {
         MycError::InvalidOperation(format!("connection `{connection_id}` was not found"))
     })?;
     let event = match runtime
@@ -497,7 +501,7 @@ async fn replay_authorized_request(
             ));
         }
     };
-    if let Err(error) = manager.mark_publish_workflow_published(workflow_id) {
+    if let Err(error) = backend.mark_publish_workflow_published(workflow_id) {
         record_post_publish_failure(
             runtime,
             MycOperationAuditKind::AuthReplayPublish,
@@ -522,7 +526,7 @@ async fn replay_authorized_request(
         );
         return Err(error);
     }
-    if let Err(error) = manager.finalize_publish_workflow(workflow_id) {
+    if let Err(error) = backend.finalize_publish_workflow(workflow_id) {
         record_post_publish_failure(
             runtime,
             MycOperationAuditKind::AuthReplayPublish,
@@ -566,11 +570,11 @@ fn cancel_auth_replay_workflow_on_error(
     error: MycError,
 ) -> MycError {
     let summary = publish_failure_summary(&error);
-    match runtime.signer_manager().and_then(|manager| {
-        manager
-            .cancel_publish_workflow(workflow_id)
-            .map_err(Into::into)
-    }) {
+    match runtime
+        .signer_backend()
+        .cancel_publish_workflow(workflow_id)
+        .map_err(MycError::from)
+    {
         Ok(_) => {
             let mut record = MycOperationAuditRecord::new(
                 MycOperationAuditKind::AuthReplayRestore,
@@ -616,17 +620,28 @@ fn cancel_connect_accept_workflow_on_error(
     workflow_id: &RadrootsNostrSignerWorkflowId,
     error: MycError,
 ) -> MycError {
-    match runtime.signer_manager().and_then(|manager| {
-        manager
-            .cancel_publish_workflow(workflow_id)
-            .map(|_| ())
-            .map_err(Into::into)
-    }) {
+    match runtime
+        .signer_backend()
+        .cancel_publish_workflow(workflow_id)
+        .map(|_| ())
+        .map_err(MycError::from)
+    {
         Ok(()) => error,
         Err(cancel_error) => MycError::InvalidOperation(format!(
             "{error}; additionally failed to cancel connect-accept publish workflow: {cancel_error}"
         )),
     }
+}
+
+fn workflow_from_transition(
+    transition: RadrootsNostrSignerPublishTransition,
+    operation: &str,
+) -> Result<RadrootsNostrSignerPublishWorkflowRecord, MycError> {
+    transition.workflow().cloned().ok_or_else(|| {
+        MycError::InvalidOperation(format!(
+            "{operation} publish workflow did not return a workflow record"
+        ))
+    })
 }
 
 fn build_control_outbox_record(

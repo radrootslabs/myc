@@ -7,8 +7,10 @@ use std::time::Duration;
 
 use radroots_nostr::prelude::{RadrootsNostrRelayStatus, RadrootsNostrRelayUrl};
 use radroots_nostr_signer::prelude::{
-    RadrootsNostrSignerPublishWorkflowRecord, RadrootsNostrSignerPublishWorkflowState,
-    RadrootsNostrSignerRequestAuditRecord, RadrootsNostrSignerRequestDecision,
+    RadrootsNostrLocalSignerCapability, RadrootsNostrRemoteSessionSignerCapability,
+    RadrootsNostrSignerBackend, RadrootsNostrSignerPublishWorkflowRecord,
+    RadrootsNostrSignerPublishWorkflowState, RadrootsNostrSignerRequestAuditRecord,
+    RadrootsNostrSignerRequestDecision,
 };
 use radroots_sql_core::{SqlExecutor, SqliteExecutor};
 use serde::{Deserialize, Serialize};
@@ -103,6 +105,16 @@ pub struct MycPersistenceStatusOutput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycSignerBackendStatusOutput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_signer: Option<RadrootsNostrLocalSignerCapability>,
+    pub remote_session_count: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub remote_sessions: Vec<RadrootsNostrRemoteSessionSignerCapability>,
+    pub publish_workflow_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycDeliveryRecoveryStatusOutput {
     pub recorded_at_unix: u64,
     pub outcome: MycOperationAuditOutcome,
@@ -172,6 +184,7 @@ pub struct MycStatusFullOutput {
     pub ready: bool,
     pub reasons: Vec<String>,
     pub startup: crate::app::MycStartupSnapshot,
+    pub signer_backend: MycSignerBackendStatusOutput,
     pub custody: MycCustodyStatusOutput,
     pub persistence: MycPersistenceStatusOutput,
     pub delivery_outbox: MycDeliveryOutboxStatusOutput,
@@ -185,6 +198,7 @@ pub struct MycStatusSummaryOutput {
     pub ready: bool,
     pub reasons: Vec<String>,
     pub instance_name: String,
+    pub signer_backend: MycSignerBackendStatusOutput,
     pub custody: MycCustodyStatusOutput,
     pub persistence: MycPersistenceStatusOutput,
     pub delivery_outbox: MycDeliveryOutboxStatusOutput,
@@ -301,6 +315,7 @@ struct MycSqliteStoreVersionRow {
 
 pub async fn collect_status_full(runtime: &MycRuntime) -> Result<MycStatusFullOutput, MycError> {
     let snapshot = runtime.snapshot();
+    let signer_backend = collect_signer_backend_status(runtime)?;
     let custody = collect_custody_status(runtime)?;
     let persistence = collect_persistence_status(runtime);
     let delivery_outbox = collect_delivery_outbox_status(runtime)?;
@@ -338,6 +353,7 @@ pub async fn collect_status_full(runtime: &MycRuntime) -> Result<MycStatusFullOu
         ready,
         reasons,
         startup: snapshot,
+        signer_backend,
         custody: custody.output,
         persistence: persistence.output,
         delivery_outbox: delivery_outbox.output,
@@ -355,6 +371,12 @@ pub async fn collect_status_summary(
         ready: full.ready,
         reasons: full.reasons,
         instance_name: full.startup.instance_name,
+        signer_backend: MycSignerBackendStatusOutput {
+            local_signer: full.signer_backend.local_signer.clone(),
+            remote_session_count: full.signer_backend.remote_session_count,
+            remote_sessions: Vec::new(),
+            publish_workflow_count: full.signer_backend.publish_workflow_count,
+        },
         custody: full.custody,
         persistence: full.persistence,
         delivery_outbox: full.delivery_outbox,
@@ -410,6 +432,20 @@ fn collect_custody_status(runtime: &MycRuntime) -> Result<MycCustodyStatusEvalua
             user,
             discovery_app,
         },
+    })
+}
+
+fn collect_signer_backend_status(
+    runtime: &MycRuntime,
+) -> Result<MycSignerBackendStatusOutput, MycError> {
+    let backend = runtime.signer_backend();
+    let capabilities = backend.capabilities()?;
+    let publish_workflow_count = backend.list_publish_workflows()?.len();
+    Ok(MycSignerBackendStatusOutput {
+        local_signer: capabilities.local_signer,
+        remote_session_count: capabilities.remote_sessions.len(),
+        remote_sessions: capabilities.remote_sessions,
+        publish_workflow_count,
     })
 }
 
@@ -958,7 +994,7 @@ fn collect_delivery_outbox_status(
 ) -> Result<MycDeliveryOutboxStatusEvaluation, MycError> {
     let outbox_records = runtime.delivery_outbox_store().list_all()?;
     let workflow_by_id = runtime
-        .signer_manager()?
+        .signer_backend()
         .list_publish_workflows()?
         .into_iter()
         .map(|workflow| (workflow.workflow_id.to_string(), workflow))
@@ -1557,7 +1593,8 @@ mod tests {
 
     use super::{
         MycMetricsSnapshot, MycOperationOutcomeCounts, MycRuntimeStatus, collect_metrics,
-        inspect_runtime_audit_sqlite_schema, render_metrics_text, worse_runtime_status,
+        collect_status_full, inspect_runtime_audit_sqlite_schema, render_metrics_text,
+        worse_runtime_status,
     };
     use crate::app::{MycRuntime, MycRuntimePaths};
     use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
@@ -1715,5 +1752,50 @@ mod tests {
         assert_eq!(metrics.runtime_operation_total, 1);
         assert_eq!(metrics.runtime_operation_outcomes.succeeded, 1);
         assert_eq!(metrics.delivery_recovery_success_count, 1);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn status_full_reports_signer_backend_capabilities() {
+        use radroots_nostr_signer::prelude::{
+            RadrootsNostrSignerBackend, RadrootsNostrSignerConnectionDraft,
+        };
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut config = MycConfig::default();
+        config.paths.state_dir = temp.path().join("state");
+        config.paths.signer_identity_path = temp.path().join("signer.json");
+        config.paths.user_identity_path = temp.path().join("user.json");
+        write_test_identity(
+            &config.paths.signer_identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_test_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
+
+        let runtime = MycRuntime::bootstrap(config).expect("runtime");
+        let backend = runtime.signer_backend();
+        let connection = backend
+            .register_connection(RadrootsNostrSignerConnectionDraft::new(
+                nostr::Keys::generate().public_key(),
+                runtime.user_public_identity(),
+            ))
+            .expect("register connection");
+
+        let status = collect_status_full(&runtime).await.expect("status");
+        assert!(
+            status
+                .signer_backend
+                .local_signer
+                .expect("local signer")
+                .is_secret_backed()
+        );
+        assert_eq!(status.signer_backend.remote_session_count, 1);
+        assert_eq!(status.signer_backend.remote_sessions.len(), 1);
+        assert_eq!(
+            status.signer_backend.remote_sessions[0].connection_id,
+            connection.connection_id
+        );
     }
 }

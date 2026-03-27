@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use super::backend::MycSignerBackend;
 use crate::audit::{
     MycJsonlOperationAuditStore, MycOperationAuditKind, MycOperationAuditOutcome,
     MycOperationAuditRecord, MycOperationAuditStore,
@@ -160,6 +161,10 @@ impl MycRuntime {
 
     pub fn signer_manager(&self) -> Result<RadrootsNostrSignerManager, MycError> {
         self.signer.load_signer_manager()
+    }
+
+    pub fn signer_backend(&self) -> MycSignerBackend {
+        MycSignerBackend::new(self.signer.clone())
     }
 
     pub fn transport(&self) -> Option<&MycNostrTransport> {

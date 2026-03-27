@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use radroots_nostr_connect::prelude::RadrootsNostrConnectPermissions;
 use radroots_nostr_signer::prelude::{
-    RadrootsNostrSignerConnectionId, RadrootsNostrSignerConnectionRecord,
-    RadrootsNostrSignerRequestAuditRecord,
+    RadrootsNostrSignerBackend, RadrootsNostrSignerConnectionId,
+    RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerRequestAuditRecord,
 };
 use serde::Serialize;
 
@@ -432,34 +432,29 @@ pub async fn run_from_env() -> Result<(), MycError> {
         }
         MycCommand::Connections { command } => {
             let runtime = MycRuntime::bootstrap(config)?;
+            let backend = runtime.signer_backend();
             match command {
-                MycConnectionsCommand::List => {
-                    let manager = runtime.signer_manager()?;
-                    print_json(&manager.list_connections()?)
-                }
+                MycConnectionsCommand::List => print_json(&backend.list_connections()?),
                 MycConnectionsCommand::Approve(args) => {
                     let connection_id = parse_connection_id(&args.connection_id)?;
-                    let manager = runtime.signer_manager()?;
                     let granted_permissions = granted_permissions_for_approval(
                         runtime.signer_context().policy(),
-                        &manager.list_connections()?,
+                        &backend.list_connections()?,
                         &connection_id,
                         &args.grants,
                     )?;
                     let connection =
-                        manager.approve_connection(&connection_id, granted_permissions)?;
+                        backend.approve_connection(&connection_id, granted_permissions)?;
                     print_json(&connection)
                 }
                 MycConnectionsCommand::Reject(args) => {
                     let connection_id = parse_connection_id(&args.connection_id)?;
-                    let manager = runtime.signer_manager()?;
-                    let connection = manager.reject_connection(&connection_id, args.reason)?;
+                    let connection = backend.reject_connection(&connection_id, args.reason)?;
                     print_json(&connection)
                 }
                 MycConnectionsCommand::Revoke(args) => {
                     let connection_id = parse_connection_id(&args.connection_id)?;
-                    let manager = runtime.signer_manager()?;
-                    let connection = manager.revoke_connection(&connection_id, args.reason)?;
+                    let connection = backend.revoke_connection(&connection_id, args.reason)?;
                     print_json(&connection)
                 }
             }
@@ -513,11 +508,11 @@ pub async fn run_from_env() -> Result<(), MycError> {
         }
         MycCommand::Auth { command } => {
             let runtime = MycRuntime::bootstrap(config)?;
+            let backend = runtime.signer_backend();
             match command {
                 MycAuthCommand::Require { connection_id, url } => {
                     let connection_id = parse_connection_id(&connection_id)?;
-                    let manager = runtime.signer_manager()?;
-                    let connection = manager.require_auth_challenge(&connection_id, url)?;
+                    let connection = backend.require_auth_challenge(&connection_id, &url)?;
                     print_json(&connection)
                 }
                 MycAuthCommand::Authorize { connection_id } => {

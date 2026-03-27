@@ -17,7 +17,9 @@ pub mod persistence;
 pub mod policy;
 pub mod transport;
 
-pub use app::{MycApp, MycRuntime, MycRuntimePaths, MycSignerContext, MycStartupSnapshot};
+pub use app::{
+    MycApp, MycRuntime, MycRuntimePaths, MycSignerBackend, MycSignerContext, MycStartupSnapshot,
+};
 pub use audit::{
     MycJsonlOperationAuditStore, MycOperationAuditKind, MycOperationAuditOutcome,
     MycOperationAuditRecord, MycOperationAuditStore,
@@ -52,9 +54,10 @@ pub use operability::{
     MycDeliveryRecoveryStatusOutput, MycDiscoveryStatusOutput, MycMetricsSnapshot,
     MycOperationOutcomeCounts, MycPersistenceStatusOutput, MycRelayProbe,
     MycRelayProbeAvailability, MycRuntimeAuditPersistenceStatusOutput, MycRuntimeStatus,
-    MycSignerStatePersistenceStatusOutput, MycSqliteSchemaStatusOutput, MycStatusFullOutput,
-    MycStatusSummaryOutput, MycTransportStatusOutput, collect_metrics, collect_status_full,
-    collect_status_summary, render_metrics_text,
+    MycSignerBackendStatusOutput, MycSignerStatePersistenceStatusOutput,
+    MycSqliteSchemaStatusOutput, MycStatusFullOutput, MycStatusSummaryOutput,
+    MycTransportStatusOutput, collect_metrics, collect_status_full, collect_status_summary,
+    render_metrics_text,
 };
 pub use outbox::{
     MycDeliveryOutboxJobId, MycDeliveryOutboxKind, MycDeliveryOutboxRecord,
