@@ -1,8 +1,13 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
+use nostr::PublicKey;
 use radroots_nostr_signer::prelude::{
-    RadrootsNostrFileSignerStore, RadrootsNostrSignerStore, RadrootsNostrSqliteSignerStore,
+    RadrootsNostrFileSignerStore, RadrootsNostrSignerAuthState,
+    RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerPublishWorkflowKind,
+    RadrootsNostrSignerPublishWorkflowRecord, RadrootsNostrSignerPublishWorkflowState,
+    RadrootsNostrSignerStore, RadrootsNostrSignerStoreState, RadrootsNostrSqliteSignerStore,
 };
 use serde::Serialize;
 
@@ -12,6 +17,10 @@ use crate::audit_sqlite::MycSqliteOperationAuditStore;
 use crate::config::{MycConfig, MycRuntimeAuditBackend, MycSignerStateBackend};
 use crate::custody::MycIdentityProvider;
 use crate::error::MycError;
+use crate::outbox::{
+    MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycDeliveryOutboxStatus, MycDeliveryOutboxStore,
+};
+use crate::outbox_sqlite::MycSqliteDeliveryOutboxStore;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MycPersistenceImportSelection {
@@ -42,6 +51,44 @@ pub struct MycRuntimeAuditImportOutput {
     pub source_dir: PathBuf,
     pub destination_path: PathBuf,
     pub record_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycPersistenceVerifyRestoreOutput {
+    pub signer_identity_id: String,
+    pub user_identity_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_app_identity_id: Option<String>,
+    pub signer_state: MycSignerStateVerifyRestoreOutput,
+    pub runtime_audit: MycRuntimeAuditVerifyRestoreOutput,
+    pub delivery_outbox: MycDeliveryOutboxVerifyRestoreOutput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycSignerStateVerifyRestoreOutput {
+    pub backend: MycSignerStateBackend,
+    pub path: PathBuf,
+    pub connection_count: usize,
+    pub request_audit_count: usize,
+    pub publish_workflow_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycRuntimeAuditVerifyRestoreOutput {
+    pub backend: MycRuntimeAuditBackend,
+    pub path: PathBuf,
+    pub record_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycDeliveryOutboxVerifyRestoreOutput {
+    pub path: PathBuf,
+    pub total_job_count: usize,
+    pub queued_job_count: usize,
+    pub published_pending_finalize_job_count: usize,
+    pub finalized_job_count: usize,
+    pub failed_job_count: usize,
+    pub unfinished_job_count: usize,
 }
 
 impl MycPersistenceImportSelection {
@@ -122,6 +169,122 @@ pub fn import_json_to_sqlite(
     }
 
     Ok(output)
+}
+
+pub fn verify_restored_state(
+    config: &MycConfig,
+) -> Result<MycPersistenceVerifyRestoreOutput, MycError> {
+    config.validate()?;
+
+    let state_dir = &config.paths.state_dir;
+    let audit_dir = MycRuntimePaths::audit_dir_for_state_dir(state_dir);
+    let signer_state_path = MycRuntimePaths::signer_state_path_for_backend(
+        state_dir,
+        config.persistence.signer_state_backend,
+    );
+    let runtime_audit_path = MycRuntimePaths::runtime_audit_path_for_backend(
+        &audit_dir,
+        config.persistence.runtime_audit_backend,
+    );
+    let delivery_outbox_path = MycRuntimePaths::delivery_outbox_path_for_state_dir(state_dir);
+
+    require_existing_restore_file(
+        &signer_state_path,
+        format!(
+            "{} signer-state backend",
+            config.persistence.signer_state_backend.as_str()
+        ),
+    )?;
+    require_existing_restore_file(
+        &runtime_audit_path,
+        format!(
+            "{} runtime-audit backend",
+            config.persistence.runtime_audit_backend.as_str()
+        ),
+    )?;
+    require_existing_restore_file(&delivery_outbox_path, "delivery outbox".to_owned())?;
+
+    let signer_identity_provider =
+        MycIdentityProvider::from_source("signer", config.paths.signer_identity_source())?;
+    let signer_identity = signer_identity_provider.load_active_identity()?;
+    let user_identity_provider =
+        MycIdentityProvider::from_source("user", config.paths.user_identity_source())?;
+    let user_identity = user_identity_provider.load_active_identity()?;
+    let discovery_app_identity = match config.discovery.app_identity_source() {
+        Some(source) => Some(MycIdentityProvider::from_source("discovery app", source)?),
+        None => None,
+    }
+    .map(|provider| provider.load_active_identity())
+    .transpose()?;
+
+    let signer_state = load_existing_signer_state(config, &signer_state_path)?;
+    let configured_signer_identity = signer_identity.to_public();
+    if let Some(existing_signer_identity) = signer_state.signer_identity.as_ref() {
+        if existing_signer_identity.id != configured_signer_identity.id {
+            return Err(MycError::SignerIdentityMismatch {
+                identity_path: config.paths.signer_identity_path.clone(),
+                state_path: signer_state_path.clone(),
+                configured_identity_id: configured_signer_identity.id.to_string(),
+                persisted_identity_id: existing_signer_identity.id.to_string(),
+            });
+        }
+    }
+
+    let runtime_audit_record_count = load_existing_runtime_audit_record_count(config, &audit_dir)?;
+    let outbox_store = MycSqliteDeliveryOutboxStore::open(state_dir)?;
+    let outbox_records = outbox_store.list_all()?;
+    verify_restored_delivery_state(
+        &signer_state,
+        &outbox_records,
+        signer_identity.public_key(),
+        discovery_app_identity
+            .as_ref()
+            .map(|identity| identity.public_key()),
+    )?;
+
+    let mut queued_job_count = 0usize;
+    let mut published_pending_finalize_job_count = 0usize;
+    let mut finalized_job_count = 0usize;
+    let mut failed_job_count = 0usize;
+    for record in &outbox_records {
+        match record.status {
+            MycDeliveryOutboxStatus::Queued => queued_job_count += 1,
+            MycDeliveryOutboxStatus::PublishedPendingFinalize => {
+                published_pending_finalize_job_count += 1
+            }
+            MycDeliveryOutboxStatus::Finalized => finalized_job_count += 1,
+            MycDeliveryOutboxStatus::Failed => failed_job_count += 1,
+        }
+    }
+
+    Ok(MycPersistenceVerifyRestoreOutput {
+        signer_identity_id: signer_identity.id().to_string(),
+        user_identity_id: user_identity.id().to_string(),
+        discovery_app_identity_id: discovery_app_identity
+            .as_ref()
+            .map(|identity| identity.id().to_string()),
+        signer_state: MycSignerStateVerifyRestoreOutput {
+            backend: config.persistence.signer_state_backend,
+            path: signer_state_path,
+            connection_count: signer_state.connections.len(),
+            request_audit_count: signer_state.audit_records.len(),
+            publish_workflow_count: signer_state.publish_workflows.len(),
+        },
+        runtime_audit: MycRuntimeAuditVerifyRestoreOutput {
+            backend: config.persistence.runtime_audit_backend,
+            path: runtime_audit_path,
+            record_count: runtime_audit_record_count,
+        },
+        delivery_outbox: MycDeliveryOutboxVerifyRestoreOutput {
+            path: delivery_outbox_path,
+            total_job_count: outbox_records.len(),
+            queued_job_count,
+            published_pending_finalize_job_count,
+            finalized_job_count,
+            failed_job_count,
+            unfinished_job_count: queued_job_count + published_pending_finalize_job_count,
+        },
+    })
 }
 
 fn import_signer_state_json_to_sqlite(
@@ -206,6 +369,271 @@ fn signer_store_state_is_empty(
         && state.audit_records.is_empty()
 }
 
+fn require_existing_restore_file(path: &std::path::Path, label: String) -> Result<(), MycError> {
+    if path.is_file() {
+        return Ok(());
+    }
+    Err(MycError::InvalidOperation(format!(
+        "persistence verify-restore requires an existing {label} file at {}",
+        path.display()
+    )))
+}
+
+fn load_existing_signer_state(
+    config: &MycConfig,
+    signer_state_path: &std::path::Path,
+) -> Result<RadrootsNostrSignerStoreState, MycError> {
+    match config.persistence.signer_state_backend {
+        MycSignerStateBackend::JsonFile => RadrootsNostrFileSignerStore::new(signer_state_path)
+            .load()
+            .map_err(MycError::from),
+        MycSignerStateBackend::Sqlite => RadrootsNostrSqliteSignerStore::open(signer_state_path)?
+            .load()
+            .map_err(MycError::from),
+    }
+}
+
+fn load_existing_runtime_audit_record_count(
+    config: &MycConfig,
+    audit_dir: &std::path::Path,
+) -> Result<usize, MycError> {
+    match config.persistence.runtime_audit_backend {
+        MycRuntimeAuditBackend::JsonlFile => Ok(MycJsonlOperationAuditStore::new(
+            audit_dir,
+            config.audit.clone(),
+        )
+        .list_all()?
+        .len()),
+        MycRuntimeAuditBackend::Sqlite => Ok(MycSqliteOperationAuditStore::open(
+            audit_dir,
+            config.audit.clone(),
+        )?
+        .list_all()?
+        .len()),
+    }
+}
+
+fn verify_restored_delivery_state(
+    signer_state: &RadrootsNostrSignerStoreState,
+    outbox_records: &[MycDeliveryOutboxRecord],
+    signer_public_key: PublicKey,
+    discovery_app_public_key: Option<PublicKey>,
+) -> Result<(), MycError> {
+    let connections_by_id = signer_state
+        .connections
+        .iter()
+        .map(|connection| (connection.connection_id.as_str().to_owned(), connection))
+        .collect::<BTreeMap<_, _>>();
+    let workflows_by_id = signer_state
+        .publish_workflows
+        .iter()
+        .map(|workflow| (workflow.workflow_id.as_str().to_owned(), workflow))
+        .collect::<BTreeMap<_, _>>();
+    let mut referenced_unfinished_workflow_ids = BTreeSet::new();
+
+    for record in outbox_records {
+        verify_discovery_restore_author(record, signer_public_key, discovery_app_public_key)?;
+
+        if !matches!(
+            record.status,
+            MycDeliveryOutboxStatus::Queued | MycDeliveryOutboxStatus::PublishedPendingFinalize
+        ) {
+            continue;
+        }
+
+        let workflow = match record.signer_publish_workflow_id.as_ref() {
+            Some(workflow_id) => {
+                referenced_unfinished_workflow_ids.insert(workflow_id.as_str().to_owned());
+                workflows_by_id.get(workflow_id.as_str()).copied()
+            }
+            None => None,
+        };
+
+        verify_restore_outbox_record(record, workflow, &connections_by_id)?;
+    }
+
+    let orphaned_workflows = signer_state
+        .publish_workflows
+        .iter()
+        .filter(|workflow| {
+            !referenced_unfinished_workflow_ids.contains(workflow.workflow_id.as_str())
+        })
+        .map(|workflow| {
+            format!(
+                "{}:{}:{:?}",
+                workflow.workflow_id, workflow.connection_id, workflow.kind
+            )
+        })
+        .collect::<Vec<_>>();
+    if !orphaned_workflows.is_empty() {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence verify-restore found orphaned signer publish workflows with no unfinished delivery outbox job: {}",
+            orphaned_workflows.join(", ")
+        )));
+    }
+
+    Ok(())
+}
+
+fn verify_discovery_restore_author(
+    record: &MycDeliveryOutboxRecord,
+    signer_public_key: PublicKey,
+    discovery_app_public_key: Option<PublicKey>,
+) -> Result<(), MycError> {
+    if record.kind != MycDeliveryOutboxKind::DiscoveryHandlerPublish {
+        return Ok(());
+    }
+    if record.event.pubkey == signer_public_key
+        || discovery_app_public_key == Some(record.event.pubkey)
+    {
+        return Ok(());
+    }
+
+    Err(MycError::InvalidOperation(format!(
+        "persistence verify-restore found discovery delivery outbox job `{}` authored by `{}` but the configured signer/discovery identities do not match",
+        record.job_id, record.event.pubkey
+    )))
+}
+
+fn verify_restore_outbox_record<'a>(
+    record: &MycDeliveryOutboxRecord,
+    workflow: Option<&'a RadrootsNostrSignerPublishWorkflowRecord>,
+    connections_by_id: &BTreeMap<String, &'a RadrootsNostrSignerConnectionRecord>,
+) -> Result<(), MycError> {
+    match record.kind {
+        MycDeliveryOutboxKind::DiscoveryHandlerPublish => {
+            if record.signer_publish_workflow_id.is_some() {
+                return Err(MycError::InvalidOperation(format!(
+                    "persistence verify-restore found discovery delivery outbox job `{}` that incorrectly references a signer publish workflow",
+                    record.job_id
+                )));
+            }
+        }
+        MycDeliveryOutboxKind::ConnectAcceptPublish | MycDeliveryOutboxKind::AuthReplayPublish => {
+            if record.signer_publish_workflow_id.is_none() {
+                return Err(MycError::InvalidOperation(format!(
+                    "persistence verify-restore found control delivery outbox job `{}` without a signer publish workflow",
+                    record.job_id
+                )));
+            }
+        }
+        MycDeliveryOutboxKind::ListenerResponsePublish => {}
+    }
+
+    match workflow {
+        Some(workflow) => {
+            let expected_kind = match record.kind {
+                MycDeliveryOutboxKind::ListenerResponsePublish
+                | MycDeliveryOutboxKind::ConnectAcceptPublish => {
+                    RadrootsNostrSignerPublishWorkflowKind::ConnectSecretFinalization
+                }
+                MycDeliveryOutboxKind::AuthReplayPublish => {
+                    RadrootsNostrSignerPublishWorkflowKind::AuthReplayFinalization
+                }
+                MycDeliveryOutboxKind::DiscoveryHandlerPublish => unreachable!(),
+            };
+            if workflow.kind != expected_kind {
+                return Err(MycError::InvalidOperation(format!(
+                    "persistence verify-restore found delivery outbox job `{}` expecting signer workflow kind `{:?}` but found `{:?}`",
+                    record.job_id, expected_kind, workflow.kind
+                )));
+            }
+
+            let connection_id = record.connection_id.as_ref().ok_or_else(|| {
+                MycError::InvalidOperation(format!(
+                    "persistence verify-restore found delivery outbox job `{}` missing a connection id required for signer workflow verification",
+                    record.job_id
+                ))
+            })?;
+            if workflow.connection_id.as_str() != connection_id.as_str() {
+                return Err(MycError::InvalidOperation(format!(
+                    "persistence verify-restore found delivery outbox job `{}` bound to connection `{connection_id}` but signer workflow `{}` is bound to `{}`",
+                    record.job_id, workflow.workflow_id, workflow.connection_id
+                )));
+            }
+            if record.status == MycDeliveryOutboxStatus::PublishedPendingFinalize
+                && workflow.state
+                    != RadrootsNostrSignerPublishWorkflowState::PublishedPendingFinalize
+            {
+                return Err(MycError::InvalidOperation(format!(
+                    "persistence verify-restore found delivery outbox job `{}` waiting for finalize but signer workflow `{}` is in `{:?}`",
+                    record.job_id, workflow.workflow_id, workflow.state
+                )));
+            }
+        }
+        None => {
+            if record.signer_publish_workflow_id.is_some() {
+                if record.status == MycDeliveryOutboxStatus::PublishedPendingFinalize {
+                    verify_already_finalized_without_workflow(record, connections_by_id)?;
+                } else {
+                    return Err(MycError::InvalidOperation(format!(
+                        "persistence verify-restore found delivery outbox job `{}` referencing a missing signer publish workflow before finalize",
+                        record.job_id
+                    )));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn verify_already_finalized_without_workflow(
+    record: &MycDeliveryOutboxRecord,
+    connections_by_id: &BTreeMap<String, &RadrootsNostrSignerConnectionRecord>,
+) -> Result<(), MycError> {
+    let workflow_id = record.signer_publish_workflow_id.as_ref().ok_or_else(|| {
+        MycError::InvalidOperation(format!(
+            "persistence verify-restore found delivery outbox job `{}` missing a signer workflow id for finalization verification",
+            record.job_id
+        ))
+    })?;
+    let connection_id = record.connection_id.as_ref().ok_or_else(|| {
+        MycError::InvalidOperation(format!(
+            "persistence verify-restore found delivery outbox job `{}` missing a connection id for finalization verification",
+            record.job_id
+        ))
+    })?;
+    let connection = connections_by_id
+        .get(connection_id.as_str())
+        .copied()
+        .ok_or_else(|| {
+            MycError::InvalidOperation(format!(
+                "persistence verify-restore found delivery outbox job `{}` referencing missing connection `{connection_id}`",
+                record.job_id
+            ))
+        })?;
+
+    match record.kind {
+        MycDeliveryOutboxKind::ListenerResponsePublish
+        | MycDeliveryOutboxKind::ConnectAcceptPublish => {
+            if !connection.connect_secret_is_consumed() {
+                return Err(MycError::InvalidOperation(format!(
+                    "persistence verify-restore found delivery outbox job `{}` referencing connect workflow `{workflow_id}` but the connection secret is still reusable",
+                    record.job_id
+                )));
+            }
+        }
+        MycDeliveryOutboxKind::AuthReplayPublish => {
+            if connection.auth_state != RadrootsNostrSignerAuthState::Authorized
+                || connection.pending_request.is_some()
+            {
+                return Err(MycError::InvalidOperation(format!(
+                    "persistence verify-restore found delivery outbox job `{}` referencing auth replay workflow `{workflow_id}` but the connection auth state is not finalized",
+                    record.job_id
+                )));
+            }
+        }
+        MycDeliveryOutboxKind::DiscoveryHandlerPublish => {
+            return Err(MycError::InvalidOperation(format!(
+                "persistence verify-restore found discovery delivery outbox job `{}` unexpectedly referencing signer workflow `{workflow_id}`",
+                record.job_id
+            )));
+        }
+    }
+
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};

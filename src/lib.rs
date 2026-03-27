@@ -62,8 +62,10 @@ pub use outbox::{
 };
 pub use outbox_sqlite::MycSqliteDeliveryOutboxStore;
 pub use persistence::{
-    MycPersistenceImportJsonToSqliteOutput, MycPersistenceImportSelection,
-    MycRuntimeAuditImportOutput, MycSignerStateImportOutput, import_json_to_sqlite,
+    MycDeliveryOutboxVerifyRestoreOutput, MycPersistenceImportJsonToSqliteOutput,
+    MycPersistenceImportSelection, MycPersistenceVerifyRestoreOutput, MycRuntimeAuditImportOutput,
+    MycRuntimeAuditVerifyRestoreOutput, MycSignerStateImportOutput,
+    MycSignerStateVerifyRestoreOutput, import_json_to_sqlite, verify_restored_state,
 };
 pub use policy::{MycConnectDecision, MycPolicyContext};
 pub use transport::{MycNostrTransport, MycRelayPublishResult, MycTransportSnapshot};

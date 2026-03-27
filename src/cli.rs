@@ -24,7 +24,9 @@ use crate::operability::{
     collect_metrics, collect_status_full, collect_status_summary, increment_outcome_counts,
     is_aggregate_publish_operation, operation_kind_label, render_metrics_text,
 };
-use crate::persistence::{MycPersistenceImportSelection, import_json_to_sqlite};
+use crate::persistence::{
+    MycPersistenceImportSelection, import_json_to_sqlite, verify_restored_state,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "myc")]
@@ -93,6 +95,7 @@ pub enum MycPersistenceCommand {
         #[arg(long)]
         runtime_audit: bool,
     },
+    VerifyRestore,
 }
 
 #[derive(Debug, Subcommand)]
@@ -376,6 +379,10 @@ pub async fn run_from_env() -> Result<(), MycError> {
                     &config,
                     MycPersistenceImportSelection::new(signer_state, runtime_audit),
                 )?;
+                print_json(&output)
+            }
+            MycPersistenceCommand::VerifyRestore => {
+                let output = verify_restored_state(&config)?;
                 print_json(&output)
             }
         },
