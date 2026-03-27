@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 
 use nostr::nips::nip44::Version;
@@ -13,7 +14,7 @@ use radroots_nostr_accounts::prelude::{
     RadrootsNostrSecretVault, RadrootsNostrSecretVaultOsKeyring,
     RadrootsNostrSelectedAccountStatus,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::{MycIdentityBackend, MycIdentitySourceSpec};
 use crate::error::MycError;
@@ -105,6 +106,89 @@ enum MycIdentityProviderBackend {
         service_name: String,
         manager: RadrootsNostrAccountsManager,
     },
+    ExternalCommand {
+        command_path: PathBuf,
+        executor: Arc<dyn MycExternalCommandExecutor>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum MycExternalCommandOperation {
+    Describe,
+    SignEvent,
+    Nip04Encrypt,
+    Nip04Decrypt,
+    Nip44Encrypt,
+    Nip44Decrypt,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MycExternalCommandRequest {
+    version: u8,
+    operation: MycExternalCommandOperation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    unsigned_event: Option<nostr::UnsignedEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    public_key_hex: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    content: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MycExternalCommandResponse {
+    #[serde(default)]
+    identity: Option<RadrootsIdentityPublic>,
+    #[serde(default)]
+    event: Option<nostr::Event>,
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct MycExternalCommandOutput {
+    success: bool,
+    status: Option<i32>,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+trait MycExternalCommandExecutor: Send + Sync {
+    fn execute(
+        &self,
+        command_path: &PathBuf,
+        request_json: &[u8],
+    ) -> Result<MycExternalCommandOutput, std::io::Error>;
+}
+
+#[derive(Debug, Default)]
+struct MycProcessCommandExecutor;
+
+impl MycExternalCommandExecutor for MycProcessCommandExecutor {
+    fn execute(
+        &self,
+        command_path: &PathBuf,
+        request_json: &[u8],
+    ) -> Result<MycExternalCommandOutput, std::io::Error> {
+        let mut child = Command::new(command_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write;
+            stdin.write_all(request_json)?;
+        }
+        let output = child.wait_with_output()?;
+        Ok(MycExternalCommandOutput {
+            success: output.status.success(),
+            status: output.status.code(),
+            stdout: output.stdout,
+            stderr: output.stderr,
+        })
+    }
 }
 
 trait MycIdentityOperations: Send + Sync {
@@ -229,6 +313,202 @@ impl MycIdentityOperations for MycLoadedIdentityOperations {
     }
 }
 
+struct MycExternalCommandIdentityOperations {
+    role: String,
+    command_path: PathBuf,
+    public_identity: RadrootsIdentityPublic,
+    public_key: RadrootsNostrPublicKey,
+    executor: Arc<dyn MycExternalCommandExecutor>,
+}
+
+impl MycExternalCommandIdentityOperations {
+    fn new(
+        role: String,
+        command_path: PathBuf,
+        public_identity: RadrootsIdentityPublic,
+        public_key: RadrootsNostrPublicKey,
+        executor: Arc<dyn MycExternalCommandExecutor>,
+    ) -> Self {
+        Self {
+            role,
+            command_path,
+            public_identity,
+            public_key,
+            executor,
+        }
+    }
+
+    fn execute(
+        &self,
+        request: &MycExternalCommandRequest,
+    ) -> Result<MycExternalCommandResponse, MycError> {
+        let request_json = serde_json::to_vec(request)?;
+        let output = self
+            .executor
+            .execute(&self.command_path, &request_json)
+            .map_err(|source| MycError::CustodyExternalCommandIo {
+                role: self.role.clone(),
+                path: self.command_path.clone(),
+                source,
+            })?;
+        if !output.success {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+            return Err(MycError::CustodyExternalCommandFailed {
+                role: self.role.clone(),
+                path: self.command_path.clone(),
+                status: output
+                    .status
+                    .map(|status| status.to_string())
+                    .unwrap_or_else(|| "terminated by signal".to_owned()),
+                stderr: if stderr.is_empty() {
+                    "external signer command failed without stderr".to_owned()
+                } else {
+                    stderr
+                },
+            });
+        }
+        let response: MycExternalCommandResponse =
+            serde_json::from_slice(&output.stdout).map_err(|source| {
+                MycError::CustodyExternalCommandParse {
+                    role: self.role.clone(),
+                    path: self.command_path.clone(),
+                    source,
+                }
+            })?;
+        if let Some(error) = response.error.as_deref() {
+            return Err(MycError::CustodyExternalCommandFailed {
+                role: self.role.clone(),
+                path: self.command_path.clone(),
+                status: "0".to_owned(),
+                stderr: error.to_owned(),
+            });
+        }
+        Ok(response)
+    }
+}
+
+impl MycIdentityOperations for MycExternalCommandIdentityOperations {
+    fn nostr_client(&self) -> RadrootsNostrClient {
+        RadrootsNostrClient::from_identity_owned(RadrootsIdentity::generate())
+    }
+
+    fn nostr_client_owned(&self) -> RadrootsNostrClient {
+        self.nostr_client()
+    }
+
+    fn sign_event_builder(
+        &self,
+        builder: RadrootsNostrEventBuilder,
+        operation: &str,
+    ) -> Result<RadrootsNostrEvent, MycError> {
+        let unsigned_event = builder.build(self.public_key);
+        self.sign_unsigned_event(unsigned_event, operation)
+    }
+
+    fn sign_unsigned_event(
+        &self,
+        unsigned_event: nostr::UnsignedEvent,
+        operation: &str,
+    ) -> Result<nostr::Event, MycError> {
+        let response = self.execute(&MycExternalCommandRequest {
+            version: 1,
+            operation: MycExternalCommandOperation::SignEvent,
+            unsigned_event: Some(unsigned_event),
+            public_key_hex: None,
+            content: None,
+        })?;
+        let event = response.event.ok_or_else(|| {
+            MycError::InvalidOperation(format!(
+                "external signer command did not return a signed event for {operation}"
+            ))
+        })?;
+        if event.pubkey != self.public_key {
+            return Err(MycError::InvalidOperation(format!(
+                "external signer command returned a signed {operation} event for `{}` instead of `{}`",
+                event.pubkey.to_hex(),
+                self.public_identity.public_key_hex
+            )));
+        }
+        Ok(event)
+    }
+
+    fn nip04_encrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        plaintext: String,
+    ) -> Result<String, MycError> {
+        let response = self.execute(&MycExternalCommandRequest {
+            version: 1,
+            operation: MycExternalCommandOperation::Nip04Encrypt,
+            unsigned_event: None,
+            public_key_hex: Some(public_key.to_hex()),
+            content: Some(plaintext),
+        })?;
+        response.content.ok_or_else(|| {
+            MycError::InvalidOperation(
+                "external signer command did not return NIP-04 ciphertext".to_owned(),
+            )
+        })
+    }
+
+    fn nip04_decrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        ciphertext: &str,
+    ) -> Result<String, MycError> {
+        let response = self.execute(&MycExternalCommandRequest {
+            version: 1,
+            operation: MycExternalCommandOperation::Nip04Decrypt,
+            unsigned_event: None,
+            public_key_hex: Some(public_key.to_hex()),
+            content: Some(ciphertext.to_owned()),
+        })?;
+        response.content.ok_or_else(|| {
+            MycError::InvalidOperation(
+                "external signer command did not return NIP-04 cleartext".to_owned(),
+            )
+        })
+    }
+
+    fn nip44_encrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        plaintext: String,
+    ) -> Result<String, MycError> {
+        let response = self.execute(&MycExternalCommandRequest {
+            version: 1,
+            operation: MycExternalCommandOperation::Nip44Encrypt,
+            unsigned_event: None,
+            public_key_hex: Some(public_key.to_hex()),
+            content: Some(plaintext),
+        })?;
+        response.content.ok_or_else(|| {
+            MycError::InvalidOperation(
+                "external signer command did not return NIP-44 ciphertext".to_owned(),
+            )
+        })
+    }
+
+    fn nip44_decrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        ciphertext: &str,
+    ) -> Result<String, MycError> {
+        let response = self.execute(&MycExternalCommandRequest {
+            version: 1,
+            operation: MycExternalCommandOperation::Nip44Decrypt,
+            unsigned_event: None,
+            public_key_hex: Some(public_key.to_hex()),
+            content: Some(ciphertext.to_owned()),
+        })?;
+        response.content.ok_or_else(|| {
+            MycError::InvalidOperation(
+                "external signer command did not return NIP-44 cleartext".to_owned(),
+            )
+        })
+    }
+}
+
 impl MycIdentityProvider {
     pub fn from_source(
         role: impl Into<String>,
@@ -276,6 +556,17 @@ impl MycIdentityProvider {
                     ))
                 })?;
                 Self::managed_account_provider(role.as_str(), account_store_path, service_name)?
+            }
+            MycIdentityBackend::ExternalCommand => {
+                let command_path = source.path.clone().ok_or_else(|| {
+                    MycError::InvalidConfig(format!(
+                        "{role} identity external_command backend requires a path"
+                    ))
+                })?;
+                MycIdentityProviderBackend::ExternalCommand {
+                    command_path,
+                    executor: Arc::new(MycProcessCommandExecutor),
+                }
             }
         };
 
@@ -368,11 +659,38 @@ impl MycIdentityProvider {
                         path: account_store_path.clone(),
                     }),
             },
+            MycIdentityProviderBackend::ExternalCommand { command_path, .. } => {
+                Err(MycError::InvalidOperation(format!(
+                    "{} identity backend `external_command` at {} does not materialize secret-bearing identities in-process",
+                    self.role,
+                    command_path.display()
+                )))
+            }
         }
     }
 
     pub fn load_active_identity(&self) -> Result<MycActiveIdentity, MycError> {
-        self.load_identity().map(MycActiveIdentity::new)
+        match &self.backend {
+            MycIdentityProviderBackend::ExternalCommand {
+                command_path,
+                executor,
+            } => {
+                let (public_identity, public_key) =
+                    self.load_external_command_identity(command_path, executor.as_ref())?;
+                Ok(MycActiveIdentity::from_operations(
+                    public_identity.clone(),
+                    public_key,
+                    Arc::new(MycExternalCommandIdentityOperations::new(
+                        self.role.clone(),
+                        command_path.clone(),
+                        public_identity,
+                        public_key,
+                        executor.clone(),
+                    )),
+                ))
+            }
+            _ => self.load_identity().map(MycActiveIdentity::new),
+        }
     }
 
     pub fn resolved_status(&self, identity: &MycActiveIdentity) -> MycIdentityStatusOutput {
@@ -499,7 +817,77 @@ impl MycIdentityProvider {
     }
 
     fn load_identity_public(&self) -> Result<RadrootsIdentityPublic, MycError> {
-        self.load_identity().map(|identity| identity.to_public())
+        match &self.backend {
+            MycIdentityProviderBackend::ExternalCommand {
+                command_path,
+                executor,
+            } => self
+                .load_external_command_identity(command_path, executor.as_ref())
+                .map(|(identity, _)| identity),
+            _ => self.load_identity().map(|identity| identity.to_public()),
+        }
+    }
+
+    fn load_external_command_identity(
+        &self,
+        command_path: &PathBuf,
+        executor: &dyn MycExternalCommandExecutor,
+    ) -> Result<(RadrootsIdentityPublic, RadrootsNostrPublicKey), MycError> {
+        let request_json = serde_json::to_vec(&MycExternalCommandRequest {
+            version: 1,
+            operation: MycExternalCommandOperation::Describe,
+            unsigned_event: None,
+            public_key_hex: None,
+            content: None,
+        })?;
+        let output = executor
+            .execute(command_path, &request_json)
+            .map_err(|source| MycError::CustodyExternalCommandIo {
+                role: self.role.clone(),
+                path: command_path.clone(),
+                source,
+            })?;
+        if !output.success {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+            return Err(MycError::CustodyExternalCommandFailed {
+                role: self.role.clone(),
+                path: command_path.clone(),
+                status: output
+                    .status
+                    .map(|status| status.to_string())
+                    .unwrap_or_else(|| "terminated by signal".to_owned()),
+                stderr: if stderr.is_empty() {
+                    "external signer command failed without stderr".to_owned()
+                } else {
+                    stderr
+                },
+            });
+        }
+        let response: MycExternalCommandResponse =
+            serde_json::from_slice(&output.stdout).map_err(|source| {
+                MycError::CustodyExternalCommandParse {
+                    role: self.role.clone(),
+                    path: command_path.clone(),
+                    source,
+                }
+            })?;
+        if let Some(error) = response.error {
+            return Err(MycError::CustodyExternalCommandFailed {
+                role: self.role.clone(),
+                path: command_path.clone(),
+                status: "0".to_owned(),
+                stderr: error,
+            });
+        }
+        let identity =
+            response
+                .identity
+                .ok_or_else(|| MycError::CustodyExternalCommandInvalidIdentity {
+                    role: self.role.clone(),
+                    path: command_path.clone(),
+                    message: "missing `identity` in describe response".to_owned(),
+                })?;
+        validate_external_command_public_identity(&self.role, command_path, identity)
     }
 
     fn status_with_public_identity(
@@ -787,10 +1175,22 @@ impl MycActiveIdentity {
     pub fn new(identity: RadrootsIdentity) -> Self {
         let public_identity = identity.to_public();
         let public_key = identity.public_key();
+        Self::from_operations(
+            public_identity,
+            public_key,
+            Arc::new(MycLoadedIdentityOperations::new(identity)),
+        )
+    }
+
+    fn from_operations(
+        public_identity: RadrootsIdentityPublic,
+        public_key: RadrootsNostrPublicKey,
+        operations: Arc<dyn MycIdentityOperations>,
+    ) -> Self {
         Self {
             public_identity,
             public_key,
-            operations: Arc::new(MycLoadedIdentityOperations::new(identity)),
+            operations,
         }
     }
 
@@ -874,6 +1274,36 @@ impl MycActiveIdentity {
     }
 }
 
+fn validate_external_command_public_identity(
+    role: &str,
+    command_path: &PathBuf,
+    identity: RadrootsIdentityPublic,
+) -> Result<(RadrootsIdentityPublic, RadrootsNostrPublicKey), MycError> {
+    let public_key =
+        RadrootsNostrPublicKey::parse(identity.public_key_hex.as_str()).map_err(|error| {
+            MycError::CustodyExternalCommandInvalidIdentity {
+                role: role.to_owned(),
+                path: command_path.clone(),
+                message: format!(
+                    "invalid public_key_hex `{}`: {error}",
+                    identity.public_key_hex
+                ),
+            }
+        })?;
+    let expected_id = RadrootsIdentityId::from(public_key);
+    if identity.id != expected_id {
+        return Err(MycError::CustodyExternalCommandInvalidIdentity {
+            role: role.to_owned(),
+            path: command_path.clone(),
+            message: format!(
+                "identity id `{}` does not match public_key_hex `{}`",
+                identity.id, identity.public_key_hex
+            ),
+        });
+    }
+    Ok((identity, public_key))
+}
+
 impl MycIdentityStatusOutput {
     pub fn with_inherited_from(mut self, inherited_from: impl Into<String>) -> Self {
         self.inherited_from = Some(inherited_from.into());
@@ -884,6 +1314,7 @@ impl MycIdentityStatusOutput {
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
 
     use radroots_identity::RadrootsIdentity;
     use radroots_nostr_accounts::prelude::{
@@ -907,6 +1338,136 @@ mod tests {
             keyring_account_id: None,
             keyring_service_name: None,
             profile_path: None,
+        }
+    }
+
+    #[derive(Debug)]
+    struct FakeExternalCommandExecutor {
+        identity: RadrootsIdentity,
+        requests: Mutex<Vec<MycExternalCommandRequest>>,
+    }
+
+    impl FakeExternalCommandExecutor {
+        fn new(secret_key: &str) -> Arc<Self> {
+            Arc::new(Self {
+                identity: RadrootsIdentity::from_secret_key_str(secret_key).expect("identity"),
+                requests: Mutex::new(Vec::new()),
+            })
+        }
+    }
+
+    impl MycExternalCommandExecutor for FakeExternalCommandExecutor {
+        fn execute(
+            &self,
+            _command_path: &PathBuf,
+            request_json: &[u8],
+        ) -> Result<MycExternalCommandOutput, std::io::Error> {
+            let request: MycExternalCommandRequest =
+                serde_json::from_slice(request_json).expect("request");
+            self.requests
+                .lock()
+                .expect("requests lock")
+                .push(request.clone());
+            let response = match request.operation {
+                MycExternalCommandOperation::Describe => MycExternalCommandResponse {
+                    identity: Some(self.identity.to_public()),
+                    event: None,
+                    content: None,
+                    error: None,
+                },
+                MycExternalCommandOperation::SignEvent => {
+                    let unsigned_event = request.unsigned_event.expect("unsigned event");
+                    let event = unsigned_event
+                        .sign_with_keys(self.identity.keys())
+                        .expect("sign event");
+                    MycExternalCommandResponse {
+                        identity: None,
+                        event: Some(event),
+                        content: None,
+                        error: None,
+                    }
+                }
+                MycExternalCommandOperation::Nip04Encrypt => {
+                    let public_key = RadrootsNostrPublicKey::parse(
+                        request.public_key_hex.as_deref().expect("public key hex"),
+                    )
+                    .expect("public key");
+                    let ciphertext = nip04::encrypt(
+                        self.identity.keys().secret_key(),
+                        &public_key,
+                        request.content.expect("plaintext"),
+                    )
+                    .expect("encrypt");
+                    MycExternalCommandResponse {
+                        identity: None,
+                        event: None,
+                        content: Some(ciphertext),
+                        error: None,
+                    }
+                }
+                MycExternalCommandOperation::Nip04Decrypt => {
+                    let public_key = RadrootsNostrPublicKey::parse(
+                        request.public_key_hex.as_deref().expect("public key hex"),
+                    )
+                    .expect("public key");
+                    let plaintext = nip04::decrypt(
+                        self.identity.keys().secret_key(),
+                        &public_key,
+                        request.content.as_deref().expect("ciphertext"),
+                    )
+                    .expect("decrypt");
+                    MycExternalCommandResponse {
+                        identity: None,
+                        event: None,
+                        content: Some(plaintext),
+                        error: None,
+                    }
+                }
+                MycExternalCommandOperation::Nip44Encrypt => {
+                    let public_key = RadrootsNostrPublicKey::parse(
+                        request.public_key_hex.as_deref().expect("public key hex"),
+                    )
+                    .expect("public key");
+                    let ciphertext = nip44::encrypt(
+                        self.identity.keys().secret_key(),
+                        &public_key,
+                        request.content.expect("plaintext"),
+                        Version::V2,
+                    )
+                    .expect("encrypt");
+                    MycExternalCommandResponse {
+                        identity: None,
+                        event: None,
+                        content: Some(ciphertext),
+                        error: None,
+                    }
+                }
+                MycExternalCommandOperation::Nip44Decrypt => {
+                    let public_key = RadrootsNostrPublicKey::parse(
+                        request.public_key_hex.as_deref().expect("public key hex"),
+                    )
+                    .expect("public key");
+                    let plaintext = nip44::decrypt(
+                        self.identity.keys().secret_key(),
+                        &public_key,
+                        request.content.as_deref().expect("ciphertext"),
+                    )
+                    .expect("decrypt");
+                    MycExternalCommandResponse {
+                        identity: None,
+                        event: None,
+                        content: Some(plaintext),
+                        error: None,
+                    }
+                }
+            };
+
+            Ok(MycExternalCommandOutput {
+                success: true,
+                status: Some(0),
+                stdout: serde_json::to_vec(&response).expect("response"),
+                stderr: Vec::new(),
+            })
         }
     }
 
@@ -937,6 +1498,31 @@ mod tests {
                 },
             },
             vault,
+        )
+    }
+
+    fn external_command_provider(
+        role: &str,
+        secret_key: &str,
+    ) -> (MycIdentityProvider, Arc<FakeExternalCommandExecutor>) {
+        let executor = FakeExternalCommandExecutor::new(secret_key);
+        let command_path = PathBuf::from(format!("/tmp/{role}-identity-helper"));
+        (
+            MycIdentityProvider {
+                role: role.to_owned(),
+                source: MycIdentitySourceSpec {
+                    backend: MycIdentityBackend::ExternalCommand,
+                    path: Some(command_path.clone()),
+                    keyring_account_id: None,
+                    keyring_service_name: None,
+                    profile_path: None,
+                },
+                backend: MycIdentityProviderBackend::ExternalCommand {
+                    command_path,
+                    executor: executor.clone(),
+                },
+            },
+            executor,
         )
     }
 
@@ -1101,5 +1687,78 @@ mod tests {
             status.selected_account_state,
             Some(MycManagedAccountSelectionState::PublicOnly)
         );
+    }
+
+    #[test]
+    fn external_command_provider_loads_identity_and_executes_signing_operations() {
+        let (provider, executor) = external_command_provider(
+            "signer",
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        let active = provider.load_active_identity().expect("active identity");
+        let expected_identity = RadrootsIdentity::from_secret_key_str(
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        )
+        .expect("identity");
+        assert_eq!(active.id(), expected_identity.id());
+        assert_eq!(active.public_key_hex(), expected_identity.public_key_hex());
+
+        let peer_identity = RadrootsIdentity::from_secret_key_str(
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        )
+        .expect("peer identity");
+        let signed_event = active
+            .sign_event_builder(
+                RadrootsNostrEventBuilder::text_note("hello from external command"),
+                "test event",
+            )
+            .expect("signed event");
+        assert_eq!(signed_event.pubkey, expected_identity.public_key());
+
+        let nip04_ciphertext = active
+            .nip04_encrypt(&peer_identity.public_key(), "hello nip04")
+            .expect("nip04 encrypt");
+        assert_eq!(
+            nip04::decrypt(
+                peer_identity.keys().secret_key(),
+                &expected_identity.public_key(),
+                &nip04_ciphertext,
+            )
+            .expect("decrypt with peer"),
+            "hello nip04"
+        );
+
+        let nip44_ciphertext = active
+            .nip44_encrypt(&peer_identity.public_key(), "hello nip44")
+            .expect("nip44 encrypt");
+        assert_eq!(
+            nip44::decrypt(
+                peer_identity.keys().secret_key(),
+                &expected_identity.public_key(),
+                &nip44_ciphertext,
+            )
+            .expect("decrypt with peer"),
+            "hello nip44"
+        );
+
+        let status = provider.probe_status();
+        assert!(status.resolved);
+        assert_eq!(
+            status.path,
+            Some(PathBuf::from("/tmp/signer-identity-helper"))
+        );
+        assert_eq!(status.identity_id, Some(expected_identity.id().to_string()));
+
+        let operations = executor
+            .requests
+            .lock()
+            .expect("requests lock")
+            .iter()
+            .map(|request| request.operation)
+            .collect::<Vec<_>>();
+        assert!(operations.contains(&MycExternalCommandOperation::Describe));
+        assert!(operations.contains(&MycExternalCommandOperation::SignEvent));
+        assert!(operations.contains(&MycExternalCommandOperation::Nip04Encrypt));
+        assert!(operations.contains(&MycExternalCommandOperation::Nip44Encrypt));
     }
 }

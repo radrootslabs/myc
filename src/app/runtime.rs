@@ -10,8 +10,8 @@ use crate::audit::{
 };
 use crate::audit_sqlite::MycSqliteOperationAuditStore;
 use crate::config::{
-    MycAuditConfig, MycConfig, MycIdentitySourceSpec, MycPersistenceConfig, MycRuntimeAuditBackend,
-    MycSignerStateBackend, MycTransportDeliveryPolicy,
+    MycAuditConfig, MycConfig, MycIdentityBackend, MycIdentitySourceSpec, MycPersistenceConfig,
+    MycRuntimeAuditBackend, MycSignerStateBackend, MycTransportDeliveryPolicy,
 };
 use crate::custody::{MycActiveIdentity, MycIdentityProvider};
 use crate::discovery::MycDiscoveryContext;
@@ -97,7 +97,10 @@ pub struct MycRuntime {
 }
 
 fn startup_identity_path(source: &MycIdentitySourceSpec) -> Option<PathBuf> {
-    source.path.clone()
+    match source.backend {
+        MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => source.path.clone(),
+        MycIdentityBackend::OsKeyring | MycIdentityBackend::ExternalCommand => None,
+    }
 }
 
 fn format_startup_identity_path(path: Option<&Path>) -> String {
@@ -1616,6 +1619,13 @@ mod tests {
         assert_eq!(
             startup_identity_path(&config.paths.user_identity_source()),
             Some(PathBuf::from("/tmp/user-accounts.json"))
+        );
+
+        config.paths.user_identity_backend = MycIdentityBackend::ExternalCommand;
+        config.paths.user_identity_path = PathBuf::from("/usr/local/libexec/myc-user-helper");
+        assert_eq!(
+            startup_identity_path(&config.paths.user_identity_source()),
+            None
         );
     }
 

@@ -136,6 +136,7 @@ pub enum MycIdentityBackend {
     Filesystem,
     OsKeyring,
     ManagedAccount,
+    ExternalCommand,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -371,6 +372,7 @@ impl MycIdentityBackend {
             Self::Filesystem => "filesystem",
             Self::OsKeyring => "os_keyring",
             Self::ManagedAccount => "managed_account",
+            Self::ExternalCommand => "external_command",
         }
     }
 }
@@ -398,23 +400,27 @@ impl MycPathsConfig {
         MycIdentitySourceSpec {
             backend: self.signer_identity_backend,
             path: match self.signer_identity_backend {
-                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => {
-                    Some(self.signer_identity_path.clone())
-                }
+                MycIdentityBackend::Filesystem
+                | MycIdentityBackend::ManagedAccount
+                | MycIdentityBackend::ExternalCommand => Some(self.signer_identity_path.clone()),
                 MycIdentityBackend::OsKeyring => None,
             },
             keyring_account_id: match self.signer_identity_backend {
-                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => None,
+                MycIdentityBackend::Filesystem
+                | MycIdentityBackend::ManagedAccount
+                | MycIdentityBackend::ExternalCommand => None,
                 MycIdentityBackend::OsKeyring => self.signer_identity_keyring_account_id.clone(),
             },
             keyring_service_name: match self.signer_identity_backend {
-                MycIdentityBackend::Filesystem => None,
+                MycIdentityBackend::Filesystem | MycIdentityBackend::ExternalCommand => None,
                 MycIdentityBackend::OsKeyring | MycIdentityBackend::ManagedAccount => {
                     Some(self.signer_identity_keyring_service_name.clone())
                 }
             },
             profile_path: match self.signer_identity_backend {
-                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => None,
+                MycIdentityBackend::Filesystem
+                | MycIdentityBackend::ManagedAccount
+                | MycIdentityBackend::ExternalCommand => None,
                 MycIdentityBackend::OsKeyring => self.signer_identity_profile_path.clone(),
             },
         }
@@ -424,23 +430,27 @@ impl MycPathsConfig {
         MycIdentitySourceSpec {
             backend: self.user_identity_backend,
             path: match self.user_identity_backend {
-                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => {
-                    Some(self.user_identity_path.clone())
-                }
+                MycIdentityBackend::Filesystem
+                | MycIdentityBackend::ManagedAccount
+                | MycIdentityBackend::ExternalCommand => Some(self.user_identity_path.clone()),
                 MycIdentityBackend::OsKeyring => None,
             },
             keyring_account_id: match self.user_identity_backend {
-                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => None,
+                MycIdentityBackend::Filesystem
+                | MycIdentityBackend::ManagedAccount
+                | MycIdentityBackend::ExternalCommand => None,
                 MycIdentityBackend::OsKeyring => self.user_identity_keyring_account_id.clone(),
             },
             keyring_service_name: match self.user_identity_backend {
-                MycIdentityBackend::Filesystem => None,
+                MycIdentityBackend::Filesystem | MycIdentityBackend::ExternalCommand => None,
                 MycIdentityBackend::OsKeyring | MycIdentityBackend::ManagedAccount => {
                     Some(self.user_identity_keyring_service_name.clone())
                 }
             },
             profile_path: match self.user_identity_backend {
-                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => None,
+                MycIdentityBackend::Filesystem
+                | MycIdentityBackend::ManagedAccount
+                | MycIdentityBackend::ExternalCommand => None,
                 MycIdentityBackend::OsKeyring => self.user_identity_profile_path.clone(),
             },
         }
@@ -1369,10 +1379,13 @@ fn parse_identity_backend_env(
         "filesystem" => Ok(MycIdentityBackend::Filesystem),
         "os_keyring" => Ok(MycIdentityBackend::OsKeyring),
         "managed_account" => Ok(MycIdentityBackend::ManagedAccount),
+        "external_command" => Ok(MycIdentityBackend::ExternalCommand),
         _ => Err(config_parse_error(
             path,
             line_number,
-            format!("{key} must be `filesystem`, `os_keyring`, or `managed_account`"),
+            format!(
+                "{key} must be `filesystem`, `os_keyring`, `managed_account`, or `external_command`"
+            ),
         )),
     }
 }
@@ -1563,6 +1576,33 @@ fn validate_identity_source_config(
                 )));
             }
         }
+        MycIdentityBackend::ExternalCommand => {
+            let Some(path) = source.path.as_ref() else {
+                return Err(MycError::InvalidConfig(format!(
+                    "{label}.path must be set when backend is `external_command`"
+                )));
+            };
+            if path.as_os_str().is_empty() {
+                return Err(MycError::InvalidConfig(format!(
+                    "{label}.path must not be empty when backend is `external_command`"
+                )));
+            }
+            if source.keyring_account_id.is_some() {
+                return Err(MycError::InvalidConfig(format!(
+                    "{label}.keyring_account_id must not be set when backend is `external_command`"
+                )));
+            }
+            if source.keyring_service_name.is_some() {
+                return Err(MycError::InvalidConfig(format!(
+                    "{label}.keyring_service_name must not be set when backend is `external_command`"
+                )));
+            }
+            if source.profile_path.is_some() {
+                return Err(MycError::InvalidConfig(format!(
+                    "{label}.profile_path must not be set when backend is `external_command`"
+                )));
+            }
+        }
         MycIdentityBackend::OsKeyring => {
             let Some(account_id) = source.keyring_account_id.as_deref() else {
                 return Err(MycError::InvalidConfig(format!(
@@ -1655,23 +1695,27 @@ impl MycDiscoveryConfig {
         Some(MycIdentitySourceSpec {
             backend,
             path: match backend {
-                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => {
-                    self.app_identity_path.clone()
-                }
+                MycIdentityBackend::Filesystem
+                | MycIdentityBackend::ManagedAccount
+                | MycIdentityBackend::ExternalCommand => self.app_identity_path.clone(),
                 MycIdentityBackend::OsKeyring => None,
             },
             keyring_account_id: match backend {
-                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => None,
+                MycIdentityBackend::Filesystem
+                | MycIdentityBackend::ManagedAccount
+                | MycIdentityBackend::ExternalCommand => None,
                 MycIdentityBackend::OsKeyring => self.app_identity_keyring_account_id.clone(),
             },
             keyring_service_name: match backend {
-                MycIdentityBackend::Filesystem => None,
+                MycIdentityBackend::Filesystem | MycIdentityBackend::ExternalCommand => None,
                 MycIdentityBackend::OsKeyring | MycIdentityBackend::ManagedAccount => {
                     self.app_identity_keyring_service_name.clone()
                 }
             },
             profile_path: match backend {
-                MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => None,
+                MycIdentityBackend::Filesystem
+                | MycIdentityBackend::ManagedAccount
+                | MycIdentityBackend::ExternalCommand => None,
                 MycIdentityBackend::OsKeyring => self.app_identity_profile_path.clone(),
             },
         })
@@ -2399,6 +2443,49 @@ MYC_DISCOVERY_APP_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
             Some(PathBuf::from(
                 "/var/lib/myc/custody/discovery-accounts.json"
             ))
+        );
+    }
+
+    #[test]
+    fn parse_and_validate_external_command_identity_backends() {
+        let config = MycConfig::from_env_str(
+            r#"
+MYC_PATHS_SIGNER_IDENTITY_BACKEND=external_command
+MYC_PATHS_SIGNER_IDENTITY_PATH=/usr/local/libexec/myc-signer-helper
+MYC_PATHS_USER_IDENTITY_BACKEND=external_command
+MYC_PATHS_USER_IDENTITY_PATH=/usr/local/libexec/myc-user-helper
+MYC_DISCOVERY_ENABLED=true
+MYC_DISCOVERY_DOMAIN=myc.example.com
+MYC_DISCOVERY_PUBLIC_RELAYS=wss://relay.example.com
+MYC_DISCOVERY_APP_IDENTITY_BACKEND=external_command
+MYC_DISCOVERY_APP_IDENTITY_PATH=/usr/local/libexec/myc-discovery-helper
+            "#,
+        )
+        .expect("config");
+
+        assert_eq!(
+            config.paths.signer_identity_backend,
+            MycIdentityBackend::ExternalCommand
+        );
+        assert_eq!(
+            config.paths.signer_identity_source().path,
+            Some(PathBuf::from("/usr/local/libexec/myc-signer-helper"))
+        );
+        assert_eq!(
+            config.paths.user_identity_backend,
+            MycIdentityBackend::ExternalCommand
+        );
+        assert_eq!(
+            config.discovery.app_identity_backend,
+            Some(MycIdentityBackend::ExternalCommand)
+        );
+        assert_eq!(
+            config
+                .discovery
+                .app_identity_source()
+                .expect("app identity source")
+                .path,
+            Some(PathBuf::from("/usr/local/libexec/myc-discovery-helper"))
         );
     }
 

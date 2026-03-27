@@ -183,6 +183,39 @@ pub enum MycError {
         service_name: String,
         account_id: String,
     },
+    #[error("external custody command io error for {role} identity at {path}: {source}")]
+    CustodyExternalCommandIo {
+        role: String,
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error(
+        "external custody command for {role} identity at {path} failed with status {status}: {stderr}"
+    )]
+    CustodyExternalCommandFailed {
+        role: String,
+        path: PathBuf,
+        status: String,
+        stderr: String,
+    },
+    #[error(
+        "external custody command response parse error for {role} identity at {path}: {source}"
+    )]
+    CustodyExternalCommandParse {
+        role: String,
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error(
+        "external custody command returned invalid public identity for {role} at {path}: {message}"
+    )]
+    CustodyExternalCommandInvalidIdentity {
+        role: String,
+        path: PathBuf,
+        message: String,
+    },
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error(transparent)]
