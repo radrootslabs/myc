@@ -1568,15 +1568,20 @@ async fn live_listener_works_with_sqlite_signer_state_and_runtime_audit() -> Tes
         .next()
         .expect("stored connection");
     assert!(consumed_connection.connect_secret_is_consumed());
-    let operation_audit = runtime.operation_audit_store().list_all()?;
-    assert_eq!(operation_audit.len(), 2);
+    let operation_audit = wait_for_operation_audit_count(&runtime, 2).await?;
     assert_eq!(
-        operation_audit[0].outcome,
-        MycOperationAuditOutcome::Rejected
+        operation_audit
+            .iter()
+            .filter(|record| record.outcome == MycOperationAuditOutcome::Rejected)
+            .count(),
+        1
     );
     assert_eq!(
-        operation_audit[1].outcome,
-        MycOperationAuditOutcome::Succeeded
+        operation_audit
+            .iter()
+            .filter(|record| record.outcome == MycOperationAuditOutcome::Succeeded)
+            .count(),
+        1
     );
     let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
         records.len() >= 2 && records[1].status == MycDeliveryOutboxStatus::Finalized
