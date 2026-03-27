@@ -29,13 +29,13 @@ use nostr::{
 use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{
     RadrootsNostrApplicationHandlerSpec, RadrootsNostrClient, RadrootsNostrEventBuilder,
-    RadrootsNostrKind, RadrootsNostrMetadata, RadrootsNostrRelayUrl,
+    RadrootsNostrKind, RadrootsNostrMetadata, RadrootsNostrRelayUrl, RadrootsNostrTag,
     radroots_nostr_build_application_handler_event,
 };
 use radroots_nostr_connect::prelude::{
     RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectClientMetadata,
     RadrootsNostrConnectClientUri, RadrootsNostrConnectRequest, RadrootsNostrConnectRequestMessage,
-    RadrootsNostrConnectResponseEnvelope, RadrootsNostrConnectUri,
+    RadrootsNostrConnectResponse, RadrootsNostrConnectResponseEnvelope, RadrootsNostrConnectUri,
 };
 use radroots_nostr_signer::prelude::{
     RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerAuthState,
@@ -1632,6 +1632,142 @@ async fn live_listener_works_with_sqlite_signer_state_and_runtime_audit() -> Tes
 
     let _ = shutdown_tx.send(());
     listener_task.await??;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn external_nostr_client_recovers_connect_response_after_restart() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
+    let MycTestRuntime {
+        _temp: _tempdir,
+        runtime,
+    } = test_runtime;
+    let config = runtime.config().clone();
+    let signer_public_key = runtime.signer_identity().public_key();
+    let user_public_key = runtime.user_identity().public_key();
+    let client_identity =
+        identity("5757575757575757575757575757575757575757575757575757575757575757");
+    let base_created_at = Timestamp::now().as_secs();
+    let connect_request_id = "external-recovery-connect";
+    let connect_request = ExternalNostrConnectRequest::Connect {
+        remote_signer_public_key: signer_public_key,
+        secret: None,
+    };
+    let request_message = build_external_request_message(connect_request_id, &connect_request);
+    let request_event = build_external_request_event(
+        &client_identity,
+        signer_public_key,
+        &request_message,
+        base_created_at,
+    );
+    publish_event(relay.url(), &request_event).await?;
+
+    let relay_url: RadrootsNostrRelayUrl = relay.url().parse()?;
+    let manager = runtime.signer_manager()?;
+    let connection = manager.register_connection(
+        RadrootsNostrSignerConnectionDraft::new(
+            client_identity.public_key(),
+            runtime.user_public_identity(),
+        )
+        .with_relays(vec![relay_url.clone()])
+        .with_approval_requirement(RadrootsNostrSignerApprovalRequirement::NotRequired),
+    )?;
+    let response_envelope =
+        RadrootsNostrConnectResponse::ConnectAcknowledged.into_envelope(connect_request_id)?;
+    let response_payload = serde_json::to_string(&response_envelope)?;
+    let signer_identity = identity(runtime.signer_identity().secret_key_hex().as_str());
+    let response_ciphertext = nip44::encrypt(
+        signer_identity.keys().secret_key(),
+        &client_identity.public_key(),
+        response_payload,
+        Version::V2,
+    )?;
+    let response_event = runtime.signer_identity().sign_event_builder(
+        RadrootsNostrEventBuilder::new(
+            RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+            response_ciphertext,
+        )
+        .tags(vec![RadrootsNostrTag::public_key(
+            client_identity.public_key(),
+        )]),
+        "external recovery queued connect response",
+    )?;
+    let queued_record = MycDeliveryOutboxRecord::new(
+        MycDeliveryOutboxKind::ListenerResponsePublish,
+        response_event,
+        vec![relay_url],
+    )?
+    .with_connection_id(&connection.connection_id)
+    .with_request_id(connect_request_id);
+    runtime.delivery_outbox_store().enqueue(&queued_record)?;
+    assert_eq!(
+        queued_record.kind,
+        MycDeliveryOutboxKind::ListenerResponsePublish
+    );
+
+    let restarted_runtime = MycRuntime::bootstrap(config.clone())?;
+    let persisted_queued_record = restarted_runtime
+        .delivery_outbox_store()
+        .list_all()?
+        .into_iter()
+        .find(|record| record.request_id.as_deref() == Some(connect_request_id))
+        .expect("persisted queued external connect record");
+    assert_eq!(
+        persisted_queued_record.status,
+        MycDeliveryOutboxStatus::Queued
+    );
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let service_runtime = restarted_runtime.clone();
+    let restarted_listener_task = tokio::spawn(async move {
+        service_runtime
+            .run_until(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
+
+    let (_, connect_response) = wait_for_external_response(
+        &relay,
+        &client_identity,
+        signer_public_key,
+        connect_request_id,
+        ExternalNostrConnectMethod::Connect,
+    )
+    .await?;
+    assert_eq!(connect_response.result, Some(ExternalResponseResult::Ack));
+    assert_eq!(connect_response.error, None);
+
+    let (_, get_public_key_response) = publish_external_request_and_wait_for_response(
+        &relay,
+        &client_identity,
+        signer_public_key,
+        "external-recovery-get-public-key",
+        ExternalNostrConnectRequest::GetPublicKey,
+        base_created_at + 1,
+    )
+    .await?;
+    assert_eq!(
+        get_public_key_response.result,
+        Some(ExternalResponseResult::GetPublicKey(user_public_key))
+    );
+    assert_eq!(get_public_key_response.error, None);
+
+    let _ = shutdown_tx.send(());
+    restarted_listener_task.await??;
+
+    let finalized_runtime = MycRuntime::bootstrap(config)?;
+    let finalized_record = finalized_runtime
+        .delivery_outbox_store()
+        .list_all()?
+        .into_iter()
+        .find(|record| record.request_id.as_deref() == Some(connect_request_id))
+        .expect("finalized external connect recovery record");
+    assert_eq!(finalized_record.status, MycDeliveryOutboxStatus::Finalized);
+    assert!(finalized_record.published_at_unix.is_some());
+    assert!(finalized_record.finalized_at_unix.is_some());
+
     Ok(())
 }
 
