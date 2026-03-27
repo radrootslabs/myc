@@ -153,7 +153,7 @@ pub enum MycRuntimeAuditBackend {
     Sqlite,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MycIdentitySourceSpec {
     pub backend: MycIdentityBackend,
     #[serde(default, skip_serializing_if = "Option::is_none")]

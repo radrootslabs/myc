@@ -25,7 +25,8 @@ use crate::operability::{
     is_aggregate_publish_operation, operation_kind_label, render_metrics_text,
 };
 use crate::persistence::{
-    MycPersistenceImportSelection, import_json_to_sqlite, verify_restored_state,
+    MycPersistenceImportSelection, backup_persistence, import_json_to_sqlite, restore_backup,
+    verify_restored_state,
 };
 
 #[derive(Debug, Parser)]
@@ -89,6 +90,14 @@ pub enum MycConnectionsCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum MycPersistenceCommand {
+    Backup {
+        #[arg(long)]
+        out: PathBuf,
+    },
+    Restore {
+        #[arg(long)]
+        from: PathBuf,
+    },
     ImportJsonToSqlite {
         #[arg(long)]
         signer_state: bool,
@@ -371,6 +380,14 @@ pub async fn run_from_env() -> Result<(), MycError> {
             }
         }
         MycCommand::Persistence { command } => match command {
+            MycPersistenceCommand::Backup { out } => {
+                let output = backup_persistence(&config, out)?;
+                print_json(&output)
+            }
+            MycPersistenceCommand::Restore { from } => {
+                let output = restore_backup(&config, from)?;
+                print_json(&output)
+            }
             MycPersistenceCommand::ImportJsonToSqlite {
                 signer_state,
                 runtime_audit,

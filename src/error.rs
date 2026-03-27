@@ -43,6 +43,24 @@ pub enum MycError {
         #[source]
         source: std::io::Error,
     },
+    #[error("persistence io error at {path}: {source}")]
+    PersistenceIo {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to serialize persistence data at {path}: {source}")]
+    PersistenceSerialize {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("failed to parse persistence backup manifest at {path}: {source}")]
+    PersistenceManifestParse {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
     #[error("failed to bind observability server at {bind_addr}: {source}")]
     ObservabilityBind {
         bind_addr: SocketAddr,

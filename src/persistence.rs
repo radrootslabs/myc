@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use nostr::PublicKey;
 use radroots_nostr_signer::prelude::{
@@ -9,18 +10,26 @@ use radroots_nostr_signer::prelude::{
     RadrootsNostrSignerPublishWorkflowRecord, RadrootsNostrSignerPublishWorkflowState,
     RadrootsNostrSignerStore, RadrootsNostrSignerStoreState, RadrootsNostrSqliteSignerStore,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::app::MycRuntimePaths;
 use crate::audit::MycJsonlOperationAuditStore;
 use crate::audit_sqlite::MycSqliteOperationAuditStore;
-use crate::config::{MycConfig, MycRuntimeAuditBackend, MycSignerStateBackend};
+use crate::config::{
+    MycConfig, MycIdentityBackend, MycIdentitySourceSpec, MycRuntimeAuditBackend,
+    MycSignerStateBackend,
+};
 use crate::custody::MycIdentityProvider;
 use crate::error::MycError;
 use crate::outbox::{
     MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycDeliveryOutboxStatus, MycDeliveryOutboxStore,
 };
 use crate::outbox_sqlite::MycSqliteDeliveryOutboxStore;
+
+const MYC_PERSISTENCE_BACKUP_MANIFEST_VERSION: u32 = 1;
+const MYC_PERSISTENCE_BACKUP_MANIFEST_FILE_NAME: &str = "manifest.json";
+const MYC_PERSISTENCE_BACKUP_STATE_DIR_NAME: &str = "state";
+const MYC_PERSISTENCE_BACKUP_IDENTITIES_DIR_NAME: &str = "identity-references";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MycPersistenceImportSelection {
@@ -65,6 +74,62 @@ pub struct MycPersistenceVerifyRestoreOutput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycPersistenceBackupOutput {
+    pub backup_dir: PathBuf,
+    pub manifest_path: PathBuf,
+    pub state_dir: MycPersistenceBackupStateOutput,
+    pub signer_identity_reference: MycPersistenceIdentityReferenceBackupOutput,
+    pub user_identity_reference: MycPersistenceIdentityReferenceBackupOutput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_app_identity_reference: Option<MycPersistenceIdentityReferenceBackupOutput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycPersistenceBackupStateOutput {
+    pub source_path: PathBuf,
+    pub destination_path: PathBuf,
+    pub file_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycPersistenceRestoreOutput {
+    pub backup_dir: PathBuf,
+    pub manifest_path: PathBuf,
+    pub state_dir: MycPersistenceRestoreStateOutput,
+    pub signer_identity_reference: MycPersistenceIdentityReferenceRestoreOutput,
+    pub user_identity_reference: MycPersistenceIdentityReferenceRestoreOutput,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_app_identity_reference: Option<MycPersistenceIdentityReferenceRestoreOutput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycPersistenceRestoreStateOutput {
+    pub source_path: PathBuf,
+    pub destination_path: PathBuf,
+    pub file_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycPersistenceIdentityReferenceBackupOutput {
+    pub role: String,
+    pub backend: MycIdentityBackend,
+    pub copied_file_count: usize,
+    pub copied_files: Vec<PathBuf>,
+    pub contains_secret_material: bool,
+    pub requires_out_of_backup_dependencies: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycPersistenceIdentityReferenceRestoreOutput {
+    pub role: String,
+    pub backend: MycIdentityBackend,
+    pub restored_file_count: usize,
+    pub restored_files: Vec<PathBuf>,
+    pub contains_secret_material: bool,
+    pub requires_out_of_backup_dependencies: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycSignerStateVerifyRestoreOutput {
     pub backend: MycSignerStateBackend,
     pub path: PathBuf,
@@ -89,6 +154,45 @@ pub struct MycDeliveryOutboxVerifyRestoreOutput {
     pub finalized_job_count: usize,
     pub failed_job_count: usize,
     pub unfinished_job_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MycPersistenceBackupManifest {
+    version: u32,
+    created_at_unix: u64,
+    signer_state_backend: MycSignerStateBackend,
+    runtime_audit_backend: MycRuntimeAuditBackend,
+    state_dir: MycPersistenceBackupStateManifest,
+    signer_identity_reference: MycPersistenceIdentityReferenceManifest,
+    user_identity_reference: MycPersistenceIdentityReferenceManifest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    discovery_app_identity_reference: Option<MycPersistenceIdentityReferenceManifest>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MycPersistenceBackupStateManifest {
+    relative_path: PathBuf,
+    files: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MycPersistenceIdentityReferenceManifest {
+    role: String,
+    source: MycIdentitySourceSpec,
+    files: Vec<MycPersistenceIdentityReferenceFileManifest>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MycPersistenceIdentityReferenceFileManifest {
+    field: MycPersistenceIdentityReferenceField,
+    relative_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum MycPersistenceIdentityReferenceField {
+    Path,
+    ProfilePath,
 }
 
 impl MycPersistenceImportSelection {
@@ -169,6 +273,149 @@ pub fn import_json_to_sqlite(
     }
 
     Ok(output)
+}
+
+pub fn backup_persistence(
+    config: &MycConfig,
+    output_dir: impl AsRef<Path>,
+) -> Result<MycPersistenceBackupOutput, MycError> {
+    config.validate()?;
+
+    let output_dir = output_dir.as_ref().to_path_buf();
+    let backup_manifest_path = output_dir.join(MYC_PERSISTENCE_BACKUP_MANIFEST_FILE_NAME);
+    let state_dir = &config.paths.state_dir;
+    let audit_dir = MycRuntimePaths::audit_dir_for_state_dir(state_dir);
+    let signer_state_path = MycRuntimePaths::signer_state_path_for_backend(
+        state_dir,
+        config.persistence.signer_state_backend,
+    );
+    let runtime_audit_path = MycRuntimePaths::runtime_audit_path_for_backend(
+        &audit_dir,
+        config.persistence.runtime_audit_backend,
+    );
+    let delivery_outbox_path = MycRuntimePaths::delivery_outbox_path_for_state_dir(state_dir);
+
+    ensure_directory_empty_or_create(&output_dir, "backup destination")?;
+    require_existing_restore_file(
+        &signer_state_path,
+        format!(
+            "{} signer-state backend",
+            config.persistence.signer_state_backend.as_str()
+        ),
+    )?;
+    require_existing_restore_file(
+        &runtime_audit_path,
+        format!(
+            "{} runtime-audit backend",
+            config.persistence.runtime_audit_backend.as_str()
+        ),
+    )?;
+    require_existing_restore_file(&delivery_outbox_path, "delivery outbox".to_owned())?;
+
+    let backup_state_dir = output_dir.join(MYC_PERSISTENCE_BACKUP_STATE_DIR_NAME);
+    let state_files = copy_dir_recursive_collect(state_dir, &backup_state_dir)?;
+    let signer_identity_reference = backup_identity_reference(
+        "signer",
+        &config.paths.signer_identity_source(),
+        &output_dir,
+    )?;
+    let user_identity_reference =
+        backup_identity_reference("user", &config.paths.user_identity_source(), &output_dir)?;
+    let discovery_app_identity_reference = config
+        .discovery
+        .app_identity_source()
+        .map(|source| backup_identity_reference("discovery-app", &source, &output_dir))
+        .transpose()?;
+
+    let manifest = MycPersistenceBackupManifest {
+        version: MYC_PERSISTENCE_BACKUP_MANIFEST_VERSION,
+        created_at_unix: now_unix_secs(),
+        signer_state_backend: config.persistence.signer_state_backend,
+        runtime_audit_backend: config.persistence.runtime_audit_backend,
+        state_dir: MycPersistenceBackupStateManifest {
+            relative_path: PathBuf::from(MYC_PERSISTENCE_BACKUP_STATE_DIR_NAME),
+            files: state_files.clone(),
+        },
+        signer_identity_reference: signer_identity_reference.manifest,
+        user_identity_reference: user_identity_reference.manifest,
+        discovery_app_identity_reference: discovery_app_identity_reference
+            .as_ref()
+            .map(|output| output.manifest.clone()),
+    };
+    write_json_file(&backup_manifest_path, &manifest)?;
+
+    Ok(MycPersistenceBackupOutput {
+        backup_dir: output_dir.clone(),
+        manifest_path: backup_manifest_path,
+        state_dir: MycPersistenceBackupStateOutput {
+            source_path: state_dir.clone(),
+            destination_path: backup_state_dir,
+            file_count: state_files.len(),
+        },
+        signer_identity_reference: signer_identity_reference.output,
+        user_identity_reference: user_identity_reference.output,
+        discovery_app_identity_reference: discovery_app_identity_reference
+            .map(|output| output.output),
+    })
+}
+
+pub fn restore_backup(
+    config: &MycConfig,
+    backup_dir: impl AsRef<Path>,
+) -> Result<MycPersistenceRestoreOutput, MycError> {
+    config.validate()?;
+
+    let backup_dir = backup_dir.as_ref().to_path_buf();
+    let backup_manifest_path = backup_dir.join(MYC_PERSISTENCE_BACKUP_MANIFEST_FILE_NAME);
+    let manifest = read_json_file::<MycPersistenceBackupManifest>(&backup_manifest_path)?;
+    validate_backup_manifest(config, &manifest)?;
+
+    let state_source_dir = backup_dir.join(&manifest.state_dir.relative_path);
+    if !state_source_dir.is_dir() {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence restore requires an existing backed-up state directory at {}",
+            state_source_dir.display()
+        )));
+    }
+
+    ensure_restore_state_destination_clear(&config.paths.state_dir)?;
+    let signer_identity_reference = restore_identity_reference(
+        &backup_dir,
+        &manifest.signer_identity_reference,
+        &config.paths.signer_identity_source(),
+    )?;
+    let user_identity_reference = restore_identity_reference(
+        &backup_dir,
+        &manifest.user_identity_reference,
+        &config.paths.user_identity_source(),
+    )?;
+    let discovery_app_identity_reference = match (
+        manifest.discovery_app_identity_reference.as_ref(),
+        config.discovery.app_identity_source(),
+    ) {
+        (Some(manifest_reference), Some(current_source)) => Some(restore_identity_reference(
+            &backup_dir,
+            manifest_reference,
+            &current_source,
+        )?),
+        _ => None,
+    };
+
+    let restored_state_files =
+        copy_dir_recursive_collect(&state_source_dir, &config.paths.state_dir)?;
+
+    Ok(MycPersistenceRestoreOutput {
+        backup_dir: backup_dir.clone(),
+        manifest_path: backup_manifest_path,
+        state_dir: MycPersistenceRestoreStateOutput {
+            source_path: state_source_dir,
+            destination_path: config.paths.state_dir.clone(),
+            file_count: restored_state_files.len(),
+        },
+        signer_identity_reference,
+        user_identity_reference,
+        discovery_app_identity_reference,
+    })
 }
 
 pub fn verify_restored_state(
@@ -359,6 +606,495 @@ fn import_runtime_audit_jsonl_to_sqlite(
         destination_path: destination_store.path().to_path_buf(),
         record_count: source_records.len(),
     })
+}
+
+#[derive(Debug, Clone)]
+struct MycBackedUpIdentityReference {
+    manifest: MycPersistenceIdentityReferenceManifest,
+    output: MycPersistenceIdentityReferenceBackupOutput,
+}
+
+fn backup_identity_reference(
+    role: &str,
+    source: &MycIdentitySourceSpec,
+    backup_dir: &Path,
+) -> Result<MycBackedUpIdentityReference, MycError> {
+    let role_dir = backup_dir
+        .join(MYC_PERSISTENCE_BACKUP_IDENTITIES_DIR_NAME)
+        .join(role);
+    let mut manifest_files = Vec::new();
+    let mut copied_files = Vec::new();
+
+    if should_copy_identity_source_path(source.backend)
+        && let Some(path) = source.path.as_ref()
+    {
+        let relative_path = PathBuf::from(MYC_PERSISTENCE_BACKUP_IDENTITIES_DIR_NAME)
+            .join(role)
+            .join("path");
+        copy_file_required(path, &backup_dir.join(&relative_path))?;
+        manifest_files.push(MycPersistenceIdentityReferenceFileManifest {
+            field: MycPersistenceIdentityReferenceField::Path,
+            relative_path: relative_path.clone(),
+        });
+        copied_files.push(backup_dir.join(relative_path));
+    }
+
+    if let Some(profile_path) = source.profile_path.as_ref() {
+        let relative_path = PathBuf::from(MYC_PERSISTENCE_BACKUP_IDENTITIES_DIR_NAME)
+            .join(role)
+            .join("profile-path");
+        copy_file_required(profile_path, &backup_dir.join(&relative_path))?;
+        manifest_files.push(MycPersistenceIdentityReferenceFileManifest {
+            field: MycPersistenceIdentityReferenceField::ProfilePath,
+            relative_path: relative_path.clone(),
+        });
+        copied_files.push(backup_dir.join(relative_path));
+    }
+
+    if !manifest_files.is_empty() {
+        fs::create_dir_all(&role_dir).map_err(|source| MycError::CreateDir {
+            path: role_dir.clone(),
+            source,
+        })?;
+    }
+
+    Ok(MycBackedUpIdentityReference {
+        manifest: MycPersistenceIdentityReferenceManifest {
+            role: role.to_owned(),
+            source: source.clone(),
+            files: manifest_files,
+        },
+        output: MycPersistenceIdentityReferenceBackupOutput {
+            role: role.to_owned(),
+            backend: source.backend,
+            copied_file_count: copied_files.len(),
+            copied_files,
+            contains_secret_material: source.backend == MycIdentityBackend::Filesystem,
+            requires_out_of_backup_dependencies: matches!(
+                source.backend,
+                MycIdentityBackend::OsKeyring
+                    | MycIdentityBackend::ManagedAccount
+                    | MycIdentityBackend::ExternalCommand
+            ),
+        },
+    })
+}
+
+fn restore_identity_reference(
+    backup_dir: &Path,
+    manifest: &MycPersistenceIdentityReferenceManifest,
+    current_source: &MycIdentitySourceSpec,
+) -> Result<MycPersistenceIdentityReferenceRestoreOutput, MycError> {
+    let mut restored_files = Vec::new();
+
+    for file in &manifest.files {
+        let source_path = backup_dir.join(&file.relative_path);
+        let destination_path = match file.field {
+            MycPersistenceIdentityReferenceField::Path => current_source.path.as_ref(),
+            MycPersistenceIdentityReferenceField::ProfilePath => {
+                current_source.profile_path.as_ref()
+            }
+        }
+        .ok_or_else(|| {
+            MycError::InvalidOperation(format!(
+                "persistence restore requires `{}` identity `{}` destination to be configured",
+                manifest.role,
+                match file.field {
+                    MycPersistenceIdentityReferenceField::Path => "path",
+                    MycPersistenceIdentityReferenceField::ProfilePath => "profile_path",
+                }
+            ))
+        })?;
+
+        ensure_restore_destination_file_clear(
+            destination_path,
+            format!(
+                "{} identity {}",
+                manifest.role,
+                restore_field_label(file.field)
+            ),
+        )?;
+        copy_file_required(&source_path, destination_path)?;
+        restored_files.push(destination_path.clone());
+    }
+
+    Ok(MycPersistenceIdentityReferenceRestoreOutput {
+        role: manifest.role.clone(),
+        backend: current_source.backend,
+        restored_file_count: restored_files.len(),
+        restored_files,
+        contains_secret_material: current_source.backend == MycIdentityBackend::Filesystem,
+        requires_out_of_backup_dependencies: matches!(
+            current_source.backend,
+            MycIdentityBackend::OsKeyring
+                | MycIdentityBackend::ManagedAccount
+                | MycIdentityBackend::ExternalCommand
+        ),
+    })
+}
+
+fn validate_backup_manifest(
+    config: &MycConfig,
+    manifest: &MycPersistenceBackupManifest,
+) -> Result<(), MycError> {
+    if manifest.version != MYC_PERSISTENCE_BACKUP_MANIFEST_VERSION {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence restore does not support backup manifest version {}; expected {}",
+            manifest.version, MYC_PERSISTENCE_BACKUP_MANIFEST_VERSION
+        )));
+    }
+    if manifest.signer_state_backend != config.persistence.signer_state_backend {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence restore requires signer-state backend `{}` but the backup was created with `{}`",
+            config.persistence.signer_state_backend.as_str(),
+            manifest.signer_state_backend.as_str()
+        )));
+    }
+    if manifest.runtime_audit_backend != config.persistence.runtime_audit_backend {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence restore requires runtime-audit backend `{}` but the backup was created with `{}`",
+            config.persistence.runtime_audit_backend.as_str(),
+            manifest.runtime_audit_backend.as_str()
+        )));
+    }
+    validate_manifest_relative_path(&manifest.state_dir.relative_path, "state directory")?;
+    if manifest.state_dir.relative_path != Path::new(MYC_PERSISTENCE_BACKUP_STATE_DIR_NAME) {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence restore requires the backup state directory to be stored at `{}` but found `{}`",
+            MYC_PERSISTENCE_BACKUP_STATE_DIR_NAME,
+            manifest.state_dir.relative_path.display()
+        )));
+    }
+    for relative_path in &manifest.state_dir.files {
+        validate_manifest_relative_path(relative_path, "state file")?;
+    }
+    validate_identity_reference_manifest(&manifest.signer_identity_reference)?;
+    validate_identity_reference_manifest(&manifest.user_identity_reference)?;
+    if let Some(reference) = manifest.discovery_app_identity_reference.as_ref() {
+        validate_identity_reference_manifest(reference)?;
+    }
+
+    validate_identity_source_compatibility(
+        "signer",
+        &config.paths.signer_identity_source(),
+        &manifest.signer_identity_reference.source,
+    )?;
+    validate_identity_source_compatibility(
+        "user",
+        &config.paths.user_identity_source(),
+        &manifest.user_identity_reference.source,
+    )?;
+
+    match (
+        config.discovery.app_identity_source(),
+        manifest.discovery_app_identity_reference.as_ref(),
+    ) {
+        (Some(current_source), Some(manifest_source)) => validate_identity_source_compatibility(
+            "discovery app",
+            &current_source,
+            &manifest_source.source,
+        )?,
+        (None, None) => {}
+        (Some(_), None) => {
+            return Err(MycError::InvalidOperation(
+                "persistence restore requires the current config discovery app identity contract to match the backup manifest".to_owned(),
+            ))
+        }
+        (None, Some(_)) => {
+            return Err(MycError::InvalidOperation(
+                "persistence restore requires the current config discovery app identity contract to match the backup manifest".to_owned(),
+            ))
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_identity_source_compatibility(
+    role: &str,
+    current: &MycIdentitySourceSpec,
+    backed_up: &MycIdentitySourceSpec,
+) -> Result<(), MycError> {
+    if current.backend != backed_up.backend {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence restore requires {role} identity backend `{}` but the backup was created with `{}`",
+            current.backend.as_str(),
+            backed_up.backend.as_str()
+        )));
+    }
+    if current.keyring_account_id != backed_up.keyring_account_id {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence restore requires the configured {role} keyring_account_id to match the backup manifest"
+        )));
+    }
+    if current.keyring_service_name != backed_up.keyring_service_name {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence restore requires the configured {role} keyring_service_name to match the backup manifest"
+        )));
+    }
+    if current.profile_path.is_some() != backed_up.profile_path.is_some() {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence restore requires the configured {role} profile_path contract to match the backup manifest"
+        )));
+    }
+    if requires_identity_source_path_contract(current.backend)
+        && current.path.is_some() != backed_up.path.is_some()
+    {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence restore requires the configured {role} path-based identity contract to match the backup manifest"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_identity_reference_manifest(
+    manifest: &MycPersistenceIdentityReferenceManifest,
+) -> Result<(), MycError> {
+    for file in &manifest.files {
+        validate_manifest_relative_path(
+            &file.relative_path,
+            &format!("{} identity reference file", manifest.role),
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_manifest_relative_path(path: &Path, label: &str) -> Result<(), MycError> {
+    if path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence restore requires a relative `{label}` path inside the backup, but found `{}`",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn requires_identity_source_path_contract(backend: MycIdentityBackend) -> bool {
+    matches!(
+        backend,
+        MycIdentityBackend::Filesystem
+            | MycIdentityBackend::ManagedAccount
+            | MycIdentityBackend::ExternalCommand
+    )
+}
+
+fn should_copy_identity_source_path(backend: MycIdentityBackend) -> bool {
+    matches!(
+        backend,
+        MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount
+    )
+}
+
+fn ensure_directory_empty_or_create(path: &Path, label: &str) -> Result<(), MycError> {
+    if path.exists() {
+        if !path.is_dir() {
+            return Err(MycError::InvalidOperation(format!(
+                "{label} {} already exists and is not a directory",
+                path.display()
+            )));
+        }
+        let mut entries = fs::read_dir(path).map_err(|source| MycError::PersistenceIo {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        if entries
+            .next()
+            .transpose()
+            .map_err(|source| MycError::PersistenceIo {
+                path: path.to_path_buf(),
+                source,
+            })?
+            .is_some()
+        {
+            return Err(MycError::InvalidOperation(format!(
+                "{label} {} is not empty; refusing to overwrite it",
+                path.display()
+            )));
+        }
+        return Ok(());
+    }
+
+    fs::create_dir_all(path).map_err(|source| MycError::CreateDir {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn ensure_restore_state_destination_clear(path: &Path) -> Result<(), MycError> {
+    ensure_directory_empty_or_create(path, "restore state directory")
+}
+
+fn ensure_restore_destination_file_clear(path: &Path, label: String) -> Result<(), MycError> {
+    if path.exists() {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence restore requires an empty destination; {label} already exists at {}",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn copy_dir_recursive_collect(source: &Path, destination: &Path) -> Result<Vec<PathBuf>, MycError> {
+    if !source.is_dir() {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence backup/restore requires a directory at {}",
+            source.display()
+        )));
+    }
+    ensure_copy_destination_is_not_nested(source, destination)?;
+
+    fs::create_dir_all(destination).map_err(|source_error| MycError::CreateDir {
+        path: destination.to_path_buf(),
+        source: source_error,
+    })?;
+
+    let mut copied_files = Vec::new();
+    copy_dir_recursive_collect_inner(source, destination, Path::new(""), &mut copied_files)?;
+    Ok(copied_files)
+}
+
+fn copy_dir_recursive_collect_inner(
+    source_root: &Path,
+    destination_root: &Path,
+    relative_dir: &Path,
+    copied_files: &mut Vec<PathBuf>,
+) -> Result<(), MycError> {
+    let current_source_dir = source_root.join(relative_dir);
+    let entries = fs::read_dir(&current_source_dir).map_err(|source| MycError::PersistenceIo {
+        path: current_source_dir.clone(),
+        source,
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|source| MycError::PersistenceIo {
+            path: current_source_dir.clone(),
+            source,
+        })?;
+        let entry_path = entry.path();
+        let relative_path = relative_dir.join(entry.file_name());
+        let destination_path = destination_root.join(&relative_path);
+        if entry_path.is_dir() {
+            fs::create_dir_all(&destination_path).map_err(|source| MycError::CreateDir {
+                path: destination_path.clone(),
+                source,
+            })?;
+            copy_dir_recursive_collect_inner(
+                source_root,
+                destination_root,
+                &relative_path,
+                copied_files,
+            )?;
+        } else {
+            copy_file_required(&entry_path, &destination_path)?;
+            copied_files.push(relative_path);
+        }
+    }
+
+    Ok(())
+}
+
+fn ensure_copy_destination_is_not_nested(
+    source: &Path,
+    destination: &Path,
+) -> Result<(), MycError> {
+    let source_absolute = absolute_path_for_copy_check(source)?;
+    let destination_absolute = absolute_path_for_copy_check(destination)?;
+    if destination_absolute == source_absolute || destination_absolute.starts_with(&source_absolute)
+    {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence backup/restore cannot copy `{}` into nested destination `{}`",
+            source.display(),
+            destination.display()
+        )));
+    }
+    Ok(())
+}
+
+fn absolute_path_for_copy_check(path: &Path) -> Result<PathBuf, MycError> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .map_err(|source| MycError::PersistenceIo {
+                path: path.to_path_buf(),
+                source,
+            })
+    }
+}
+
+fn copy_file_required(source: &Path, destination: &Path) -> Result<(), MycError> {
+    if !source.is_file() {
+        return Err(MycError::InvalidOperation(format!(
+            "persistence backup/restore requires an existing file at {}",
+            source.display()
+        )));
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|source_error| MycError::CreateDir {
+            path: parent.to_path_buf(),
+            source: source_error,
+        })?;
+    }
+    fs::copy(source, destination).map_err(|source_error| MycError::PersistenceIo {
+        path: source.to_path_buf(),
+        source: source_error,
+    })?;
+    Ok(())
+}
+
+fn write_json_file(path: &Path, value: &impl Serialize) -> Result<(), MycError> {
+    let rendered =
+        serde_json::to_string_pretty(value).map_err(|source| MycError::PersistenceSerialize {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|source| MycError::CreateDir {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+    fs::write(path, rendered).map_err(|source| MycError::PersistenceIo {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    Ok(())
+}
+
+fn read_json_file<T>(path: &Path) -> Result<T, MycError>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let contents = fs::read_to_string(path).map_err(|source| MycError::PersistenceIo {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    serde_json::from_str(&contents).map_err(|source| MycError::PersistenceManifestParse {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn restore_field_label(field: MycPersistenceIdentityReferenceField) -> &'static str {
+    match field {
+        MycPersistenceIdentityReferenceField::Path => "path",
+        MycPersistenceIdentityReferenceField::ProfilePath => "profile_path",
+    }
+}
+
+fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
 }
 
 fn signer_store_state_is_empty(

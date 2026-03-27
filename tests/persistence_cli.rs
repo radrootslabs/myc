@@ -93,6 +93,19 @@ fn migrate_to_sqlite(temp: &tempfile::TempDir) -> MycConfig {
     sqlite_config
 }
 
+fn write_env(path: &Path, config: &MycConfig) {
+    std::fs::write(path, config.to_env_string().expect("render env")).expect("write env");
+}
+
+fn run_myc(env_path: &Path, args: &[&str]) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_myc"));
+    command.arg("--env-file").arg(env_path);
+    for arg in args {
+        command.arg(arg);
+    }
+    command.output().expect("run myc")
+}
+
 #[test]
 fn persistence_import_json_to_sqlite_cli_migrates_state_and_rejects_rerun() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -164,40 +177,157 @@ fn persistence_import_json_to_sqlite_cli_migrates_state_and_rejects_rerun() {
 }
 
 #[test]
-fn persistence_verify_restore_cli_accepts_copied_sqlite_state() {
+fn persistence_backup_cli_copies_sqlite_state_and_identity_files() {
     let source = tempfile::tempdir().expect("source tempdir");
     let sqlite_config = migrate_to_sqlite(&source);
+    let env_path = source.path().join("sqlite.env");
+    write_env(&env_path, &sqlite_config);
+    let backup_dir = source.path().join("backup");
+
+    let output = run_myc(&env_path, &["persistence", "backup", "--out"]);
+    assert!(
+        !output.status.success(),
+        "missing backup path should fail clap parsing"
+    );
+
+    let output = run_myc(
+        &env_path,
+        &[
+            "persistence",
+            "backup",
+            "--out",
+            backup_dir.to_str().expect("backup dir str"),
+        ],
+    );
+    assert!(output.status.success(), "{:?}", output);
+
+    let parsed: Value = serde_json::from_slice(&output.stdout).expect("backup json");
+    assert_eq!(parsed["signer_identity_reference"]["copied_file_count"], 1);
+    assert_eq!(parsed["user_identity_reference"]["copied_file_count"], 1);
+    assert_eq!(
+        parsed["discovery_app_identity_reference"],
+        Value::Null,
+        "default config reuses signer identity and should not emit a dedicated discovery backup"
+    );
+    assert!(backup_dir.join("manifest.json").is_file());
+    assert!(
+        backup_dir
+            .join("state")
+            .join("signer-state.sqlite")
+            .is_file()
+    );
+    assert!(
+        backup_dir
+            .join("state")
+            .join("delivery-outbox.sqlite")
+            .is_file()
+    );
+    assert!(
+        backup_dir
+            .join("state")
+            .join("audit")
+            .join("operations.sqlite")
+            .is_file()
+    );
+    assert!(
+        backup_dir
+            .join("identity-references")
+            .join("signer")
+            .join("path")
+            .is_file()
+    );
+    assert!(
+        backup_dir
+            .join("identity-references")
+            .join("user")
+            .join("path")
+            .is_file()
+    );
+}
+
+#[test]
+fn persistence_backup_cli_rejects_destination_inside_state_dir() {
+    let source = tempfile::tempdir().expect("source tempdir");
+    let sqlite_config = migrate_to_sqlite(&source);
+    let env_path = source.path().join("sqlite.env");
+    write_env(&env_path, &sqlite_config);
+    let nested_backup_dir = sqlite_config.paths.state_dir.join("backup");
+
+    let output = run_myc(
+        &env_path,
+        &[
+            "persistence",
+            "backup",
+            "--out",
+            nested_backup_dir.to_str().expect("nested backup dir str"),
+        ],
+    );
+
+    assert!(!output.status.success(), "{:?}", output);
+    let stderr = String::from_utf8(output.stderr).expect("backup stderr");
+    assert!(stderr.contains("cannot copy"));
+}
+
+#[test]
+fn persistence_restore_cli_restores_backup_and_verify_restore_passes() {
+    let source = tempfile::tempdir().expect("source tempdir");
+    let sqlite_config = migrate_to_sqlite(&source);
+    let sqlite_env = source.path().join("sqlite.env");
+    write_env(&sqlite_env, &sqlite_config);
+    let backup_dir = source.path().join("backup");
+    let backup = run_myc(
+        &sqlite_env,
+        &[
+            "persistence",
+            "backup",
+            "--out",
+            backup_dir.to_str().expect("backup dir str"),
+        ],
+    );
+    assert!(backup.status.success(), "{:?}", backup);
 
     let restored = tempfile::tempdir().expect("restored tempdir");
-    let restored_state_dir = restored.path().join("state");
-    copy_dir_recursive(&sqlite_config.paths.state_dir, &restored_state_dir);
     let restored_signer = restored.path().join("signer.json");
     let restored_user = restored.path().join("user.json");
-    std::fs::copy(&sqlite_config.paths.signer_identity_path, &restored_signer)
-        .expect("copy signer identity");
-    std::fs::copy(&sqlite_config.paths.user_identity_path, &restored_user)
-        .expect("copy user identity");
 
     let mut restored_config = sqlite_config.clone();
-    restored_config.paths.state_dir = restored_state_dir;
+    restored_config.paths.state_dir = restored.path().join("state");
     restored_config.paths.signer_identity_path = restored_signer;
     restored_config.paths.user_identity_path = restored_user;
     let restored_env = restored.path().join("restored.env");
-    std::fs::write(
-        &restored_env,
-        restored_config
-            .to_env_string()
-            .expect("render restored env"),
-    )
-    .expect("write restored env");
+    write_env(&restored_env, &restored_config);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_myc"))
-        .arg("--env-file")
-        .arg(&restored_env)
-        .arg("persistence")
-        .arg("verify-restore")
-        .output()
-        .expect("run verify restore");
+    let restore = run_myc(
+        &restored_env,
+        &[
+            "persistence",
+            "restore",
+            "--from",
+            backup_dir.to_str().expect("backup dir str"),
+        ],
+    );
+    assert!(restore.status.success(), "{:?}", restore);
+
+    let restore_json: Value = serde_json::from_slice(&restore.stdout).expect("restore json");
+    assert_eq!(
+        restore_json["signer_identity_reference"]["restored_file_count"],
+        1
+    );
+    assert_eq!(
+        restore_json["user_identity_reference"]["restored_file_count"],
+        1
+    );
+    assert!(
+        restored_config
+            .paths
+            .state_dir
+            .join("signer-state.sqlite")
+            .is_file()
+    );
+    assert!(restored_config.paths.signer_identity_path.is_file());
+    assert!(restored_config.paths.user_identity_path.is_file());
+
+    let output = run_myc(&restored_env, &["persistence", "verify-restore"]);
 
     assert!(output.status.success(), "{:?}", output);
 
@@ -259,6 +389,53 @@ fn persistence_verify_restore_cli_rejects_missing_outbox_file() {
     assert!(
         stderr.contains("persistence verify-restore requires an existing delivery outbox file")
     );
+}
+
+#[test]
+fn persistence_restore_cli_rejects_non_empty_destination() {
+    let source = tempfile::tempdir().expect("source tempdir");
+    let sqlite_config = migrate_to_sqlite(&source);
+    let sqlite_env = source.path().join("sqlite.env");
+    write_env(&sqlite_env, &sqlite_config);
+    let backup_dir = source.path().join("backup");
+    let backup = run_myc(
+        &sqlite_env,
+        &[
+            "persistence",
+            "backup",
+            "--out",
+            backup_dir.to_str().expect("backup dir str"),
+        ],
+    );
+    assert!(backup.status.success(), "{:?}", backup);
+
+    let restored = tempfile::tempdir().expect("restored tempdir");
+    let mut restored_config = sqlite_config.clone();
+    restored_config.paths.state_dir = restored.path().join("state");
+    restored_config.paths.signer_identity_path = restored.path().join("signer.json");
+    restored_config.paths.user_identity_path = restored.path().join("user.json");
+    std::fs::create_dir_all(&restored_config.paths.state_dir).expect("create restored state dir");
+    std::fs::write(
+        restored_config.paths.state_dir.join("existing.txt"),
+        "occupied",
+    )
+    .expect("write occupied marker");
+    let restored_env = restored.path().join("restored.env");
+    write_env(&restored_env, &restored_config);
+
+    let restore = run_myc(
+        &restored_env,
+        &[
+            "persistence",
+            "restore",
+            "--from",
+            backup_dir.to_str().expect("backup dir str"),
+        ],
+    );
+
+    assert!(!restore.status.success(), "{:?}", restore);
+    let stderr = String::from_utf8(restore.stderr).expect("restore stderr");
+    assert!(stderr.contains("restore state directory"));
 }
 
 #[test]
