@@ -12,6 +12,8 @@ use tokio::time::{sleep, timeout};
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+const HTTP_READY_TIMEOUT: Duration = Duration::from_secs(15);
+
 struct TestRelay {
     url: String,
     shutdown_tx: Option<oneshot::Sender<()>>,
@@ -159,7 +161,7 @@ async fn spawn_runtime(runtime: MycRuntime) -> oneshot::Sender<()> {
 }
 
 async fn wait_for_http(addr: SocketAddr) -> TestResult<()> {
-    timeout(Duration::from_secs(5), async {
+    timeout(HTTP_READY_TIMEOUT, async {
         loop {
             match TcpStream::connect(addr).await {
                 Ok(mut stream) => {

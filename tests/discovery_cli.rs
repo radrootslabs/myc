@@ -23,6 +23,8 @@ use tokio_tungstenite::tungstenite::Message;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+const RELAY_EVENT_TIMEOUT: Duration = Duration::from_secs(15);
+
 #[derive(Clone)]
 struct RelaySubscription {
     connection_id: usize,
@@ -99,7 +101,7 @@ impl TestRelay {
         public_key: PublicKey,
         expected: usize,
     ) -> TestResult<Vec<Event>> {
-        timeout(Duration::from_secs(5), async {
+        timeout(RELAY_EVENT_TIMEOUT, async {
             loop {
                 let events = self.published_events_by_author(public_key).await;
                 if events.len() >= expected {

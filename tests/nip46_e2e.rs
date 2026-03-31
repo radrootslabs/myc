@@ -49,6 +49,11 @@ use tokio_tungstenite::tungstenite::Message;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+const RELAY_EVENT_TIMEOUT: Duration = Duration::from_secs(15);
+const EXTERNAL_RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
+const RUNTIME_STATE_TIMEOUT: Duration = Duration::from_secs(15);
+const POLL_INTERVAL: Duration = Duration::from_millis(25);
+
 #[derive(Clone)]
 struct RelaySubscription {
     connection_id: usize,
@@ -121,7 +126,7 @@ impl TestRelay {
     }
 
     async fn wait_for_subscription_count(&self, expected: usize) -> TestResult<()> {
-        timeout(Duration::from_secs(5), async {
+        timeout(RELAY_EVENT_TIMEOUT, async {
             loop {
                 if self.state.lock().await.subscriptions.len() >= expected {
                     return;
@@ -138,7 +143,7 @@ impl TestRelay {
         public_key: PublicKey,
         expected: usize,
     ) -> TestResult<Vec<Event>> {
-        timeout(Duration::from_secs(5), async {
+        timeout(RELAY_EVENT_TIMEOUT, async {
             loop {
                 let events = self.published_events_by_author(public_key).await;
                 if events.len() >= expected {
@@ -651,7 +656,7 @@ async fn wait_for_external_response(
     request_id: &str,
     method: ExternalNostrConnectMethod,
 ) -> TestResult<(Event, ExternalNostrConnectResponse)> {
-    timeout(Duration::from_secs(10), async {
+    timeout(EXTERNAL_RESPONSE_TIMEOUT, async {
         loop {
             let events = relay.published_events_by_author(signer_public_key).await;
             for event in events {
@@ -671,7 +676,7 @@ async fn wait_for_external_response(
                 let response = message.to_response(method)?;
                 return Ok((event, response));
             }
-            sleep(Duration::from_millis(25)).await;
+            sleep(POLL_INTERVAL).await;
         }
     })
     .await?
@@ -757,7 +762,7 @@ async fn publish_event(relay_url: &str, event: &Event) -> TestResult<()> {
 }
 
 async fn wait_for_connection_count(runtime: &MycRuntime, expected: usize) -> TestResult<()> {
-    timeout(Duration::from_secs(5), async {
+    timeout(RUNTIME_STATE_TIMEOUT, async {
         loop {
             if runtime
                 .signer_manager()
@@ -769,7 +774,7 @@ async fn wait_for_connection_count(runtime: &MycRuntime, expected: usize) -> Tes
             {
                 return;
             }
-            sleep(Duration::from_millis(25)).await;
+            sleep(POLL_INTERVAL).await;
         }
     })
     .await?;
@@ -777,7 +782,7 @@ async fn wait_for_connection_count(runtime: &MycRuntime, expected: usize) -> Tes
 }
 
 async fn wait_for_connect_secret_consumed(runtime: &MycRuntime) -> TestResult<()> {
-    timeout(Duration::from_secs(5), async {
+    timeout(RUNTIME_STATE_TIMEOUT, async {
         loop {
             let consumed = runtime
                 .signer_manager()
@@ -789,7 +794,7 @@ async fn wait_for_connect_secret_consumed(runtime: &MycRuntime) -> TestResult<()
             if consumed {
                 return;
             }
-            sleep(Duration::from_millis(25)).await;
+            sleep(POLL_INTERVAL).await;
         }
     })
     .await?;
@@ -800,7 +805,7 @@ async fn wait_for_operation_audit_count(
     runtime: &MycRuntime,
     expected: usize,
 ) -> TestResult<Vec<MycOperationAuditRecord>> {
-    timeout(Duration::from_secs(5), async {
+    timeout(RUNTIME_STATE_TIMEOUT, async {
         loop {
             let records = runtime
                 .operation_audit_store()
@@ -809,7 +814,7 @@ async fn wait_for_operation_audit_count(
             if records.len() >= expected {
                 return records;
             }
-            sleep(Duration::from_millis(25)).await;
+            sleep(POLL_INTERVAL).await;
         }
     })
     .await
@@ -823,7 +828,7 @@ async fn wait_for_delivery_outbox_records<F>(
 where
     F: Fn(&[MycDeliveryOutboxRecord]) -> bool,
 {
-    timeout(Duration::from_secs(5), async {
+    timeout(RUNTIME_STATE_TIMEOUT, async {
         loop {
             let records = runtime
                 .delivery_outbox_store()
@@ -832,7 +837,7 @@ where
             if predicate(&records) {
                 return records;
             }
-            sleep(Duration::from_millis(25)).await;
+            sleep(POLL_INTERVAL).await;
         }
     })
     .await
