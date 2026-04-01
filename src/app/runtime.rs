@@ -1268,10 +1268,7 @@ mod tests {
             .expect("write identity");
     }
 
-    fn write_external_command_helper(
-        path: &std::path::Path,
-        secret_key: &str,
-    ) -> RadrootsIdentity {
+    fn write_external_command_helper(path: &std::path::Path, secret_key: &str) -> RadrootsIdentity {
         let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity");
         let identity_json =
             serde_json::to_string(&identity.to_public()).expect("serialize public identity");
