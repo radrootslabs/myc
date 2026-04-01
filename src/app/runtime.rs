@@ -1237,6 +1237,9 @@ fn emit_operation_audit_trace(record: &MycOperationAuditRecord) {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -1254,6 +1257,7 @@ mod tests {
     use crate::config::{
         MycConfig, MycIdentityBackend, MycRuntimeAuditBackend, MycSignerStateBackend,
     };
+    use crate::discovery::MycDiscoveryContext;
     use crate::error::MycError;
     use crate::outbox::{MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycDeliveryOutboxStatus};
 
@@ -1262,6 +1266,26 @@ mod tests {
             .expect("identity from secret")
             .save_json(path)
             .expect("write identity");
+    }
+
+    fn write_external_command_helper(
+        path: &std::path::Path,
+        secret_key: &str,
+    ) -> RadrootsIdentity {
+        let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity");
+        let identity_json =
+            serde_json::to_string(&identity.to_public()).expect("serialize public identity");
+        let script = format!(
+            "#!/bin/sh\nrequest=\"$(cat)\"\ncase \"$request\" in\n  *'\"operation\":\"describe\"'*) printf '%s' '{{\"identity\":{identity_json}}}' ;;\n  *) printf '%s' '{{\"error\":\"unsupported operation\"}}' ;;\nesac\n"
+        );
+        fs::write(path, script).expect("write helper");
+        #[cfg(unix)]
+        {
+            let mut permissions = fs::metadata(path).expect("metadata").permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(path, permissions).expect("set permissions");
+        }
+        identity
     }
 
     #[test]
@@ -1491,6 +1515,83 @@ mod tests {
         assert!(runtime.snapshot().transport.enabled);
         assert_eq!(runtime.snapshot().transport.relay_count, 1);
         assert_eq!(runtime.snapshot().transport.connect_timeout_secs, 15);
+    }
+
+    #[tokio::test]
+    async fn bootstrap_prepares_signerless_transport_for_external_command_backend() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let helper_path = temp.path().join("signer-helper.sh");
+        let helper_identity = write_external_command_helper(
+            &helper_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        let mut config = MycConfig::default();
+        config.paths.state_dir = temp.path().join("state");
+        config.paths.signer_identity_backend = MycIdentityBackend::ExternalCommand;
+        config.paths.signer_identity_path = helper_path;
+        config.paths.user_identity_path = temp.path().join("user.json");
+        config.transport.enabled = true;
+        config.transport.connect_timeout_secs = 15;
+        config.transport.relays = vec!["wss://relay.example.com".to_owned()];
+        write_test_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
+
+        let runtime = MycRuntime::bootstrap(config).expect("runtime");
+
+        assert!(runtime.transport().is_some());
+        assert!(
+            !runtime
+                .transport()
+                .expect("transport")
+                .client()
+                .has_signer()
+                .await
+        );
+        assert_eq!(
+            runtime.signer_identity().public_key_hex(),
+            helper_identity.public_key_hex()
+        );
+    }
+
+    #[tokio::test]
+    async fn discovery_context_uses_signerless_client_for_external_command_app_identity() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let helper_path = temp.path().join("discovery-helper.sh");
+        let helper_identity = write_external_command_helper(
+            &helper_path,
+            "6666666666666666666666666666666666666666666666666666666666666666",
+        );
+        let mut config = MycConfig::default();
+        config.paths.state_dir = temp.path().join("state");
+        config.paths.signer_identity_path = temp.path().join("signer.json");
+        config.paths.user_identity_path = temp.path().join("user.json");
+        config.discovery.enabled = true;
+        config.discovery.domain = Some("signer.example.com".to_owned());
+        config.discovery.public_relays = vec!["wss://relay.example.com".to_owned()];
+        config.discovery.publish_relays = vec!["wss://relay.example.com".to_owned()];
+        config.discovery.nostrconnect_url_template =
+            Some("https://signer.example.com/connect?uri=<nostrconnect>".to_owned());
+        config.discovery.app_identity_backend = Some(MycIdentityBackend::ExternalCommand);
+        config.discovery.app_identity_path = Some(helper_path);
+        write_test_identity(
+            &config.paths.signer_identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_test_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
+
+        let runtime = MycRuntime::bootstrap(config).expect("runtime");
+        let context = MycDiscoveryContext::from_runtime(&runtime).expect("discovery context");
+
+        assert!(!context.app_identity().nostr_client().has_signer().await);
+        assert_eq!(
+            context.app_identity().public_key_hex(),
+            helper_identity.public_key_hex()
+        );
     }
 
     #[test]

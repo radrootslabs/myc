@@ -389,7 +389,7 @@ impl MycExternalCommandIdentityOperations {
 
 impl MycIdentityOperations for MycExternalCommandIdentityOperations {
     fn nostr_client(&self) -> RadrootsNostrClient {
-        RadrootsNostrClient::from_identity_owned(RadrootsIdentity::generate())
+        RadrootsNostrClient::new_signerless()
     }
 
     fn nostr_client_owned(&self) -> RadrootsNostrClient {
@@ -1760,5 +1760,17 @@ mod tests {
         assert!(operations.contains(&MycExternalCommandOperation::SignEvent));
         assert!(operations.contains(&MycExternalCommandOperation::Nip04Encrypt));
         assert!(operations.contains(&MycExternalCommandOperation::Nip44Encrypt));
+    }
+
+    #[tokio::test]
+    async fn external_command_provider_uses_signerless_relay_client() {
+        let (provider, _executor) = external_command_provider(
+            "signer",
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        let active = provider.load_active_identity().expect("active identity");
+
+        assert!(!active.nostr_client().has_signer().await);
+        assert!(!active.nostr_client_owned().has_signer().await);
     }
 }
