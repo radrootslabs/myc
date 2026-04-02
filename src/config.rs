@@ -20,6 +20,7 @@ pub const DEFAULT_ENV_PATH: &str = ".env";
 pub struct MycConfig {
     pub service: MycServiceConfig,
     pub logging: MycLoggingConfig,
+    pub custody: MycCustodyConfig,
     pub paths: MycPathsConfig,
     pub persistence: MycPersistenceConfig,
     pub audit: MycAuditConfig,
@@ -41,6 +42,12 @@ pub struct MycLoggingConfig {
     pub filter: String,
     pub output_dir: Option<PathBuf>,
     pub stdout: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MycCustodyConfig {
+    pub external_command_timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -197,6 +204,7 @@ impl Default for MycConfig {
         Self {
             service: MycServiceConfig::default(),
             logging: MycLoggingConfig::default(),
+            custody: MycCustodyConfig::default(),
             paths: MycPathsConfig::default(),
             persistence: MycPersistenceConfig::default(),
             audit: MycAuditConfig::default(),
@@ -222,6 +230,14 @@ impl Default for MycLoggingConfig {
             filter: "info,myc=info".to_owned(),
             output_dir: None,
             stdout: true,
+        }
+    }
+}
+
+impl Default for MycCustodyConfig {
+    fn default() -> Self {
+        Self {
+            external_command_timeout_secs: 10,
         }
     }
 }
@@ -498,6 +514,11 @@ impl MycConfig {
             &mut lines,
             "MYC_LOGGING_STDOUT",
             self.logging.stdout.to_string(),
+        );
+        push_env_line(
+            &mut lines,
+            "MYC_CUSTODY_EXTERNAL_COMMAND_TIMEOUT_SECS",
+            self.custody.external_command_timeout_secs.to_string(),
         );
         push_env_line(
             &mut lines,
@@ -828,6 +849,12 @@ impl MycConfig {
             ));
         }
 
+        if self.custody.external_command_timeout_secs == 0 {
+            return Err(MycError::InvalidConfig(
+                "custody.external_command_timeout_secs must be greater than zero".to_owned(),
+            ));
+        }
+
         validate_identity_source_config(
             "paths.signer_identity",
             &self.paths.signer_identity_source(),
@@ -1099,6 +1126,10 @@ fn apply_env_entry(
         }
         "MYC_LOGGING_STDOUT" => {
             config.logging.stdout = parse_bool_env(key, value, path, line_number)?;
+        }
+        "MYC_CUSTODY_EXTERNAL_COMMAND_TIMEOUT_SECS" => {
+            config.custody.external_command_timeout_secs =
+                parse_u64_env(key, value, path, line_number)?;
         }
         "MYC_PATHS_STATE_DIR" => config.paths.state_dir = PathBuf::from(value),
         "MYC_PATHS_SIGNER_IDENTITY_BACKEND" => {
@@ -2194,6 +2225,17 @@ MYC_UNKNOWN=nope
     }
 
     #[test]
+    fn validate_rejects_zero_external_command_timeout() {
+        let mut config = MycConfig::default();
+        config.custody.external_command_timeout_secs = 0;
+
+        let err = config.validate().expect_err("invalid custody timeout");
+        assert!(err
+            .to_string()
+            .contains("custody.external_command_timeout_secs"));
+    }
+
+    #[test]
     fn validate_rejects_non_loopback_observability_bind_addr() {
         let mut config = MycConfig::default();
         config.observability.enabled = true;
@@ -2450,6 +2492,7 @@ MYC_DISCOVERY_APP_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
     fn parse_and_validate_external_command_identity_backends() {
         let config = MycConfig::from_env_str(
             r#"
+MYC_CUSTODY_EXTERNAL_COMMAND_TIMEOUT_SECS=21
 MYC_PATHS_SIGNER_IDENTITY_BACKEND=external_command
 MYC_PATHS_SIGNER_IDENTITY_PATH=/usr/local/libexec/myc-signer-helper
 MYC_PATHS_USER_IDENTITY_BACKEND=external_command
@@ -2479,6 +2522,7 @@ MYC_DISCOVERY_APP_IDENTITY_PATH=/usr/local/libexec/myc-discovery-helper
             config.discovery.app_identity_backend,
             Some(MycIdentityBackend::ExternalCommand)
         );
+        assert_eq!(config.custody.external_command_timeout_secs, 21);
         assert_eq!(
             config
                 .discovery
@@ -2505,6 +2549,7 @@ MYC_DISCOVERY_APP_IDENTITY_PATH=/usr/local/libexec/myc-discovery-helper
             config.logging.output_dir,
             Some(PathBuf::from("/var/log/radroots/services/myc"))
         );
+        assert_eq!(config.custody.external_command_timeout_secs, 10);
         assert_eq!(
             config.transport.delivery_policy,
             MycTransportDeliveryPolicy::Any
@@ -2540,6 +2585,7 @@ MYC_SERVICE_INSTANCE_NAME=myc-dev
 MYC_LOGGING_FILTER=debug,myc=trace
 MYC_LOGGING_OUTPUT_DIR=/tmp/myc logs
 MYC_LOGGING_STDOUT=false
+MYC_CUSTODY_EXTERNAL_COMMAND_TIMEOUT_SECS=17
 MYC_PATHS_STATE_DIR=/tmp/myc state
 MYC_PATHS_SIGNER_IDENTITY_BACKEND=os_keyring
 MYC_PATHS_SIGNER_IDENTITY_PATH=/tmp/ignored-signer.json

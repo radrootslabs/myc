@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nostr::PublicKey;
 use radroots_nostr_signer::prelude::{
@@ -452,13 +452,25 @@ pub fn verify_restored_state(
     require_existing_restore_file(&delivery_outbox_path, "delivery outbox".to_owned())?;
 
     let signer_identity_provider =
-        MycIdentityProvider::from_source("signer", config.paths.signer_identity_source())?;
+        MycIdentityProvider::from_source(
+            "signer",
+            config.paths.signer_identity_source(),
+            Duration::from_secs(config.custody.external_command_timeout_secs),
+        )?;
     let signer_identity = signer_identity_provider.load_active_identity()?;
     let user_identity_provider =
-        MycIdentityProvider::from_source("user", config.paths.user_identity_source())?;
+        MycIdentityProvider::from_source(
+            "user",
+            config.paths.user_identity_source(),
+            Duration::from_secs(config.custody.external_command_timeout_secs),
+        )?;
     let user_identity = user_identity_provider.load_active_identity()?;
     let discovery_app_identity = match config.discovery.app_identity_source() {
-        Some(source) => Some(MycIdentityProvider::from_source("discovery app", source)?),
+        Some(source) => Some(MycIdentityProvider::from_source(
+            "discovery app",
+            source,
+            Duration::from_secs(config.custody.external_command_timeout_secs),
+        )?),
         None => None,
     }
     .map(|provider| provider.load_active_identity())
@@ -548,7 +560,11 @@ fn import_signer_state_json_to_sqlite(
     let source_store = RadrootsNostrFileSignerStore::new(&source_path);
     let source_state = source_store.load()?;
     let signer_identity_provider =
-        MycIdentityProvider::from_source("signer", config.paths.signer_identity_source())?;
+        MycIdentityProvider::from_source(
+            "signer",
+            config.paths.signer_identity_source(),
+            Duration::from_secs(config.custody.external_command_timeout_secs),
+        )?;
     let configured_signer_identity = signer_identity_provider.load_identity()?.to_public();
     if let Some(imported_signer_identity) = source_state.signer_identity.as_ref() {
         if imported_signer_identity.id != configured_signer_identity.id {

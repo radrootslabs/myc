@@ -288,9 +288,12 @@ impl MycDiscoveryContext {
         }
 
         let app_identity = match discovery.app_identity_source() {
-            Some(source) => {
-                MycIdentityProvider::from_source("discovery app", source)?.load_active_identity()?
-            }
+            Some(source) => MycIdentityProvider::from_source(
+                "discovery app",
+                source,
+                Duration::from_secs(runtime.config().custody.external_command_timeout_secs),
+            )?
+            .load_active_identity()?,
             None => runtime.signer_identity().clone(),
         };
         let public_relays = discovery.resolved_public_relays(&runtime.config().transport)?;

@@ -2,6 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use nostr::nips::nip44::Version;
 use nostr::nips::{nip04, nip44};
@@ -108,6 +109,7 @@ enum MycIdentityProviderBackend {
     },
     ExternalCommand {
         command_path: PathBuf,
+        timeout: Duration,
         executor: Arc<dyn MycExternalCommandExecutor>,
     },
 }
@@ -155,12 +157,19 @@ struct MycExternalCommandOutput {
     stderr: Vec<u8>,
 }
 
+#[derive(Debug)]
+enum MycExternalCommandExecuteError {
+    Io(std::io::Error),
+    TimedOut,
+}
+
 trait MycExternalCommandExecutor: Send + Sync {
     fn execute(
         &self,
         command_path: &PathBuf,
         request_json: &[u8],
-    ) -> Result<MycExternalCommandOutput, std::io::Error>;
+        timeout: Duration,
+    ) -> Result<MycExternalCommandOutput, MycExternalCommandExecuteError>;
 }
 
 #[derive(Debug, Default)]
@@ -171,17 +180,35 @@ impl MycExternalCommandExecutor for MycProcessCommandExecutor {
         &self,
         command_path: &PathBuf,
         request_json: &[u8],
-    ) -> Result<MycExternalCommandOutput, std::io::Error> {
+        timeout: Duration,
+    ) -> Result<MycExternalCommandOutput, MycExternalCommandExecuteError> {
         let mut child = Command::new(command_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn()?;
+            .spawn()
+            .map_err(MycExternalCommandExecuteError::Io)?;
         if let Some(mut stdin) = child.stdin.take() {
             use std::io::Write;
-            stdin.write_all(request_json)?;
+            stdin
+                .write_all(request_json)
+                .map_err(MycExternalCommandExecuteError::Io)?;
         }
-        let output = child.wait_with_output()?;
+        let deadline = Instant::now() + timeout;
+        loop {
+            match child.try_wait().map_err(MycExternalCommandExecuteError::Io)? {
+                Some(_) => break,
+                None if Instant::now() >= deadline => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(MycExternalCommandExecuteError::TimedOut);
+                }
+                None => std::thread::sleep(Duration::from_millis(10)),
+            }
+        }
+        let output = child
+            .wait_with_output()
+            .map_err(MycExternalCommandExecuteError::Io)?;
         Ok(MycExternalCommandOutput {
             success: output.status.success(),
             status: output.status.code(),
@@ -316,6 +343,7 @@ impl MycIdentityOperations for MycLoadedIdentityOperations {
 struct MycExternalCommandIdentityOperations {
     role: String,
     command_path: PathBuf,
+    timeout: Duration,
     public_identity: RadrootsIdentityPublic,
     public_key: RadrootsNostrPublicKey,
     executor: Arc<dyn MycExternalCommandExecutor>,
@@ -325,6 +353,7 @@ impl MycExternalCommandIdentityOperations {
     fn new(
         role: String,
         command_path: PathBuf,
+        timeout: Duration,
         public_identity: RadrootsIdentityPublic,
         public_key: RadrootsNostrPublicKey,
         executor: Arc<dyn MycExternalCommandExecutor>,
@@ -332,6 +361,7 @@ impl MycExternalCommandIdentityOperations {
         Self {
             role,
             command_path,
+            timeout,
             public_identity,
             public_key,
             executor,
@@ -345,11 +375,20 @@ impl MycExternalCommandIdentityOperations {
         let request_json = serde_json::to_vec(request)?;
         let output = self
             .executor
-            .execute(&self.command_path, &request_json)
-            .map_err(|source| MycError::CustodyExternalCommandIo {
-                role: self.role.clone(),
-                path: self.command_path.clone(),
-                source,
+            .execute(&self.command_path, &request_json, self.timeout)
+            .map_err(|error| match error {
+                MycExternalCommandExecuteError::Io(source) => MycError::CustodyExternalCommandIo {
+                    role: self.role.clone(),
+                    path: self.command_path.clone(),
+                    source,
+                },
+                MycExternalCommandExecuteError::TimedOut => {
+                    MycError::CustodyExternalCommandTimedOut {
+                        role: self.role.clone(),
+                        path: self.command_path.clone(),
+                        timeout_secs: self.timeout.as_secs(),
+                    }
+                }
             })?;
         if !output.success {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
@@ -513,6 +552,7 @@ impl MycIdentityProvider {
     pub fn from_source(
         role: impl Into<String>,
         source: MycIdentitySourceSpec,
+        external_command_timeout: Duration,
     ) -> Result<Self, MycError> {
         let role = role.into();
         let backend = match source.backend {
@@ -565,6 +605,7 @@ impl MycIdentityProvider {
                 })?;
                 MycIdentityProviderBackend::ExternalCommand {
                     command_path,
+                    timeout: external_command_timeout,
                     executor: Arc::new(MycProcessCommandExecutor),
                 }
             }
@@ -673,16 +714,21 @@ impl MycIdentityProvider {
         match &self.backend {
             MycIdentityProviderBackend::ExternalCommand {
                 command_path,
+                timeout,
                 executor,
             } => {
-                let (public_identity, public_key) =
-                    self.load_external_command_identity(command_path, executor.as_ref())?;
+                let (public_identity, public_key) = self.load_external_command_identity(
+                    command_path,
+                    *timeout,
+                    executor.as_ref(),
+                )?;
                 Ok(MycActiveIdentity::from_operations(
                     public_identity.clone(),
                     public_key,
                     Arc::new(MycExternalCommandIdentityOperations::new(
                         self.role.clone(),
                         command_path.clone(),
+                        *timeout,
                         public_identity,
                         public_key,
                         executor.clone(),
@@ -820,9 +866,10 @@ impl MycIdentityProvider {
         match &self.backend {
             MycIdentityProviderBackend::ExternalCommand {
                 command_path,
+                timeout,
                 executor,
             } => self
-                .load_external_command_identity(command_path, executor.as_ref())
+                .load_external_command_identity(command_path, *timeout, executor.as_ref())
                 .map(|(identity, _)| identity),
             _ => self.load_identity().map(|identity| identity.to_public()),
         }
@@ -831,6 +878,7 @@ impl MycIdentityProvider {
     fn load_external_command_identity(
         &self,
         command_path: &PathBuf,
+        timeout: Duration,
         executor: &dyn MycExternalCommandExecutor,
     ) -> Result<(RadrootsIdentityPublic, RadrootsNostrPublicKey), MycError> {
         let request_json = serde_json::to_vec(&MycExternalCommandRequest {
@@ -841,11 +889,20 @@ impl MycIdentityProvider {
             content: None,
         })?;
         let output = executor
-            .execute(command_path, &request_json)
-            .map_err(|source| MycError::CustodyExternalCommandIo {
-                role: self.role.clone(),
-                path: command_path.clone(),
-                source,
+            .execute(command_path, &request_json, timeout)
+            .map_err(|error| match error {
+                MycExternalCommandExecuteError::Io(source) => MycError::CustodyExternalCommandIo {
+                    role: self.role.clone(),
+                    path: command_path.clone(),
+                    source,
+                },
+                MycExternalCommandExecuteError::TimedOut => {
+                    MycError::CustodyExternalCommandTimedOut {
+                        role: self.role.clone(),
+                        path: command_path.clone(),
+                        timeout_secs: timeout.as_secs(),
+                    }
+                }
             })?;
         if !output.success {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
@@ -1361,7 +1418,8 @@ mod tests {
             &self,
             _command_path: &PathBuf,
             request_json: &[u8],
-        ) -> Result<MycExternalCommandOutput, std::io::Error> {
+            _timeout: Duration,
+        ) -> Result<MycExternalCommandOutput, MycExternalCommandExecuteError> {
             let request: MycExternalCommandRequest =
                 serde_json::from_slice(request_json).expect("request");
             self.requests
@@ -1519,6 +1577,7 @@ mod tests {
                 },
                 backend: MycIdentityProviderBackend::ExternalCommand {
                     command_path,
+                    timeout: Duration::from_secs(10),
                     executor: executor.clone(),
                 },
             },
@@ -1536,7 +1595,12 @@ mod tests {
         );
 
         let provider =
-            MycIdentityProvider::from_source("signer", fixture_source(&path)).expect("provider");
+            MycIdentityProvider::from_source(
+                "signer",
+                fixture_source(&path),
+                Duration::from_secs(10),
+            )
+            .expect("provider");
         let identity = provider.load_identity().expect("identity");
 
         assert_eq!(
@@ -1772,5 +1836,85 @@ mod tests {
 
         assert!(!active.nostr_client().has_signer().await);
         assert!(!active.nostr_client_owned().has_signer().await);
+    }
+
+    #[derive(Debug, Default)]
+    struct TimeoutExternalCommandExecutor;
+
+    impl MycExternalCommandExecutor for TimeoutExternalCommandExecutor {
+        fn execute(
+            &self,
+            _command_path: &PathBuf,
+            _request_json: &[u8],
+            _timeout: Duration,
+        ) -> Result<MycExternalCommandOutput, MycExternalCommandExecuteError> {
+            Err(MycExternalCommandExecuteError::TimedOut)
+        }
+    }
+
+    #[test]
+    fn external_command_provider_maps_describe_timeout() {
+        let provider = MycIdentityProvider {
+            role: "signer".to_owned(),
+            source: MycIdentitySourceSpec {
+                backend: MycIdentityBackend::ExternalCommand,
+                path: Some(PathBuf::from("/tmp/signer-helper")),
+                keyring_account_id: None,
+                keyring_service_name: None,
+                profile_path: None,
+            },
+            backend: MycIdentityProviderBackend::ExternalCommand {
+                command_path: PathBuf::from("/tmp/signer-helper"),
+                timeout: Duration::from_secs(7),
+                executor: Arc::new(TimeoutExternalCommandExecutor),
+            },
+        };
+
+        let err = provider.load_active_identity().err().expect("timeout");
+        assert!(matches!(
+            err,
+            MycError::CustodyExternalCommandTimedOut {
+                ref role,
+                ref path,
+                timeout_secs: 7,
+            } if role == "signer" && path == &PathBuf::from("/tmp/signer-helper")
+        ));
+    }
+
+    #[test]
+    fn external_command_provider_maps_operation_timeout() {
+        let identity = RadrootsIdentity::from_secret_key_str(
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        )
+        .expect("identity");
+        let public_identity = identity.to_public();
+        let public_key = identity.public_key();
+        let active = MycActiveIdentity::from_operations(
+            public_identity.clone(),
+            public_key,
+            Arc::new(MycExternalCommandIdentityOperations::new(
+                "signer".to_owned(),
+                PathBuf::from("/tmp/signer-helper"),
+                Duration::from_secs(11),
+                public_identity,
+                public_key,
+                Arc::new(TimeoutExternalCommandExecutor),
+            )),
+        );
+
+        let err = active
+            .sign_event_builder(
+                RadrootsNostrEventBuilder::text_note("timeout"),
+                "timeout event",
+            )
+            .expect_err("timeout");
+        assert!(matches!(
+            err,
+            MycError::CustodyExternalCommandTimedOut {
+                ref role,
+                ref path,
+                timeout_secs: 11,
+            } if role == "signer" && path == &PathBuf::from("/tmp/signer-helper")
+        ));
     }
 }

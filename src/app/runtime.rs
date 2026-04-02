@@ -3,6 +3,7 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::backend::MycSignerBackend;
 use crate::audit::{
@@ -120,6 +121,7 @@ impl MycRuntime {
             &config.persistence,
             config.audit.clone(),
             MycPolicyContext::from_config(&config.policy)?,
+            Duration::from_secs(config.custody.external_command_timeout_secs),
             config.paths.signer_identity_source(),
             config.paths.user_identity_source(),
         )?;
@@ -1103,13 +1105,14 @@ impl MycSignerContext {
         persistence: &MycPersistenceConfig,
         audit_config: MycAuditConfig,
         policy: MycPolicyContext,
+        external_command_timeout: Duration,
         signer_identity_source: MycIdentitySourceSpec,
         user_identity_source: MycIdentitySourceSpec,
     ) -> Result<Self, MycError> {
         let signer_identity_provider =
-            MycIdentityProvider::from_source("signer", signer_identity_source)?;
+            MycIdentityProvider::from_source("signer", signer_identity_source, external_command_timeout)?;
         let user_identity_provider =
-            MycIdentityProvider::from_source("user", user_identity_source)?;
+            MycIdentityProvider::from_source("user", user_identity_source, external_command_timeout)?;
         let signer_identity = signer_identity_provider.load_active_identity()?;
         let user_identity = user_identity_provider.load_active_identity()?;
         let signer_store = Self::build_signer_store(persistence, &paths.signer_state_path)?;

@@ -411,8 +411,12 @@ fn collect_custody_status(runtime: &MycRuntime) -> Result<MycCustodyStatusEvalua
     let discovery_app = if runtime.config().discovery.enabled {
         match runtime.config().discovery.app_identity_source() {
             Some(source) => Some(
-                crate::custody::MycIdentityProvider::from_source("discovery app", source)?
-                    .probe_status(),
+                crate::custody::MycIdentityProvider::from_source(
+                    "discovery app",
+                    source,
+                    Duration::from_secs(runtime.config().custody.external_command_timeout_secs),
+                )?
+                .probe_status(),
             ),
             None => Some(
                 runtime

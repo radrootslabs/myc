@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use radroots_nostr_connect::prelude::RadrootsNostrConnectPermissions;
@@ -623,10 +624,12 @@ fn custody_provider_for_role(
         MycCustodyRole::Signer => crate::custody::MycIdentityProvider::from_source(
             "signer",
             config.paths.signer_identity_source(),
+            Duration::from_secs(config.custody.external_command_timeout_secs),
         ),
         MycCustodyRole::User => crate::custody::MycIdentityProvider::from_source(
             "user",
             config.paths.user_identity_source(),
+            Duration::from_secs(config.custody.external_command_timeout_secs),
         ),
         MycCustodyRole::DiscoveryApp => {
             let Some(source) = config.discovery.app_identity_source() else {
@@ -634,7 +637,11 @@ fn custody_provider_for_role(
                     "discovery app identity is not separately configured; it currently reuses the signer identity".to_owned(),
                 ));
             };
-            crate::custody::MycIdentityProvider::from_source("discovery app", source)
+            crate::custody::MycIdentityProvider::from_source(
+                "discovery app",
+                source,
+                Duration::from_secs(config.custody.external_command_timeout_secs),
+            )
         }
     }
 }

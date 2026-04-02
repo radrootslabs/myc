@@ -209,6 +209,14 @@ pub enum MycError {
         source: std::io::Error,
     },
     #[error(
+        "external custody command for {role} identity at {path} timed out after {timeout_secs}s"
+    )]
+    CustodyExternalCommandTimedOut {
+        role: String,
+        path: PathBuf,
+        timeout_secs: u64,
+    },
+    #[error(
         "external custody command for {role} identity at {path} failed with status {status}: {stderr}"
     )]
     CustodyExternalCommandFailed {
