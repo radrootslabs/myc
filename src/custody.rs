@@ -1370,8 +1370,12 @@ impl MycIdentityStatusOutput {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
+    use std::time::Instant;
 
     use radroots_identity::RadrootsIdentity;
     use radroots_nostr_accounts::prelude::{
@@ -1396,6 +1400,15 @@ mod tests {
             keyring_service_name: None,
             profile_path: None,
         }
+    }
+
+    #[cfg(unix)]
+    fn write_timeout_helper(path: &Path) {
+        let script = "#!/bin/sh\nwhile :; do\n  :\ndone\n";
+        fs::write(path, script).expect("write helper");
+        let mut permissions = fs::metadata(path).expect("helper metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).expect("helper permissions");
     }
 
     #[derive(Debug)]
@@ -1916,5 +1929,25 @@ mod tests {
                 timeout_secs: 11,
             } if role == "signer" && path == &PathBuf::from("/tmp/signer-helper")
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_executor_times_out_and_kills_real_helper() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let helper_path = temp.path().join("timeout-helper.sh");
+        write_timeout_helper(&helper_path);
+
+        let executor = MycProcessCommandExecutor;
+        let started_at = Instant::now();
+        let err = executor
+            .execute(&helper_path, b"{\"operation\":\"describe\"}", Duration::from_millis(100))
+            .expect_err("timeout");
+
+        assert!(matches!(err, MycExternalCommandExecuteError::TimedOut));
+        assert!(
+            started_at.elapsed() < Duration::from_secs(2),
+            "timeout path should stay bounded"
+        );
     }
 }
