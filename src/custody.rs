@@ -1374,6 +1374,7 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
+    use std::process::Command;
     use std::sync::Mutex;
     use std::time::Instant;
 
@@ -1403,12 +1404,32 @@ mod tests {
     }
 
     #[cfg(unix)]
-    fn write_timeout_helper(path: &Path) {
-        let script = "#!/bin/sh\nwhile :; do\n  :\ndone\n";
+    fn shell_single_quote(value: &str) -> String {
+        format!("'{}'", value.replace('\'', "'\"'\"'"))
+    }
+
+    #[cfg(unix)]
+    fn write_timeout_helper(path: &Path, pid_path: &Path) {
+        let script = format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$$\" > {}\nwhile :; do\n  :\ndone\n",
+            shell_single_quote(&pid_path.display().to_string())
+        );
         fs::write(path, script).expect("write helper");
         let mut permissions = fs::metadata(path).expect("helper metadata").permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(path, permissions).expect("helper permissions");
+    }
+
+    #[cfg(unix)]
+    fn process_exists(pid: u32) -> bool {
+        Command::new("kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("kill probe")
+            .success()
     }
 
     #[derive(Debug)]
@@ -1934,20 +1955,47 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn process_executor_times_out_and_kills_real_helper() {
+        let timeout = Duration::from_secs(2);
         let temp = tempfile::tempdir().expect("tempdir");
         let helper_path = temp.path().join("timeout-helper.sh");
-        write_timeout_helper(&helper_path);
+        let pid_path = temp.path().join("timeout-helper.pid");
+        write_timeout_helper(&helper_path, &pid_path);
 
-        let executor = MycProcessCommandExecutor;
-        let started_at = Instant::now();
-        let err = executor
-            .execute(&helper_path, b"{\"operation\":\"describe\"}", Duration::from_millis(100))
-            .expect_err("timeout");
+        let helper_path_for_thread = helper_path.clone();
+        let handle = std::thread::spawn(move || {
+            let executor = MycProcessCommandExecutor;
+            let started_at = Instant::now();
+            let err = executor
+                .execute(
+                    &helper_path_for_thread,
+                    b"{\"operation\":\"describe\"}",
+                    timeout,
+                )
+                .expect_err("timeout");
+            (started_at.elapsed(), err)
+        });
+
+        let pid_deadline = Instant::now() + timeout + Duration::from_secs(1);
+        let pid = loop {
+            match fs::read_to_string(&pid_path) {
+                Ok(value) => break value.trim().parse::<u32>().expect("pid"),
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::NotFound
+                        && Instant::now() < pid_deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("helper pid: {error}"),
+            }
+        };
+
+        let (elapsed, err) = handle.join().expect("executor thread");
 
         assert!(matches!(err, MycExternalCommandExecuteError::TimedOut));
         assert!(
-            started_at.elapsed() < Duration::from_secs(2),
+            elapsed < timeout + Duration::from_secs(2),
             "timeout path should stay bounded"
         );
+        assert!(!process_exists(pid), "helper process should be terminated");
     }
 }
