@@ -515,6 +515,7 @@ fn required_permission_for_request(
     match request {
         RadrootsNostrConnectRequest::Connect { .. }
         | RadrootsNostrConnectRequest::GetPublicKey
+        | RadrootsNostrConnectRequest::GetSessionCapability
         | RadrootsNostrConnectRequest::Ping => None,
         RadrootsNostrConnectRequest::SignEvent(unsigned_event) => {
             Some(RadrootsNostrConnectPermission::with_parameter(
@@ -584,6 +585,7 @@ fn request_requires_auth(request: &RadrootsNostrConnectRequest) -> bool {
         request,
         RadrootsNostrConnectRequest::Connect { .. }
             | RadrootsNostrConnectRequest::GetPublicKey
+            | RadrootsNostrConnectRequest::GetSessionCapability
             | RadrootsNostrConnectRequest::Ping
     )
 }

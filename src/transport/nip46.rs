@@ -121,6 +121,7 @@ impl MycNip46Handler {
                 self.handle_crypto_request(client_public_key, request_message)
             }
             RadrootsNostrConnectRequest::GetPublicKey
+            | RadrootsNostrConnectRequest::GetSessionCapability
             | RadrootsNostrConnectRequest::Ping
             | RadrootsNostrConnectRequest::SwitchRelays => {
                 self.handle_base_request(client_public_key, request_message)
@@ -448,6 +449,7 @@ impl MycNip46Handler {
                 }
             },
             RadrootsNostrConnectRequest::GetPublicKey
+            | RadrootsNostrConnectRequest::GetSessionCapability
             | RadrootsNostrConnectRequest::Ping
             | RadrootsNostrConnectRequest::SwitchRelays => match evaluation.action {
                 RadrootsNostrSignerRequestAction::Denied { reason } => {
@@ -1134,6 +1136,9 @@ fn response_from_hint(
         RadrootsNostrSignerRequestResponseHint::Pong => RadrootsNostrConnectResponse::Pong,
         RadrootsNostrSignerRequestResponseHint::UserPublicKey(public_key) => {
             RadrootsNostrConnectResponse::UserPublicKey(public_key)
+        }
+        RadrootsNostrSignerRequestResponseHint::RemoteSessionCapability(capability) => {
+            RadrootsNostrConnectResponse::RemoteSessionCapability(capability)
         }
         RadrootsNostrSignerRequestResponseHint::RelayList(relays) => {
             if relays == connection.relays {
@@ -1977,6 +1982,29 @@ mod tests {
             relays,
             RadrootsNostrConnectResponse::RelayList(
                 runtime.transport().expect("transport").relays().to_vec()
+            )
+        );
+
+        let capability = handler
+            .handle_request_response(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-capability",
+                    RadrootsNostrConnectRequest::GetSessionCapability,
+                ),
+            )
+            .expect("get session capability");
+        assert_eq!(
+            capability,
+            RadrootsNostrConnectResponse::RemoteSessionCapability(
+                radroots_nostr_connect::prelude::RadrootsNostrConnectRemoteSessionCapability {
+                    user_public_key: runtime.user_identity().public_key(),
+                    relays: runtime.transport().expect("transport").relays().to_vec(),
+                    permissions: vec![RadrootsNostrConnectPermission::new(
+                        RadrootsNostrConnectMethod::SwitchRelays,
+                    )]
+                    .into(),
+                },
             )
         );
     }
