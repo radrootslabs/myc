@@ -50,10 +50,9 @@ mod tests {
     use super::MycApp;
 
     fn write_test_identity(path: &std::path::Path, secret_key: &str) {
-        RadrootsIdentity::from_secret_key_str(secret_key)
-            .expect("identity from secret")
-            .save_json(path)
-            .expect("write identity");
+        let identity =
+            RadrootsIdentity::from_secret_key_str(secret_key).expect("identity from secret");
+        crate::identity_storage::store_encrypted_identity(path, &identity).expect("write identity");
     }
 
     #[test]
@@ -81,21 +80,24 @@ mod tests {
             snapshot
                 .signer_identity_path
                 .as_ref()
-                .expect("filesystem signer path")
+                .expect("encrypted signer path")
                 .ends_with("identity.json")
         );
         assert!(
             snapshot
                 .user_identity_path
                 .as_ref()
-                .expect("filesystem user path")
+                .expect("encrypted user path")
                 .ends_with("user.json")
         );
         assert_eq!(
             snapshot.signer_identity_source.backend.as_str(),
-            "filesystem"
+            "encrypted_file"
         );
-        assert_eq!(snapshot.user_identity_source.backend.as_str(), "filesystem");
+        assert_eq!(
+            snapshot.user_identity_source.backend.as_str(),
+            "encrypted_file"
+        );
         assert_eq!(snapshot.signer_state_backend.as_str(), "json_file");
         assert!(snapshot.signer_state_path.ends_with("signer-state.json"));
         assert_eq!(snapshot.runtime_audit_backend.as_str(), "jsonl_file");

@@ -117,10 +117,8 @@ impl Drop for HangingRelay {
 }
 
 fn write_test_identity(path: &Path, secret_key: &str) {
-    RadrootsIdentity::from_secret_key_str(secret_key)
-        .expect("identity from secret")
-        .save_json(path)
-        .expect("write identity");
+    let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity from secret");
+    myc::identity_storage::store_encrypted_identity(path, &identity).expect("write identity");
 }
 
 fn signed_delivery_event(identity: &MycActiveIdentity, content: &str) -> nostr::Event {

@@ -12,13 +12,14 @@ use radroots_nostr::prelude::{
 };
 use radroots_nostr_accounts::prelude::{
     RadrootsNostrAccountRecord, RadrootsNostrAccountsManager, RadrootsNostrFileAccountStore,
-    RadrootsNostrSecretVault, RadrootsNostrSecretVaultOsKeyring,
     RadrootsNostrSelectedAccountStatus,
 };
+use radroots_secret_vault::{RadrootsSecretVault, RadrootsSecretVaultOsKeyring};
 use serde::{Deserialize, Serialize};
 
 use crate::config::{MycIdentityBackend, MycIdentitySourceSpec};
 use crate::error::MycError;
+use crate::identity_storage::load_encrypted_identity;
 
 #[derive(Clone)]
 pub struct MycActiveIdentity {
@@ -93,14 +94,17 @@ pub struct MycIdentityProvider {
 
 #[derive(Clone)]
 enum MycIdentityProviderBackend {
-    Filesystem {
+    EncryptedFile {
         path: PathBuf,
     },
-    OsKeyring {
+    PlaintextFile {
+        path: PathBuf,
+    },
+    HostVault {
         account_id: RadrootsIdentityId,
         service_name: String,
         profile_path: Option<PathBuf>,
-        vault: Arc<dyn RadrootsNostrSecretVault>,
+        vault: Arc<dyn RadrootsSecretVault>,
     },
     ManagedAccount {
         account_store_path: PathBuf,
@@ -196,7 +200,10 @@ impl MycExternalCommandExecutor for MycProcessCommandExecutor {
         }
         let deadline = Instant::now() + timeout;
         loop {
-            match child.try_wait().map_err(MycExternalCommandExecuteError::Io)? {
+            match child
+                .try_wait()
+                .map_err(MycExternalCommandExecuteError::Io)?
+            {
                 Some(_) => break,
                 None if Instant::now() >= deadline => {
                     let _ = child.kill();
@@ -556,30 +563,38 @@ impl MycIdentityProvider {
     ) -> Result<Self, MycError> {
         let role = role.into();
         let backend = match source.backend {
-            MycIdentityBackend::Filesystem => {
+            MycIdentityBackend::EncryptedFile => {
                 let path = source.path.clone().ok_or_else(|| {
                     MycError::InvalidConfig(format!(
-                        "{role} identity filesystem backend requires a path"
+                        "{role} identity encrypted_file backend requires a path"
                     ))
                 })?;
-                MycIdentityProviderBackend::Filesystem { path }
+                MycIdentityProviderBackend::EncryptedFile { path }
             }
-            MycIdentityBackend::OsKeyring => {
+            MycIdentityBackend::PlaintextFile => {
+                let path = source.path.clone().ok_or_else(|| {
+                    MycError::InvalidConfig(format!(
+                        "{role} identity plaintext_file backend requires a path"
+                    ))
+                })?;
+                MycIdentityProviderBackend::PlaintextFile { path }
+            }
+            MycIdentityBackend::HostVault => {
                 let account_id = RadrootsIdentityId::parse(
                     source.keyring_account_id.as_deref().ok_or_else(|| {
                         MycError::InvalidConfig(format!(
-                            "{role} identity os_keyring backend requires keyring_account_id"
+                            "{role} identity host_vault backend requires keyring_account_id"
                         ))
                     })?,
                 )
                 .map_err(|_| {
                     MycError::InvalidConfig(format!(
-                        "{role} identity os_keyring backend requires a valid keyring_account_id"
+                        "{role} identity host_vault backend requires a valid keyring_account_id"
                     ))
                 })?;
                 let service_name = source.keyring_service_name.clone().ok_or_else(|| {
                     MycError::InvalidConfig(format!(
-                        "{role} identity os_keyring backend requires keyring_service_name"
+                        "{role} identity host_vault backend requires keyring_service_name"
                     ))
                 })?;
                 Self::vault_provider(role.as_str(), &source, account_id, service_name)?
@@ -620,20 +635,21 @@ impl MycIdentityProvider {
 
     pub fn load_identity(&self) -> Result<RadrootsIdentity, MycError> {
         match &self.backend {
-            MycIdentityProviderBackend::Filesystem { path } => {
+            MycIdentityProviderBackend::EncryptedFile { path } => load_encrypted_identity(path),
+            MycIdentityProviderBackend::PlaintextFile { path } => {
                 RadrootsIdentity::load_from_path_auto(path).map_err(Into::into)
             }
-            MycIdentityProviderBackend::OsKeyring {
+            MycIdentityProviderBackend::HostVault {
                 account_id,
                 service_name,
                 profile_path,
                 vault,
             } => {
                 let secret_key_hex = vault
-                    .load_secret_hex(account_id)
+                    .load_secret(account_id.as_str())
                     .map_err(|source| MycError::CustodyVault {
                         role: self.role.clone(),
-                        source,
+                        source: source.into(),
                     })?
                     .ok_or_else(|| MycError::CustodySecretNotFound {
                         role: self.role.clone(),
@@ -717,11 +733,8 @@ impl MycIdentityProvider {
                 timeout,
                 executor,
             } => {
-                let (public_identity, public_key) = self.load_external_command_identity(
-                    command_path,
-                    *timeout,
-                    executor.as_ref(),
-                )?;
+                let (public_identity, public_key) =
+                    self.load_external_command_identity(command_path, *timeout, executor.as_ref())?;
                 Ok(MycActiveIdentity::from_operations(
                     public_identity.clone(),
                     public_key,
@@ -1176,14 +1189,14 @@ impl MycIdentityProvider {
     ) -> Result<MycIdentityProviderBackend, MycError> {
         if service_name.trim().is_empty() {
             return Err(MycError::InvalidConfig(format!(
-                "{role} identity os_keyring backend requires a non-empty keyring_service_name"
+                "{role} identity host_vault backend requires a non-empty keyring_service_name"
             )));
         }
-        Ok(MycIdentityProviderBackend::OsKeyring {
+        Ok(MycIdentityProviderBackend::HostVault {
             account_id,
             service_name: service_name.clone(),
             profile_path: source.profile_path.clone(),
-            vault: Arc::new(RadrootsNostrSecretVaultOsKeyring::new(service_name)),
+            vault: Arc::new(RadrootsSecretVaultOsKeyring::new(service_name)),
         })
     }
 
@@ -1214,7 +1227,7 @@ impl MycIdentityProvider {
             Arc::new(RadrootsNostrFileAccountStore::new(
                 account_store_path.as_path(),
             )),
-            Arc::new(RadrootsNostrSecretVaultOsKeyring::new(service_name.clone())),
+            Arc::new(RadrootsSecretVaultOsKeyring::new(service_name.clone())),
         )
         .map_err(|source| MycError::CustodyManager {
             role: role.to_owned(),
@@ -1380,22 +1393,21 @@ mod tests {
 
     use radroots_identity::RadrootsIdentity;
     use radroots_nostr_accounts::prelude::{
-        RadrootsNostrAccountsManager, RadrootsNostrMemoryAccountStore, RadrootsNostrSecretVault,
+        RadrootsNostrAccountsManager, RadrootsNostrMemoryAccountStore,
         RadrootsNostrSecretVaultMemory,
     };
+    use radroots_secret_vault::RadrootsSecretVault;
 
     use super::*;
 
     fn write_identity(path: &Path, secret_key: &str) {
-        RadrootsIdentity::from_secret_key_str(secret_key)
-            .expect("identity")
-            .save_json(path)
-            .expect("save identity");
+        let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity");
+        crate::identity_storage::store_encrypted_identity(path, &identity).expect("save identity");
     }
 
     fn fixture_source(path: &Path) -> MycIdentitySourceSpec {
         MycIdentitySourceSpec {
-            backend: MycIdentityBackend::Filesystem,
+            backend: MycIdentityBackend::EncryptedFile,
             path: Some(path.to_path_buf()),
             keyring_account_id: None,
             keyring_service_name: None,
@@ -1570,7 +1582,7 @@ mod tests {
         let vault = Arc::new(RadrootsNostrSecretVaultMemory::new());
         let manager = RadrootsNostrAccountsManager::new(
             Arc::new(RadrootsNostrMemoryAccountStore::new()),
-            vault.clone() as Arc<dyn RadrootsNostrSecretVault>,
+            vault.clone() as Arc<dyn RadrootsSecretVault>,
         )
         .expect("manager");
         (
@@ -1620,7 +1632,7 @@ mod tests {
     }
 
     #[test]
-    fn filesystem_provider_loads_identity() {
+    fn encrypted_file_provider_loads_identity() {
         let temp = tempfile::tempdir().expect("tempdir");
         let path = temp.path().join("signer.json");
         write_identity(
@@ -1628,13 +1640,12 @@ mod tests {
             "1111111111111111111111111111111111111111111111111111111111111111",
         );
 
-        let provider =
-            MycIdentityProvider::from_source(
-                "signer",
-                fixture_source(&path),
-                Duration::from_secs(10),
-            )
-            .expect("provider");
+        let provider = MycIdentityProvider::from_source(
+            "signer",
+            fixture_source(&path),
+            Duration::from_secs(10),
+        )
+        .expect("provider");
         let identity = provider.load_identity().expect("identity");
 
         assert_eq!(
@@ -1656,19 +1667,19 @@ mod tests {
         let account_id = identity.id();
         let vault = Arc::new(RadrootsNostrSecretVaultMemory::new());
         vault
-            .store_secret_hex(&account_id, identity.secret_key_hex().as_str())
+            .store_secret(account_id.as_str(), identity.secret_key_hex().as_str())
             .expect("store");
 
         let provider = MycIdentityProvider {
             role: "signer".to_owned(),
             source: MycIdentitySourceSpec {
-                backend: MycIdentityBackend::OsKeyring,
+                backend: MycIdentityBackend::HostVault,
                 path: None,
                 keyring_account_id: Some(account_id.to_string()),
                 keyring_service_name: Some("org.radroots.test".to_owned()),
                 profile_path: Some(profile_path.clone()),
             },
-            backend: MycIdentityProviderBackend::OsKeyring {
+            backend: MycIdentityProviderBackend::HostVault {
                 account_id: account_id.clone(),
                 service_name: "org.radroots.test".to_owned(),
                 profile_path: Some(profile_path),
@@ -1691,13 +1702,13 @@ mod tests {
         let provider = MycIdentityProvider {
             role: "user".to_owned(),
             source: MycIdentitySourceSpec {
-                backend: MycIdentityBackend::OsKeyring,
+                backend: MycIdentityBackend::HostVault,
                 path: None,
                 keyring_account_id: Some(account_id.to_string()),
                 keyring_service_name: Some("org.radroots.test".to_owned()),
                 profile_path: None,
             },
-            backend: MycIdentityProviderBackend::OsKeyring {
+            backend: MycIdentityProviderBackend::HostVault {
                 account_id: account_id.clone(),
                 service_name: "org.radroots.test".to_owned(),
                 profile_path: None,
@@ -1770,7 +1781,9 @@ mod tests {
             .expect("selected account");
         vault
             .remove_secret(
-                &RadrootsIdentityId::parse(selected_account_id.as_str()).expect("account id"),
+                RadrootsIdentityId::parse(selected_account_id.as_str())
+                    .expect("account id")
+                    .as_str(),
             )
             .expect("remove secret");
 
@@ -1975,7 +1988,9 @@ mod tests {
             (started_at.elapsed(), err)
         });
 
-        let pid_deadline = Instant::now() + timeout + Duration::from_secs(1);
+        // Give the real helper a little slack to create its pid file under a busy full-test run
+        // before we conclude the timeout path never launched it.
+        let pid_deadline = Instant::now() + timeout + Duration::from_secs(5);
         let pid = loop {
             match fs::read_to_string(&pid_path) {
                 Ok(value) => break value.trim().parse::<u32>().expect("pid"),

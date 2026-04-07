@@ -21,6 +21,7 @@ use crate::config::{
 };
 use crate::custody::MycIdentityProvider;
 use crate::error::MycError;
+use crate::identity_storage::encrypted_identity_wrapping_key_path;
 use crate::outbox::{
     MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycDeliveryOutboxStatus, MycDeliveryOutboxStore,
 };
@@ -192,6 +193,7 @@ struct MycPersistenceIdentityReferenceFileManifest {
 #[serde(rename_all = "snake_case")]
 enum MycPersistenceIdentityReferenceField {
     Path,
+    EncryptedKeyPath,
     ProfilePath,
 }
 
@@ -451,19 +453,17 @@ pub fn verify_restored_state(
     )?;
     require_existing_restore_file(&delivery_outbox_path, "delivery outbox".to_owned())?;
 
-    let signer_identity_provider =
-        MycIdentityProvider::from_source(
-            "signer",
-            config.paths.signer_identity_source(),
-            Duration::from_secs(config.custody.external_command_timeout_secs),
-        )?;
+    let signer_identity_provider = MycIdentityProvider::from_source(
+        "signer",
+        config.paths.signer_identity_source(),
+        Duration::from_secs(config.custody.external_command_timeout_secs),
+    )?;
     let signer_identity = signer_identity_provider.load_active_identity()?;
-    let user_identity_provider =
-        MycIdentityProvider::from_source(
-            "user",
-            config.paths.user_identity_source(),
-            Duration::from_secs(config.custody.external_command_timeout_secs),
-        )?;
+    let user_identity_provider = MycIdentityProvider::from_source(
+        "user",
+        config.paths.user_identity_source(),
+        Duration::from_secs(config.custody.external_command_timeout_secs),
+    )?;
     let user_identity = user_identity_provider.load_active_identity()?;
     let discovery_app_identity = match config.discovery.app_identity_source() {
         Some(source) => Some(MycIdentityProvider::from_source(
@@ -559,12 +559,11 @@ fn import_signer_state_json_to_sqlite(
     );
     let source_store = RadrootsNostrFileSignerStore::new(&source_path);
     let source_state = source_store.load()?;
-    let signer_identity_provider =
-        MycIdentityProvider::from_source(
-            "signer",
-            config.paths.signer_identity_source(),
-            Duration::from_secs(config.custody.external_command_timeout_secs),
-        )?;
+    let signer_identity_provider = MycIdentityProvider::from_source(
+        "signer",
+        config.paths.signer_identity_source(),
+        Duration::from_secs(config.custody.external_command_timeout_secs),
+    )?;
     let configured_signer_identity = signer_identity_provider.load_identity()?.to_public();
     if let Some(imported_signer_identity) = source_state.signer_identity.as_ref() {
         if imported_signer_identity.id != configured_signer_identity.id {
@@ -655,6 +654,21 @@ fn backup_identity_reference(
         copied_files.push(backup_dir.join(relative_path));
     }
 
+    if source.backend == MycIdentityBackend::EncryptedFile
+        && let Some(path) = source.path.as_ref()
+    {
+        let key_path = encrypted_identity_wrapping_key_path(path);
+        let relative_path = PathBuf::from(MYC_PERSISTENCE_BACKUP_IDENTITIES_DIR_NAME)
+            .join(role)
+            .join("encrypted-key-path");
+        copy_file_required(&key_path, &backup_dir.join(&relative_path))?;
+        manifest_files.push(MycPersistenceIdentityReferenceFileManifest {
+            field: MycPersistenceIdentityReferenceField::EncryptedKeyPath,
+            relative_path: relative_path.clone(),
+        });
+        copied_files.push(backup_dir.join(relative_path));
+    }
+
     if let Some(profile_path) = source.profile_path.as_ref() {
         let relative_path = PathBuf::from(MYC_PERSISTENCE_BACKUP_IDENTITIES_DIR_NAME)
             .join(role)
@@ -685,10 +699,13 @@ fn backup_identity_reference(
             backend: source.backend,
             copied_file_count: copied_files.len(),
             copied_files,
-            contains_secret_material: source.backend == MycIdentityBackend::Filesystem,
+            contains_secret_material: matches!(
+                source.backend,
+                MycIdentityBackend::EncryptedFile | MycIdentityBackend::PlaintextFile
+            ),
             requires_out_of_backup_dependencies: matches!(
                 source.backend,
-                MycIdentityBackend::OsKeyring
+                MycIdentityBackend::HostVault
                     | MycIdentityBackend::ManagedAccount
                     | MycIdentityBackend::ExternalCommand
             ),
@@ -706,9 +723,13 @@ fn restore_identity_reference(
     for file in &manifest.files {
         let source_path = backup_dir.join(&file.relative_path);
         let destination_path = match file.field {
-            MycPersistenceIdentityReferenceField::Path => current_source.path.as_ref(),
+            MycPersistenceIdentityReferenceField::Path => current_source.path.clone(),
+            MycPersistenceIdentityReferenceField::EncryptedKeyPath => current_source
+                .path
+                .as_ref()
+                .map(|path| encrypted_identity_wrapping_key_path(path)),
             MycPersistenceIdentityReferenceField::ProfilePath => {
-                current_source.profile_path.as_ref()
+                current_source.profile_path.clone()
             }
         }
         .ok_or_else(|| {
@@ -717,20 +738,23 @@ fn restore_identity_reference(
                 manifest.role,
                 match file.field {
                     MycPersistenceIdentityReferenceField::Path => "path",
+                    MycPersistenceIdentityReferenceField::EncryptedKeyPath => {
+                        "encrypted_key_path"
+                    }
                     MycPersistenceIdentityReferenceField::ProfilePath => "profile_path",
                 }
             ))
         })?;
 
         ensure_restore_destination_file_clear(
-            destination_path,
+            &destination_path,
             format!(
                 "{} identity {}",
                 manifest.role,
                 restore_field_label(file.field)
             ),
         )?;
-        copy_file_required(&source_path, destination_path)?;
+        copy_file_required(&source_path, &destination_path)?;
         restored_files.push(destination_path.clone());
     }
 
@@ -739,10 +763,13 @@ fn restore_identity_reference(
         backend: current_source.backend,
         restored_file_count: restored_files.len(),
         restored_files,
-        contains_secret_material: current_source.backend == MycIdentityBackend::Filesystem,
+        contains_secret_material: matches!(
+            current_source.backend,
+            MycIdentityBackend::EncryptedFile | MycIdentityBackend::PlaintextFile
+        ),
         requires_out_of_backup_dependencies: matches!(
             current_source.backend,
-            MycIdentityBackend::OsKeyring
+            MycIdentityBackend::HostVault
                 | MycIdentityBackend::ManagedAccount
                 | MycIdentityBackend::ExternalCommand
         ),
@@ -895,7 +922,8 @@ fn validate_manifest_relative_path(path: &Path, label: &str) -> Result<(), MycEr
 fn requires_identity_source_path_contract(backend: MycIdentityBackend) -> bool {
     matches!(
         backend,
-        MycIdentityBackend::Filesystem
+        MycIdentityBackend::EncryptedFile
+            | MycIdentityBackend::PlaintextFile
             | MycIdentityBackend::ManagedAccount
             | MycIdentityBackend::ExternalCommand
     )
@@ -904,7 +932,9 @@ fn requires_identity_source_path_contract(backend: MycIdentityBackend) -> bool {
 fn should_copy_identity_source_path(backend: MycIdentityBackend) -> bool {
     matches!(
         backend,
-        MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount
+        MycIdentityBackend::EncryptedFile
+            | MycIdentityBackend::PlaintextFile
+            | MycIdentityBackend::ManagedAccount
     )
 }
 
@@ -1102,6 +1132,7 @@ where
 fn restore_field_label(field: MycPersistenceIdentityReferenceField) -> &'static str {
     match field {
         MycPersistenceIdentityReferenceField::Path => "path",
+        MycPersistenceIdentityReferenceField::EncryptedKeyPath => "encrypted_key_path",
         MycPersistenceIdentityReferenceField::ProfilePath => "profile_path",
     }
 }
@@ -1422,10 +1453,8 @@ mod tests {
         "3333333333333333333333333333333333333333333333333333333333333333";
 
     fn write_identity(path: &Path, secret_key: &str) {
-        RadrootsIdentity::from_secret_key_str(secret_key)
-            .expect("identity")
-            .save_json(path)
-            .expect("save identity");
+        let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity");
+        crate::identity_storage::store_encrypted_identity(path, &identity).expect("save identity");
     }
 
     fn identity(secret_key: &str) -> RadrootsIdentity {

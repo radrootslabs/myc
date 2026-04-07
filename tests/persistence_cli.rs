@@ -11,10 +11,8 @@ use radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionDraft;
 use serde_json::Value;
 
 fn write_identity(path: &Path, secret_key: &str) {
-    RadrootsIdentity::from_secret_key_str(secret_key)
-        .expect("identity")
-        .save_json(path)
-        .expect("save identity");
+    let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity");
+    myc::identity_storage::store_encrypted_identity(path, &identity).expect("save identity");
 }
 
 fn copy_dir_recursive(source: &Path, destination: &Path) {
@@ -202,8 +200,8 @@ fn persistence_backup_cli_copies_sqlite_state_and_identity_files() {
     assert!(output.status.success(), "{:?}", output);
 
     let parsed: Value = serde_json::from_slice(&output.stdout).expect("backup json");
-    assert_eq!(parsed["signer_identity_reference"]["copied_file_count"], 1);
-    assert_eq!(parsed["user_identity_reference"]["copied_file_count"], 1);
+    assert_eq!(parsed["signer_identity_reference"]["copied_file_count"], 2);
+    assert_eq!(parsed["user_identity_reference"]["copied_file_count"], 2);
     assert_eq!(
         parsed["discovery_app_identity_reference"],
         Value::Null,
@@ -239,8 +237,22 @@ fn persistence_backup_cli_copies_sqlite_state_and_identity_files() {
     assert!(
         backup_dir
             .join("identity-references")
+            .join("signer")
+            .join("encrypted-key-path")
+            .is_file()
+    );
+    assert!(
+        backup_dir
+            .join("identity-references")
             .join("user")
             .join("path")
+            .is_file()
+    );
+    assert!(
+        backup_dir
+            .join("identity-references")
+            .join("user")
+            .join("encrypted-key-path")
             .is_file()
     );
 }
@@ -311,11 +323,11 @@ fn persistence_restore_cli_restores_backup_and_verify_restore_passes() {
     let restore_json: Value = serde_json::from_slice(&restore.stdout).expect("restore json");
     assert_eq!(
         restore_json["signer_identity_reference"]["restored_file_count"],
-        1
+        2
     );
     assert_eq!(
         restore_json["user_identity_reference"]["restored_file_count"],
-        1
+        2
     );
     assert!(
         restored_config
@@ -326,6 +338,18 @@ fn persistence_restore_cli_restores_backup_and_verify_restore_passes() {
     );
     assert!(restored_config.paths.signer_identity_path.is_file());
     assert!(restored_config.paths.user_identity_path.is_file());
+    assert!(
+        myc::identity_storage::encrypted_identity_wrapping_key_path(
+            &restored_config.paths.signer_identity_path
+        )
+        .is_file()
+    );
+    assert!(
+        myc::identity_storage::encrypted_identity_wrapping_key_path(
+            &restored_config.paths.user_identity_path
+        )
+        .is_file()
+    );
 
     let output = run_myc(&restored_env, &["persistence", "verify-restore"]);
 
@@ -454,6 +478,13 @@ fn persistence_verify_restore_cli_rejects_signer_identity_mismatch() {
     );
     std::fs::copy(&sqlite_config.paths.user_identity_path, &restored_user)
         .expect("copy user identity");
+    std::fs::copy(
+        myc::identity_storage::encrypted_identity_wrapping_key_path(
+            &sqlite_config.paths.user_identity_path,
+        ),
+        myc::identity_storage::encrypted_identity_wrapping_key_path(&restored_user),
+    )
+    .expect("copy user identity wrapping key");
 
     let mut restored_config = sqlite_config.clone();
     restored_config.paths.state_dir = restored_state_dir;

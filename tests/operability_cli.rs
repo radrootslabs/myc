@@ -10,10 +10,8 @@ use radroots_nostr::prelude::{RadrootsNostrEventBuilder, RadrootsNostrKind};
 use serde_json::Value;
 
 fn write_test_identity(path: &Path, secret_key: &str) {
-    RadrootsIdentity::from_secret_key_str(secret_key)
-        .expect("identity from secret")
-        .save_json(path)
-        .expect("write identity");
+    let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity from secret");
+    myc::identity_storage::store_encrypted_identity(path, &identity).expect("write identity");
 }
 
 fn write_env_file(temp: &tempfile::TempDir) -> std::path::PathBuf {
@@ -80,7 +78,7 @@ fn status_summary_command_emits_machine_readable_json() {
     let value: Value = serde_json::from_slice(&output.stdout).expect("status json");
     assert_eq!(value["status"], "unready");
     assert_eq!(value["ready"], false);
-    assert_eq!(value["custody"]["signer"]["backend"], "filesystem");
+    assert_eq!(value["custody"]["signer"]["backend"], "encrypted_file");
     assert_eq!(value["custody"]["signer"]["resolved"], true);
     assert_eq!(value["persistence"]["signer_state"]["backend"], "json_file");
     assert_eq!(

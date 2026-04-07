@@ -1347,8 +1347,10 @@ name = "myc"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "chacha20poly1305",
  "clap",
  "futures-util",
+ "getrandom 0.2.17",
  "nostr",
  "radroots-identity",
  "radroots-log",
@@ -1356,6 +1358,8 @@ dependencies = [
  "radroots-nostr-accounts",
  "radroots-nostr-connect",
  "radroots-nostr-signer",
+ "radroots-protected-store",
+ "radroots-secret-vault",
  "radroots-sql-core",
  "serde",
  "serde_json",
@@ -1367,6 +1371,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -1799,10 +1804,10 @@ dependencies = [
 name = "radroots-nostr-accounts"
 version = "0.1.0-alpha.1"
 dependencies = [
- "keyring",
  "radroots-identity",
  "radroots-nostr-signer",
  "radroots-runtime",
+ "radroots-secret-vault",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -1839,6 +1844,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "radroots-protected-store"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "chacha20poly1305",
+ "getrandom 0.2.17",
+ "radroots-secret-vault",
+ "serde",
+ "serde_json",
+ "zeroize",
+]
+
+[[package]]
 name = "radroots-runtime"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -1852,6 +1869,13 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
+]
+
+[[package]]
+name = "radroots-secret-vault"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "keyring",
 ]
 
 [[package]]

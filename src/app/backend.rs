@@ -359,10 +359,8 @@ mod tests {
     use crate::config::MycConfig;
 
     fn write_identity(path: &std::path::Path, secret_key: &str) {
-        RadrootsIdentity::from_secret_key_str(secret_key)
-            .expect("identity")
-            .save_json(path)
-            .expect("save identity");
+        let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity");
+        crate::identity_storage::store_encrypted_identity(path, &identity).expect("save identity");
     }
 
     fn test_runtime() -> MycRuntime {

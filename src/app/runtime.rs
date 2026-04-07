@@ -100,8 +100,10 @@ pub struct MycRuntime {
 
 fn startup_identity_path(source: &MycIdentitySourceSpec) -> Option<PathBuf> {
     match source.backend {
-        MycIdentityBackend::Filesystem | MycIdentityBackend::ManagedAccount => source.path.clone(),
-        MycIdentityBackend::OsKeyring | MycIdentityBackend::ExternalCommand => None,
+        MycIdentityBackend::EncryptedFile
+        | MycIdentityBackend::PlaintextFile
+        | MycIdentityBackend::ManagedAccount => source.path.clone(),
+        MycIdentityBackend::HostVault | MycIdentityBackend::ExternalCommand => None,
     }
 }
 
@@ -1109,10 +1111,16 @@ impl MycSignerContext {
         signer_identity_source: MycIdentitySourceSpec,
         user_identity_source: MycIdentitySourceSpec,
     ) -> Result<Self, MycError> {
-        let signer_identity_provider =
-            MycIdentityProvider::from_source("signer", signer_identity_source, external_command_timeout)?;
-        let user_identity_provider =
-            MycIdentityProvider::from_source("user", user_identity_source, external_command_timeout)?;
+        let signer_identity_provider = MycIdentityProvider::from_source(
+            "signer",
+            signer_identity_source,
+            external_command_timeout,
+        )?;
+        let user_identity_provider = MycIdentityProvider::from_source(
+            "user",
+            user_identity_source,
+            external_command_timeout,
+        )?;
         let signer_identity = signer_identity_provider.load_active_identity()?;
         let user_identity = user_identity_provider.load_active_identity()?;
         let signer_store = Self::build_signer_store(persistence, &paths.signer_state_path)?;
@@ -1265,10 +1273,9 @@ mod tests {
     use crate::outbox::{MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycDeliveryOutboxStatus};
 
     fn write_test_identity(path: &std::path::Path, secret_key: &str) {
-        RadrootsIdentity::from_secret_key_str(secret_key)
-            .expect("identity from secret")
-            .save_json(path)
-            .expect("write identity");
+        let identity =
+            RadrootsIdentity::from_secret_key_str(secret_key).expect("identity from secret");
+        crate::identity_storage::store_encrypted_identity(path, &identity).expect("write identity");
     }
 
     fn write_external_command_helper(path: &std::path::Path, secret_key: &str) -> RadrootsIdentity {
@@ -1711,7 +1718,7 @@ mod tests {
     #[test]
     fn startup_identity_path_reporting_matches_backend_sources() {
         let mut config = MycConfig::default();
-        config.paths.signer_identity_backend = MycIdentityBackend::OsKeyring;
+        config.paths.signer_identity_backend = MycIdentityBackend::HostVault;
         config.paths.signer_identity_keyring_account_id =
             Some("1111111111111111111111111111111111111111111111111111111111111111".to_owned());
         config.paths.signer_identity_profile_path = Some(PathBuf::from("/tmp/signer-profile.json"));

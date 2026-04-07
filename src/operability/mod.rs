@@ -1605,10 +1605,9 @@ mod tests {
     use crate::config::{MycConfig, MycRuntimeAuditBackend};
 
     fn write_test_identity(path: &Path, secret_key: &str) {
-        RadrootsIdentity::from_secret_key_str(secret_key)
-            .expect("identity from secret")
-            .save_json(path)
-            .expect("write identity");
+        let identity =
+            RadrootsIdentity::from_secret_key_str(secret_key).expect("identity from secret");
+        crate::identity_storage::store_encrypted_identity(path, &identity).expect("write identity");
     }
 
     #[test]

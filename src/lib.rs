@@ -9,6 +9,7 @@ pub mod control;
 pub mod custody;
 pub mod discovery;
 pub mod error;
+pub mod identity_storage;
 pub mod logging;
 pub mod operability;
 pub mod outbox;

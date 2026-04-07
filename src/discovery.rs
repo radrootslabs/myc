@@ -2120,10 +2120,8 @@ mod tests {
     use crate::app::MycRuntime;
 
     fn write_identity(path: &Path, secret_key: &str) {
-        RadrootsIdentity::from_secret_key_str(secret_key)
-            .expect("identity")
-            .save_json(path)
-            .expect("save identity");
+        let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity");
+        crate::identity_storage::store_encrypted_identity(path, &identity).expect("save identity");
     }
 
     fn runtime() -> MycRuntime {
