@@ -9,6 +9,7 @@ use radroots_nostr_signer::prelude::{
     RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerRequestAuditRecord,
 };
 use serde::Serialize;
+use zeroize::Zeroizing;
 
 use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
@@ -110,6 +111,10 @@ pub enum MycPersistenceCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum MycCustodyCommand {
+    Status {
+        #[arg(long, value_enum)]
+        role: MycCustodyRole,
+    },
     List {
         #[arg(long, value_enum)]
         role: MycCustodyRole,
@@ -131,6 +136,28 @@ pub enum MycCustodyCommand {
         label: Option<String>,
         #[arg(long)]
         select: bool,
+    },
+    ExportNip49 {
+        #[arg(long, value_enum)]
+        role: MycCustodyRole,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        password_env: String,
+    },
+    ImportNip49 {
+        #[arg(long, value_enum)]
+        role: MycCustodyRole,
+        #[arg(long)]
+        path: PathBuf,
+        #[arg(long)]
+        password_env: String,
+        #[arg(long)]
+        label: Option<String>,
+    },
+    Rotate {
+        #[arg(long, value_enum)]
+        role: MycCustodyRole,
     },
     Select {
         #[arg(long, value_enum)]
@@ -407,6 +434,7 @@ pub async fn run_from_env() -> Result<(), MycError> {
         MycCommand::Custody { command } => {
             let provider = custody_provider_for_command(&config, &command)?;
             match command {
+                MycCustodyCommand::Status { .. } => print_json(&provider.status_output()),
                 MycCustodyCommand::List { .. } => print_json(&provider.list_managed_accounts()?),
                 MycCustodyCommand::Generate { label, select, .. } => {
                     let output = provider.generate_managed_account(label, select)?;
@@ -419,6 +447,27 @@ pub async fn run_from_env() -> Result<(), MycError> {
                     ..
                 } => {
                     let output = provider.import_managed_account_file(path, label, select)?;
+                    print_json(&output)
+                }
+                MycCustodyCommand::ExportNip49 {
+                    out, password_env, ..
+                } => {
+                    let password = read_secret_env(password_env.as_str(), "custody export-nip49")?;
+                    let output = provider.export_nip49(out, password.as_str())?;
+                    print_json(&output)
+                }
+                MycCustodyCommand::ImportNip49 {
+                    path,
+                    password_env,
+                    label,
+                    ..
+                } => {
+                    let password = read_secret_env(password_env.as_str(), "custody import-nip49")?;
+                    let output = provider.import_nip49(path, password.as_str(), label)?;
+                    print_json(&output)
+                }
+                MycCustodyCommand::Rotate { .. } => {
+                    let output = provider.rotate_secret_storage()?;
                     print_json(&output)
                 }
                 MycCustodyCommand::Select { account_id, .. } => {
@@ -606,9 +655,13 @@ fn custody_provider_for_command(
     command: &MycCustodyCommand,
 ) -> Result<crate::custody::MycIdentityProvider, MycError> {
     let role = match command {
-        MycCustodyCommand::List { role }
+        MycCustodyCommand::Status { role }
+        | MycCustodyCommand::List { role }
         | MycCustodyCommand::Generate { role, .. }
         | MycCustodyCommand::ImportFile { role, .. }
+        | MycCustodyCommand::ExportNip49 { role, .. }
+        | MycCustodyCommand::ImportNip49 { role, .. }
+        | MycCustodyCommand::Rotate { role }
         | MycCustodyCommand::Select { role, .. }
         | MycCustodyCommand::Remove { role, .. } => *role,
     };
@@ -970,6 +1023,20 @@ fn print_text(value: &str) {
     println!("{value}");
 }
 
+fn read_secret_env(name: &str, operation: &str) -> Result<Zeroizing<String>, MycError> {
+    let value = std::env::var(name).map_err(|_| {
+        MycError::InvalidOperation(format!(
+            "{operation} requires environment variable `{name}` to be set"
+        ))
+    })?;
+    if value.is_empty() {
+        return Err(MycError::InvalidOperation(format!(
+            "{operation} requires environment variable `{name}` to be non-empty"
+        )));
+    }
+    Ok(Zeroizing::new(value))
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -1310,6 +1377,17 @@ mod tests {
 
     #[test]
     fn parses_custody_list_command() {
+        let status = MycCli::try_parse_from(["myc", "custody", "status", "--role", "signer"])
+            .expect("parse custody status");
+        assert!(matches!(
+            status.command,
+            Some(MycCommand::Custody {
+                command: MycCustodyCommand::Status {
+                    role: MycCustodyRole::Signer
+                }
+            })
+        ));
+
         let cli = MycCli::try_parse_from(["myc", "custody", "list", "--role", "signer"])
             .expect("parse custody list");
 
@@ -1357,6 +1435,64 @@ mod tests {
                     role: MycCustodyRole::DiscoveryApp,
                     select: false,
                     ..
+                }
+            })
+        ));
+
+        let export_nip49 = MycCli::try_parse_from([
+            "myc",
+            "custody",
+            "export-nip49",
+            "--role",
+            "signer",
+            "--out",
+            "/tmp/signer.ncryptsec",
+            "--password-env",
+            "MYC_TEST_PASSWORD",
+        ])
+        .expect("parse custody export-nip49");
+        assert!(matches!(
+            export_nip49.command,
+            Some(MycCommand::Custody {
+                command: MycCustodyCommand::ExportNip49 {
+                    role: MycCustodyRole::Signer,
+                    ..
+                }
+            })
+        ));
+
+        let import_nip49 = MycCli::try_parse_from([
+            "myc",
+            "custody",
+            "import-nip49",
+            "--role",
+            "user",
+            "--path",
+            "/tmp/user.ncryptsec",
+            "--password-env",
+            "MYC_TEST_PASSWORD",
+            "--label",
+            "migrated",
+        ])
+        .expect("parse custody import-nip49");
+        assert!(matches!(
+            import_nip49.command,
+            Some(MycCommand::Custody {
+                command: MycCustodyCommand::ImportNip49 {
+                    role: MycCustodyRole::User,
+                    ..
+                }
+            })
+        ));
+
+        let rotate =
+            MycCli::try_parse_from(["myc", "custody", "rotate", "--role", "discovery-app"])
+                .expect("parse custody rotate");
+        assert!(matches!(
+            rotate.command,
+            Some(MycCommand::Custody {
+                command: MycCustodyCommand::Rotate {
+                    role: MycCustodyRole::DiscoveryApp
                 }
             })
         ));

@@ -35,8 +35,9 @@ pub use config::{
 };
 pub use control::{MycAcceptedConnectionOutput, MycAuthorizedReplayOutput};
 pub use custody::{
-    MycActiveIdentity, MycIdentityProvider, MycIdentityStatusOutput,
-    MycManagedAccountMutationOutput, MycManagedAccountSelectionState, MycManagedAccountsOutput,
+    MycActiveIdentity, MycCustodyExportOutput, MycCustodyImportOutput, MycCustodyRotateOutput,
+    MycIdentityProvider, MycIdentityStatusOutput, MycManagedAccountMutationOutput,
+    MycManagedAccountSelectionState, MycManagedAccountsOutput,
 };
 pub use discovery::{
     MycDiscoveryBundleManifest, MycDiscoveryBundleOutput, MycDiscoveryContext,

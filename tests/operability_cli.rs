@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::Path;
 use std::process::Command;
 
@@ -155,4 +156,109 @@ fn metrics_command_emits_json_and_prometheus_formats() {
     assert!(rendered.contains("myc_delivery_recovery_success_total 1"));
     assert!(rendered.contains("myc_delivery_outbox_total 1"));
     assert!(rendered.contains("myc_signer_request_total 0"));
+}
+
+#[test]
+fn custody_status_command_reports_role_backend_details() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let env_path = write_env_file(&temp);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_myc"))
+        .arg("--env-file")
+        .arg(&env_path)
+        .arg("custody")
+        .arg("status")
+        .arg("--role")
+        .arg("signer")
+        .output()
+        .expect("run myc custody status");
+
+    assert!(output.status.success());
+    let value: Value = serde_json::from_slice(&output.stdout).expect("custody status json");
+    assert_eq!(value["backend"], "encrypted_file");
+    assert_eq!(value["resolved"], true);
+    assert_eq!(
+        value["identity_id"],
+        "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"
+    );
+}
+
+#[test]
+fn custody_export_import_and_rotate_nip49_for_encrypted_file_backend() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let env_path = write_env_file(&temp);
+    let signer_path = temp.path().join("signer.json");
+    let export_path = temp.path().join("signer.ncryptsec");
+    let key_path = myc::identity_storage::encrypted_identity_wrapping_key_path(&signer_path);
+
+    let export_output = Command::new(env!("CARGO_BIN_EXE_myc"))
+        .env("MYC_TEST_PASSWORD", "correct horse battery staple")
+        .arg("--env-file")
+        .arg(&env_path)
+        .arg("custody")
+        .arg("export-nip49")
+        .arg("--role")
+        .arg("signer")
+        .arg("--out")
+        .arg(&export_path)
+        .arg("--password-env")
+        .arg("MYC_TEST_PASSWORD")
+        .output()
+        .expect("run myc custody export-nip49");
+
+    assert!(export_output.status.success());
+    let export_value: Value =
+        serde_json::from_slice(&export_output.stdout).expect("export-nip49 json");
+    assert_eq!(export_value["format"], "nip49");
+    assert_eq!(export_value["out"], export_path.display().to_string());
+    let exported = fs::read_to_string(&export_path).expect("read exported ncryptsec");
+    assert!(exported.starts_with("ncryptsec1"));
+
+    fs::remove_file(&signer_path).expect("remove signer identity");
+    fs::remove_file(&key_path).expect("remove signer wrapping key");
+
+    let import_output = Command::new(env!("CARGO_BIN_EXE_myc"))
+        .env("MYC_TEST_PASSWORD", "correct horse battery staple")
+        .arg("--env-file")
+        .arg(&env_path)
+        .arg("custody")
+        .arg("import-nip49")
+        .arg("--role")
+        .arg("signer")
+        .arg("--path")
+        .arg(&export_path)
+        .arg("--password-env")
+        .arg("MYC_TEST_PASSWORD")
+        .output()
+        .expect("run myc custody import-nip49");
+
+    assert!(import_output.status.success());
+    let import_value: Value =
+        serde_json::from_slice(&import_output.stdout).expect("import-nip49 json");
+    assert_eq!(import_value["format"], "nip49");
+    assert_eq!(import_value["status"]["resolved"], true);
+    let restored = myc::identity_storage::load_encrypted_identity(&signer_path)
+        .expect("load restored encrypted identity");
+    assert_eq!(
+        restored.id().to_string(),
+        "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"
+    );
+
+    let key_before_rotation = fs::read(&key_path).expect("read key before rotation");
+    let rotate_output = Command::new(env!("CARGO_BIN_EXE_myc"))
+        .arg("--env-file")
+        .arg(&env_path)
+        .arg("custody")
+        .arg("rotate")
+        .arg("--role")
+        .arg("signer")
+        .output()
+        .expect("run myc custody rotate");
+
+    assert!(rotate_output.status.success());
+    let rotate_value: Value = serde_json::from_slice(&rotate_output.stdout).expect("rotate json");
+    assert_eq!(rotate_value["action"], "rotate");
+    assert_eq!(rotate_value["status"]["resolved"], true);
+    let key_after_rotation = fs::read(&key_path).expect("read key after rotation");
+    assert_ne!(key_before_rotation, key_after_rotation);
 }

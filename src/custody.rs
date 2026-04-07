@@ -16,10 +16,14 @@ use radroots_nostr_accounts::prelude::{
 };
 use radroots_secret_vault::{RadrootsSecretVault, RadrootsSecretVaultOsKeyring};
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
 use crate::config::{MycIdentityBackend, MycIdentitySourceSpec};
 use crate::error::MycError;
-use crate::identity_storage::load_encrypted_identity;
+use crate::identity_storage::{
+    load_encrypted_identity, load_identity_profile, rotate_encrypted_identity,
+    store_encrypted_identity, store_identity_profile, store_plaintext_identity, store_secret_text,
+};
 
 #[derive(Clone)]
 pub struct MycActiveIdentity {
@@ -84,6 +88,35 @@ pub struct MycManagedAccountMutationOutput {
     pub account_id: Option<String>,
     pub state: MycManagedAccountsOutput,
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MycCustodyExportOutput {
+    pub role: String,
+    pub backend: MycIdentityBackend,
+    pub format: String,
+    pub out: PathBuf,
+    pub identity_id: String,
+    pub public_key_hex: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MycCustodyImportOutput {
+    pub role: String,
+    pub backend: MycIdentityBackend,
+    pub format: String,
+    pub account_id: String,
+    pub status: MycIdentityStatusOutput,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MycCustodyRotateOutput {
+    pub role: String,
+    pub backend: MycIdentityBackend,
+    pub action: String,
+    pub status: MycIdentityStatusOutput,
+}
+
+const MYC_CUSTODY_FORMAT_NIP49: &str = "nip49";
 
 #[derive(Clone)]
 pub struct MycIdentityProvider {
@@ -666,16 +699,16 @@ impl MycIdentityProvider {
                     });
                 }
                 if let Some(profile_path) = profile_path {
-                    let profile_identity = RadrootsIdentity::load_from_path_auto(profile_path)?;
-                    if profile_identity.id() != *account_id {
+                    let profile_identity = load_identity_profile(profile_path)?;
+                    if profile_identity.id != *account_id {
                         return Err(MycError::CustodyProfileIdentityMismatch {
                             role: self.role.clone(),
                             path: profile_path.clone(),
                             account_id: account_id.to_string(),
-                            profile_identity_id: profile_identity.id().to_string(),
+                            profile_identity_id: profile_identity.id.to_string(),
                         });
                     }
-                    if let Some(profile) = profile_identity.profile().cloned() {
+                    if let Some(profile) = profile_identity.profile {
                         identity.set_profile(profile);
                     }
                 }
@@ -778,6 +811,108 @@ impl MycIdentityProvider {
         &self.source
     }
 
+    pub fn status_output(&self) -> MycIdentityStatusOutput {
+        self.probe_status()
+    }
+
+    pub fn export_nip49(
+        &self,
+        out: impl AsRef<std::path::Path>,
+        password: &str,
+    ) -> Result<MycCustodyExportOutput, MycError> {
+        self.ensure_secret_materialized_operation("export NIP-49 secrets")?;
+        let out = out.as_ref();
+        let identity = self.load_identity()?;
+        let payload = identity.encrypt_secret_key_ncryptsec(password)?;
+        store_secret_text(out, payload.as_str())?;
+        Ok(MycCustodyExportOutput {
+            role: self.role.clone(),
+            backend: self.source.backend,
+            format: MYC_CUSTODY_FORMAT_NIP49.to_owned(),
+            out: out.to_path_buf(),
+            identity_id: identity.id().to_string(),
+            public_key_hex: identity.public_key_hex(),
+        })
+    }
+
+    pub fn import_nip49(
+        &self,
+        path: impl AsRef<std::path::Path>,
+        password: &str,
+        label: Option<String>,
+    ) -> Result<MycCustodyImportOutput, MycError> {
+        self.ensure_secret_materialized_operation("import NIP-49 secrets")?;
+        let identity = load_identity_from_nip49_file(path.as_ref(), password)?;
+        let account_id = identity.id().to_string();
+        match &self.backend {
+            MycIdentityProviderBackend::ManagedAccount { manager, .. } => {
+                manager
+                    .upsert_identity(&identity, label, true)
+                    .map_err(|source| MycError::CustodyManager {
+                        role: self.role.clone(),
+                        source,
+                    })?;
+            }
+            _ => {
+                if let Some(label) = label {
+                    return Err(MycError::InvalidOperation(format!(
+                        "{} identity backend `{}` does not support --label for `import-nip49` (got `{label}`)",
+                        self.role,
+                        self.source.backend.as_str(),
+                    )));
+                }
+                self.store_identity(&identity)?;
+            }
+        }
+        Ok(MycCustodyImportOutput {
+            role: self.role.clone(),
+            backend: self.source.backend,
+            format: MYC_CUSTODY_FORMAT_NIP49.to_owned(),
+            account_id,
+            status: self.probe_status(),
+        })
+    }
+
+    pub fn rotate_secret_storage(&self) -> Result<MycCustodyRotateOutput, MycError> {
+        match &self.backend {
+            MycIdentityProviderBackend::EncryptedFile { path } => {
+                rotate_encrypted_identity(path)?;
+            }
+            MycIdentityProviderBackend::PlaintextFile { .. } => {
+                return Err(MycError::InvalidOperation(format!(
+                    "{} identity backend `plaintext_file` does not support `custody rotate`; migrate to `encrypted_file`, `host_vault`, or `managed_account` first",
+                    self.role
+                )));
+            }
+            MycIdentityProviderBackend::HostVault { .. } => {
+                return Err(MycError::InvalidOperation(format!(
+                    "{} identity backend `host_vault` does not define an in-process `custody rotate` action; rotate or re-provision the secret through the host vault itself",
+                    self.role
+                )));
+            }
+            MycIdentityProviderBackend::ManagedAccount { .. } => {
+                return Err(MycError::InvalidOperation(format!(
+                    "{} identity backend `managed_account` does not define an in-process `custody rotate` action; rotate the selected account through the configured host vault policy",
+                    self.role
+                )));
+            }
+            MycIdentityProviderBackend::ExternalCommand { command_path, .. } => {
+                return Err(MycError::InvalidOperation(format!(
+                    "{} identity backend `external_command` at {} does not materialize secret-bearing identities in-process and cannot rotate local storage",
+                    self.role,
+                    command_path.display(),
+                )));
+            }
+        }
+
+        Ok(MycCustodyRotateOutput {
+            role: self.role.clone(),
+            backend: self.source.backend,
+            action: "rotate".to_owned(),
+            status: self.probe_status(),
+        })
+    }
+
     pub fn list_managed_accounts(&self) -> Result<MycManagedAccountsOutput, MycError> {
         self.managed_accounts_output()
     }
@@ -873,6 +1008,68 @@ impl MycIdentityProvider {
             account_id: Some(account_id.to_string()),
             state: self.managed_accounts_output()?,
         })
+    }
+
+    fn store_identity(&self, identity: &RadrootsIdentity) -> Result<(), MycError> {
+        match &self.backend {
+            MycIdentityProviderBackend::EncryptedFile { path } => {
+                store_encrypted_identity(path, identity)
+            }
+            MycIdentityProviderBackend::PlaintextFile { path } => {
+                store_plaintext_identity(path, identity)
+            }
+            MycIdentityProviderBackend::HostVault {
+                account_id,
+                service_name,
+                profile_path,
+                vault,
+            } => {
+                let identity_id = identity.id();
+                if identity_id != *account_id {
+                    return Err(MycError::CustodySecretIdentityMismatch {
+                        role: self.role.clone(),
+                        service_name: service_name.clone(),
+                        account_id: account_id.to_string(),
+                        resolved_identity_id: identity_id.to_string(),
+                    });
+                }
+                let secret_key_hex = Zeroizing::new(identity.secret_key_hex());
+                vault
+                    .store_secret(account_id.as_str(), secret_key_hex.as_str())
+                    .map_err(|source| MycError::CustodyVault {
+                        role: self.role.clone(),
+                        source: source.into(),
+                    })?;
+                if let Some(profile_path) = profile_path {
+                    store_identity_profile(profile_path, identity)?;
+                }
+                Ok(())
+            }
+            MycIdentityProviderBackend::ManagedAccount { .. } => {
+                Err(MycError::InvalidOperation(format!(
+                    "{} identity backend `managed_account` requires account-store lifecycle helpers instead of direct identity writes",
+                    self.role
+                )))
+            }
+            MycIdentityProviderBackend::ExternalCommand { command_path, .. } => {
+                Err(MycError::InvalidOperation(format!(
+                    "{} identity backend `external_command` at {} does not support direct secret writes",
+                    self.role,
+                    command_path.display(),
+                )))
+            }
+        }
+    }
+
+    fn ensure_secret_materialized_operation(&self, operation: &str) -> Result<(), MycError> {
+        if let MycIdentityProviderBackend::ExternalCommand { command_path, .. } = &self.backend {
+            return Err(MycError::InvalidOperation(format!(
+                "{} identity backend `external_command` at {} does not support `{operation}` because secret material never enters the myc process",
+                self.role,
+                command_path.display(),
+            )));
+        }
+        Ok(())
     }
 
     fn load_identity_public(&self) -> Result<RadrootsIdentityPublic, MycError> {
@@ -1344,6 +1541,24 @@ impl MycActiveIdentity {
     }
 }
 
+fn load_identity_from_nip49_file(
+    path: &std::path::Path,
+    password: &str,
+) -> Result<RadrootsIdentity, MycError> {
+    let encoded = fs::read_to_string(path).map_err(|source| MycError::PersistenceIo {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let payload = encoded.trim();
+    if payload.is_empty() {
+        return Err(MycError::InvalidOperation(format!(
+            "NIP-49 payload at {} was empty",
+            path.display()
+        )));
+    }
+    RadrootsIdentity::from_encrypted_secret_key_str(payload, password).map_err(MycError::from)
+}
+
 fn validate_external_command_public_identity(
     role: &str,
     command_path: &PathBuf,
@@ -1662,7 +1877,8 @@ mod tests {
             "1111111111111111111111111111111111111111111111111111111111111111",
         )
         .expect("identity");
-        identity.save_json(&profile_path).expect("save profile");
+        crate::identity_storage::store_identity_profile(&profile_path, &identity)
+            .expect("save profile");
 
         let account_id = identity.id();
         let vault = Arc::new(RadrootsNostrSecretVaultMemory::new());
@@ -1739,6 +1955,43 @@ mod tests {
         assert_eq!(
             status.selected_account_state,
             Some(MycManagedAccountSelectionState::Ready)
+        );
+    }
+
+    #[test]
+    fn managed_account_provider_supports_nip49_export_and_import() {
+        let (provider, _vault) = managed_account_provider("signer", "org.radroots.test.signer");
+        let generated = provider
+            .generate_managed_account(Some("primary".to_owned()), true)
+            .expect("generate");
+        let selected_account_id = generated
+            .state
+            .selected_account_id
+            .clone()
+            .expect("selected account id");
+        let temp = tempfile::tempdir().expect("tempdir");
+        let export_path = temp.path().join("managed-account.ncryptsec");
+
+        let export = provider
+            .export_nip49(&export_path, "test password")
+            .expect("export nip49");
+        assert_eq!(export.format, "nip49");
+        assert_eq!(export.identity_id, selected_account_id);
+
+        provider
+            .remove_managed_account(selected_account_id.as_str())
+            .expect("remove account");
+        let removed_status = provider.probe_status();
+        assert!(!removed_status.resolved);
+
+        let imported = provider
+            .import_nip49(&export_path, "test password", Some("restored".to_owned()))
+            .expect("import nip49");
+        assert_eq!(imported.account_id, export.identity_id);
+        assert!(imported.status.resolved);
+        assert_eq!(
+            imported.status.selected_account_label.as_deref(),
+            Some("restored")
         );
     }
 
