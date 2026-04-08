@@ -7,12 +7,25 @@ use nostr::PublicKey;
 use radroots_nostr::prelude::RadrootsNostrRelayUrl;
 use radroots_nostr_connect::prelude::RadrootsNostrConnectPermissions;
 use radroots_nostr_signer::prelude::RadrootsNostrSignerApprovalRequirement;
+use radroots_runtime_paths::{
+    RadrootsPathOverrides, RadrootsPathProfile, RadrootsPathResolver, RadrootsRuntimeNamespace,
+};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
 use crate::error::MycError;
 
-pub const DEFAULT_ENV_PATH: &str = ".env";
+pub const DEFAULT_ENV_PATH: &str = "config.env";
+const DEFAULT_STATE_DIR_NAME: &str = "state";
+const DEFAULT_CUSTODY_DIR_NAME: &str = "custody";
+const DEFAULT_SIGNER_IDENTITY_FILE_NAME: &str = "signer-identity.json";
+const DEFAULT_USER_IDENTITY_FILE_NAME: &str = "user-identity.json";
+const DEFAULT_DISCOVERY_APP_IDENTITY_FILE_NAME: &str = "discovery-app-identity.json";
+const DEFAULT_SIGNER_MANAGED_ACCOUNT_FILE_NAME: &str = "signer-accounts.json";
+const DEFAULT_USER_MANAGED_ACCOUNT_FILE_NAME: &str = "user-accounts.json";
+const DEFAULT_DISCOVERY_MANAGED_ACCOUNT_FILE_NAME: &str = "discovery-accounts.json";
+const DEFAULT_DISCOVERY_PUBLIC_DIR_NAME: &str = "public";
+const DEFAULT_DISCOVERY_NIP05_RELATIVE_PATH: &str = ".well-known/nostr.json";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -52,6 +65,10 @@ pub struct MycCustodyConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct MycPathsConfig {
+    pub profile: MycPathProfile,
+    pub repo_local_root: Option<PathBuf>,
+    pub config_env_path: PathBuf,
+    pub run_dir: PathBuf,
     pub state_dir: PathBuf,
     pub signer_identity_backend: MycIdentityBackend,
     pub signer_identity_path: PathBuf,
@@ -148,6 +165,14 @@ pub enum MycIdentityBackend {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum MycPathProfile {
+    InteractiveUser,
+    ServiceHost,
+    RepoLocal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MycSignerStateBackend {
     JsonFile,
     Sqlite,
@@ -158,6 +183,31 @@ pub enum MycSignerStateBackend {
 pub enum MycRuntimeAuditBackend {
     JsonlFile,
     Sqlite,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MycResolvedRuntimePaths {
+    config_env_path: PathBuf,
+    logs_dir: PathBuf,
+    run_dir: PathBuf,
+    state_dir: PathBuf,
+    signer_identity_path: PathBuf,
+    user_identity_path: PathBuf,
+    signer_managed_account_path: PathBuf,
+    user_managed_account_path: PathBuf,
+    discovery_app_identity_path: PathBuf,
+    discovery_managed_account_path: PathBuf,
+    discovery_nip05_output_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct MycPathOverrideFlags {
+    logging_output_dir: bool,
+    state_dir: bool,
+    signer_identity_path: bool,
+    user_identity_path: bool,
+    discovery_app_identity_path: bool,
+    discovery_nip05_output_path: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -201,18 +251,12 @@ pub struct MycPolicyConfig {
 
 impl Default for MycConfig {
     fn default() -> Self {
-        Self {
-            service: MycServiceConfig::default(),
-            logging: MycLoggingConfig::default(),
-            custody: MycCustodyConfig::default(),
-            paths: MycPathsConfig::default(),
-            persistence: MycPersistenceConfig::default(),
-            audit: MycAuditConfig::default(),
-            observability: MycObservabilityConfig::default(),
-            discovery: MycDiscoveryConfig::default(),
-            policy: MycPolicyConfig::default(),
-            transport: MycTransportConfig::default(),
-        }
+        Self::default_with_path_selection(
+            &RadrootsPathResolver::current(),
+            MycPathProfile::InteractiveUser,
+            None,
+        )
+        .expect("current process should resolve myc runtime paths")
     }
 }
 
@@ -244,21 +288,12 @@ impl Default for MycCustodyConfig {
 
 impl Default for MycPathsConfig {
     fn default() -> Self {
-        let state_dir = PathBuf::from("var");
-        let identities_dir = state_dir.join("identities");
-        Self {
-            state_dir: state_dir.clone(),
-            signer_identity_backend: MycIdentityBackend::EncryptedFile,
-            signer_identity_path: identities_dir.join("signer.identity.secret.json"),
-            signer_identity_keyring_account_id: None,
-            signer_identity_keyring_service_name: "org.radroots.myc.signer".to_owned(),
-            signer_identity_profile_path: None,
-            user_identity_backend: MycIdentityBackend::EncryptedFile,
-            user_identity_path: identities_dir.join("user.identity.secret.json"),
-            user_identity_keyring_account_id: None,
-            user_identity_keyring_service_name: "org.radroots.myc.user".to_owned(),
-            user_identity_profile_path: None,
-        }
+        Self::default_with_path_selection(
+            &RadrootsPathResolver::current(),
+            MycPathProfile::InteractiveUser,
+            None,
+        )
+        .expect("current process should resolve myc runtime paths")
     }
 }
 
@@ -365,6 +400,12 @@ impl Default for MycIdentityBackend {
     }
 }
 
+impl Default for MycPathProfile {
+    fn default() -> Self {
+        Self::InteractiveUser
+    }
+}
+
 impl MycConnectionApproval {
     pub fn into_signer_approval_requirement(self) -> RadrootsNostrSignerApprovalRequirement {
         match self {
@@ -414,7 +455,101 @@ impl MycRuntimeAuditBackend {
     }
 }
 
+impl MycPathProfile {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::InteractiveUser => "interactive_user",
+            Self::ServiceHost => "service_host",
+            Self::RepoLocal => "repo_local",
+        }
+    }
+
+    fn into_radroots_profile(self) -> RadrootsPathProfile {
+        match self {
+            Self::InteractiveUser => RadrootsPathProfile::InteractiveUser,
+            Self::ServiceHost => RadrootsPathProfile::ServiceHost,
+            Self::RepoLocal => RadrootsPathProfile::RepoLocal,
+        }
+    }
+}
+
+impl MycResolvedRuntimePaths {
+    fn resolve(
+        resolver: &RadrootsPathResolver,
+        profile: MycPathProfile,
+        repo_local_root: Option<&Path>,
+    ) -> Result<Self, MycError> {
+        let overrides = match profile {
+            MycPathProfile::InteractiveUser | MycPathProfile::ServiceHost => {
+                RadrootsPathOverrides::default()
+            }
+            MycPathProfile::RepoLocal => {
+                let repo_local_root = repo_local_root.ok_or_else(|| {
+                    MycError::InvalidConfig(
+                        "paths.repo_local_root must be set when paths.profile is `repo_local`"
+                            .to_owned(),
+                    )
+                })?;
+                RadrootsPathOverrides::repo_local(repo_local_root)
+            }
+        };
+        let namespace = RadrootsRuntimeNamespace::service("myc")
+            .map_err(|error| MycError::InvalidConfig(format!("resolve myc namespace: {error}")))?;
+        let namespaced = resolver
+            .resolve(profile.into_radroots_profile(), &overrides)
+            .map_err(|error| {
+                MycError::InvalidConfig(format!("resolve myc runtime paths: {error}"))
+            })?
+            .namespaced(&namespace);
+        let custody_dir = namespaced.data.join(DEFAULT_CUSTODY_DIR_NAME);
+        Ok(Self {
+            config_env_path: namespaced.config.join(DEFAULT_ENV_PATH),
+            logs_dir: namespaced.logs,
+            run_dir: namespaced.run,
+            state_dir: namespaced.data.join(DEFAULT_STATE_DIR_NAME),
+            signer_identity_path: namespaced.secrets.join(DEFAULT_SIGNER_IDENTITY_FILE_NAME),
+            user_identity_path: namespaced.secrets.join(DEFAULT_USER_IDENTITY_FILE_NAME),
+            signer_managed_account_path: custody_dir.join(DEFAULT_SIGNER_MANAGED_ACCOUNT_FILE_NAME),
+            user_managed_account_path: custody_dir.join(DEFAULT_USER_MANAGED_ACCOUNT_FILE_NAME),
+            discovery_app_identity_path: namespaced
+                .secrets
+                .join(DEFAULT_DISCOVERY_APP_IDENTITY_FILE_NAME),
+            discovery_managed_account_path: custody_dir
+                .join(DEFAULT_DISCOVERY_MANAGED_ACCOUNT_FILE_NAME),
+            discovery_nip05_output_path: namespaced
+                .data
+                .join(DEFAULT_DISCOVERY_PUBLIC_DIR_NAME)
+                .join(DEFAULT_DISCOVERY_NIP05_RELATIVE_PATH),
+        })
+    }
+}
+
 impl MycPathsConfig {
+    fn default_with_path_selection(
+        resolver: &RadrootsPathResolver,
+        profile: MycPathProfile,
+        repo_local_root: Option<&Path>,
+    ) -> Result<Self, MycError> {
+        let resolved = MycResolvedRuntimePaths::resolve(resolver, profile, repo_local_root)?;
+        Ok(Self {
+            profile,
+            repo_local_root: repo_local_root.map(Path::to_path_buf),
+            config_env_path: resolved.config_env_path,
+            run_dir: resolved.run_dir,
+            state_dir: resolved.state_dir,
+            signer_identity_backend: MycIdentityBackend::EncryptedFile,
+            signer_identity_path: resolved.signer_identity_path,
+            signer_identity_keyring_account_id: None,
+            signer_identity_keyring_service_name: "org.radroots.myc.signer".to_owned(),
+            signer_identity_profile_path: None,
+            user_identity_backend: MycIdentityBackend::EncryptedFile,
+            user_identity_path: resolved.user_identity_path,
+            user_identity_keyring_account_id: None,
+            user_identity_keyring_service_name: "org.radroots.myc.user".to_owned(),
+            user_identity_profile_path: None,
+        })
+    }
+
     pub fn signer_identity_source(&self) -> MycIdentitySourceSpec {
         MycIdentitySourceSpec {
             backend: self.signer_identity_backend,
@@ -487,21 +622,87 @@ impl MycPathsConfig {
 }
 
 impl MycConfig {
+    fn default_with_path_selection(
+        resolver: &RadrootsPathResolver,
+        profile: MycPathProfile,
+        repo_local_root: Option<&Path>,
+    ) -> Result<Self, MycError> {
+        let mut config = Self {
+            service: MycServiceConfig::default(),
+            logging: MycLoggingConfig::default(),
+            custody: MycCustodyConfig::default(),
+            paths: MycPathsConfig::default_with_path_selection(resolver, profile, repo_local_root)?,
+            persistence: MycPersistenceConfig::default(),
+            audit: MycAuditConfig::default(),
+            observability: MycObservabilityConfig::default(),
+            discovery: MycDiscoveryConfig::default(),
+            policy: MycPolicyConfig::default(),
+            transport: MycTransportConfig::default(),
+        };
+        config.apply_path_defaults(resolver, &MycPathOverrideFlags::default())?;
+        Ok(config)
+    }
+
+    fn process_path_selection() -> Result<(MycPathProfile, Option<PathBuf>), MycError> {
+        let profile = match std::env::var("MYC_PATHS_PROFILE") {
+            Ok(value) => parse_path_profile_env(
+                "MYC_PATHS_PROFILE",
+                value.as_str(),
+                Path::new("<process-env>"),
+                0,
+            )?,
+            Err(std::env::VarError::NotPresent) => MycPathProfile::InteractiveUser,
+            Err(std::env::VarError::NotUnicode(_)) => {
+                return Err(MycError::InvalidConfig(
+                    "MYC_PATHS_PROFILE must be valid utf-8 when set".to_owned(),
+                ));
+            }
+        };
+        let repo_local_root = std::env::var_os("MYC_PATHS_REPO_LOCAL_ROOT").map(PathBuf::from);
+        Ok((profile, repo_local_root))
+    }
+
+    fn default_env_path_with_path_selection(
+        resolver: &RadrootsPathResolver,
+        profile: MycPathProfile,
+        repo_local_root: Option<&Path>,
+    ) -> Result<PathBuf, MycError> {
+        Ok(MycResolvedRuntimePaths::resolve(resolver, profile, repo_local_root)?.config_env_path)
+    }
+
     pub fn load_from_default_env_path() -> Result<Self, MycError> {
-        Self::load_from_env_path(DEFAULT_ENV_PATH)
+        let resolver = RadrootsPathResolver::current();
+        let (profile, repo_local_root) = Self::process_path_selection()?;
+        let path = Self::default_env_path_with_path_selection(
+            &resolver,
+            profile,
+            repo_local_root.as_deref(),
+        )?;
+        Self::load_from_env_path_with_resolver(path, &resolver)
     }
 
     pub fn load_from_env_path(path: impl AsRef<Path>) -> Result<Self, MycError> {
+        Self::load_from_env_path_with_resolver(path, &RadrootsPathResolver::current())
+    }
+
+    fn load_from_env_path_with_resolver(
+        path: impl AsRef<Path>,
+        resolver: &RadrootsPathResolver,
+    ) -> Result<Self, MycError> {
         let path = path.as_ref();
         let value = fs::read_to_string(path).map_err(|source| MycError::ConfigIo {
             path: path.to_path_buf(),
             source,
         })?;
-        Self::from_env_str_with_source(&value, path)
+        Self::from_env_str_with_source_and_resolver(&value, path, resolver)
     }
 
     pub fn from_env_str(value: &str) -> Result<Self, MycError> {
-        Self::from_env_str_with_source(value, Path::new("<inline>"))
+        Self::from_env_str_with_source_and_resolver(
+            value,
+            Path::new("<inline>"),
+            &RadrootsPathResolver::current(),
+        )
     }
 
     pub fn to_env_string(&self) -> Result<String, MycError> {
@@ -532,6 +733,12 @@ impl MycConfig {
             &mut lines,
             "MYC_CUSTODY_EXTERNAL_COMMAND_TIMEOUT_SECS",
             self.custody.external_command_timeout_secs.to_string(),
+        );
+        push_env_line(&mut lines, "MYC_PATHS_PROFILE", self.paths.profile.as_str());
+        push_optional_path_env_line(
+            &mut lines,
+            "MYC_PATHS_REPO_LOCAL_ROOT",
+            self.paths.repo_local_root.as_ref(),
         );
         push_env_line(
             &mut lines,
@@ -1018,12 +1225,84 @@ impl MycConfig {
         Ok(())
     }
 
-    fn from_env_str_with_source(value: &str, path: &Path) -> Result<Self, MycError> {
-        let entries = parse_env_entries(value, path)?;
-        let mut config = Self::default();
-        for (key, value, line_number) in entries {
-            apply_env_entry(&mut config, key.as_str(), value.as_str(), path, line_number)?;
+    fn apply_path_defaults(
+        &mut self,
+        resolver: &RadrootsPathResolver,
+        overrides: &MycPathOverrideFlags,
+    ) -> Result<(), MycError> {
+        let resolved = MycResolvedRuntimePaths::resolve(
+            resolver,
+            self.paths.profile,
+            self.paths.repo_local_root.as_deref(),
+        )?;
+        self.paths.config_env_path = resolved.config_env_path;
+        self.paths.run_dir = resolved.run_dir;
+        if !overrides.logging_output_dir {
+            self.logging.output_dir = Some(resolved.logs_dir);
         }
+        if !overrides.state_dir {
+            self.paths.state_dir = resolved.state_dir;
+        }
+        if !overrides.signer_identity_path {
+            self.paths.signer_identity_path = match self.paths.signer_identity_backend {
+                MycIdentityBackend::EncryptedFile | MycIdentityBackend::PlaintextFile => {
+                    resolved.signer_identity_path
+                }
+                MycIdentityBackend::ManagedAccount => resolved.signer_managed_account_path,
+                MycIdentityBackend::HostVault => PathBuf::new(),
+                MycIdentityBackend::ExternalCommand => PathBuf::new(),
+            };
+        }
+        if !overrides.user_identity_path {
+            self.paths.user_identity_path = match self.paths.user_identity_backend {
+                MycIdentityBackend::EncryptedFile | MycIdentityBackend::PlaintextFile => {
+                    resolved.user_identity_path
+                }
+                MycIdentityBackend::ManagedAccount => resolved.user_managed_account_path,
+                MycIdentityBackend::HostVault => PathBuf::new(),
+                MycIdentityBackend::ExternalCommand => PathBuf::new(),
+            };
+        }
+        if !overrides.discovery_app_identity_path {
+            self.discovery.app_identity_path = match self.discovery.app_identity_backend {
+                Some(MycIdentityBackend::EncryptedFile)
+                | Some(MycIdentityBackend::PlaintextFile) => {
+                    Some(resolved.discovery_app_identity_path)
+                }
+                Some(MycIdentityBackend::ManagedAccount) => {
+                    Some(resolved.discovery_managed_account_path)
+                }
+                Some(MycIdentityBackend::HostVault) | None => None,
+                Some(MycIdentityBackend::ExternalCommand) => None,
+            };
+        }
+        if !overrides.discovery_nip05_output_path {
+            self.discovery.nip05_output_path = Some(resolved.discovery_nip05_output_path);
+        }
+        Ok(())
+    }
+
+    fn from_env_str_with_source_and_resolver(
+        value: &str,
+        path: &Path,
+        resolver: &RadrootsPathResolver,
+    ) -> Result<Self, MycError> {
+        let entries = parse_env_entries(value, path)?;
+        let (profile, repo_local_root) = path_selection_from_entries(entries.as_slice(), path)?;
+        let mut config =
+            Self::default_with_path_selection(resolver, profile, repo_local_root.as_deref())?;
+        let mut path_overrides = MycPathOverrideFlags::default();
+        for (key, value, line_number) in entries {
+            apply_env_entry(
+                &mut config,
+                &mut path_overrides,
+                key.as_str(),
+                value.as_str(),
+                path,
+                line_number,
+            )?;
+        }
+        config.apply_path_defaults(resolver, &path_overrides)?;
         config.validate()?;
         Ok(config)
     }
@@ -1124,8 +1403,29 @@ fn parse_env_value(value: &str, path: &Path, line_number: usize) -> Result<Strin
     Ok(value.to_owned())
 }
 
+fn path_selection_from_entries(
+    entries: &[(String, String, usize)],
+    path: &Path,
+) -> Result<(MycPathProfile, Option<PathBuf>), MycError> {
+    let mut profile = MycPathProfile::InteractiveUser;
+    let mut repo_local_root = None;
+    for (key, value, line_number) in entries {
+        match key.as_str() {
+            "MYC_PATHS_PROFILE" => {
+                profile = parse_path_profile_env(key, value, path, *line_number)?;
+            }
+            "MYC_PATHS_REPO_LOCAL_ROOT" => {
+                repo_local_root = parse_optional_path_env(value);
+            }
+            _ => {}
+        }
+    }
+    Ok((profile, repo_local_root))
+}
+
 fn apply_env_entry(
     config: &mut MycConfig,
+    path_overrides: &mut MycPathOverrideFlags,
     key: &str,
     value: &str,
     path: &Path,
@@ -1136,6 +1436,7 @@ fn apply_env_entry(
         "MYC_LOGGING_FILTER" => config.logging.filter = value.to_owned(),
         "MYC_LOGGING_OUTPUT_DIR" => {
             config.logging.output_dir = parse_optional_path_env(value);
+            path_overrides.logging_output_dir = true;
         }
         "MYC_LOGGING_STDOUT" => {
             config.logging.stdout = parse_bool_env(key, value, path, line_number)?;
@@ -1144,13 +1445,23 @@ fn apply_env_entry(
             config.custody.external_command_timeout_secs =
                 parse_u64_env(key, value, path, line_number)?;
         }
-        "MYC_PATHS_STATE_DIR" => config.paths.state_dir = PathBuf::from(value),
+        "MYC_PATHS_PROFILE" => {
+            config.paths.profile = parse_path_profile_env(key, value, path, line_number)?;
+        }
+        "MYC_PATHS_REPO_LOCAL_ROOT" => {
+            config.paths.repo_local_root = parse_optional_path_env(value);
+        }
+        "MYC_PATHS_STATE_DIR" => {
+            config.paths.state_dir = PathBuf::from(value);
+            path_overrides.state_dir = true;
+        }
         "MYC_PATHS_SIGNER_IDENTITY_BACKEND" => {
             config.paths.signer_identity_backend =
                 parse_identity_backend_env(key, value, path, line_number)?;
         }
         "MYC_PATHS_SIGNER_IDENTITY_PATH" => {
             config.paths.signer_identity_path = PathBuf::from(value);
+            path_overrides.signer_identity_path = true;
         }
         "MYC_PATHS_SIGNER_IDENTITY_KEYRING_ACCOUNT_ID" => {
             config.paths.signer_identity_keyring_account_id = parse_optional_string_env(value);
@@ -1167,6 +1478,7 @@ fn apply_env_entry(
         }
         "MYC_PATHS_USER_IDENTITY_PATH" => {
             config.paths.user_identity_path = PathBuf::from(value);
+            path_overrides.user_identity_path = true;
         }
         "MYC_PATHS_USER_IDENTITY_KEYRING_ACCOUNT_ID" => {
             config.paths.user_identity_keyring_account_id = parse_optional_string_env(value);
@@ -1215,6 +1527,7 @@ fn apply_env_entry(
         }
         "MYC_DISCOVERY_APP_IDENTITY_PATH" => {
             config.discovery.app_identity_path = parse_optional_path_env(value);
+            path_overrides.discovery_app_identity_path = true;
         }
         "MYC_DISCOVERY_APP_IDENTITY_KEYRING_ACCOUNT_ID" => {
             config.discovery.app_identity_keyring_account_id = parse_optional_string_env(value);
@@ -1236,6 +1549,7 @@ fn apply_env_entry(
         }
         "MYC_DISCOVERY_NIP05_OUTPUT_PATH" => {
             config.discovery.nip05_output_path = parse_optional_path_env(value);
+            path_overrides.discovery_nip05_output_path = true;
         }
         "MYC_DISCOVERY_METADATA_NAME" => {
             config.discovery.metadata.name = parse_optional_string_env(value);
@@ -1433,6 +1747,24 @@ fn parse_identity_backend_env(
             format!(
                 "{key} must be `encrypted_file`, `host_vault`, `managed_account`, `external_command`, or `plaintext_file`"
             ),
+        )),
+    }
+}
+
+fn parse_path_profile_env(
+    key: &str,
+    value: &str,
+    path: &Path,
+    line_number: usize,
+) -> Result<MycPathProfile, MycError> {
+    match value {
+        "interactive_user" => Ok(MycPathProfile::InteractiveUser),
+        "service_host" => Ok(MycPathProfile::ServiceHost),
+        "repo_local" => Ok(MycPathProfile::RepoLocal),
+        _ => Err(config_parse_error(
+            path,
+            line_number,
+            format!("{key} must be `interactive_user`, `service_host`, or `repo_local`"),
         )),
     }
 }
@@ -1948,23 +2280,57 @@ fn discovery_host_is_local(host: Option<&str>) -> bool {
 mod tests {
     use std::fs;
 
+    use radroots_runtime_paths::{RadrootsHostEnvironment, RadrootsPathResolver, RadrootsPlatform};
+
     use super::*;
+
+    fn linux_resolver(home: &str) -> RadrootsPathResolver {
+        RadrootsPathResolver::new(
+            RadrootsPlatform::Linux,
+            RadrootsHostEnvironment {
+                home_dir: Some(PathBuf::from(home)),
+                ..RadrootsHostEnvironment::default()
+            },
+        )
+    }
 
     #[test]
     fn default_config_is_stable() {
-        let config = MycConfig::default();
+        let resolver = linux_resolver("/home/treesap");
+        let config = MycConfig::default_with_path_selection(
+            &resolver,
+            MycPathProfile::InteractiveUser,
+            None,
+        )
+        .expect("default config");
         assert_eq!(config.service.instance_name, "myc");
         assert_eq!(config.logging.filter, "info,myc=info");
-        assert_eq!(config.logging.output_dir, None);
+        assert_eq!(config.paths.profile, MycPathProfile::InteractiveUser);
+        assert_eq!(config.paths.repo_local_root, None);
+        assert_eq!(
+            config.paths.config_env_path,
+            PathBuf::from("/home/treesap/.radroots/config/services/myc/config.env")
+        );
+        assert_eq!(
+            config.paths.run_dir,
+            PathBuf::from("/home/treesap/.radroots/run/services/myc")
+        );
+        assert_eq!(
+            config.logging.output_dir,
+            Some(PathBuf::from("/home/treesap/.radroots/logs/services/myc"))
+        );
         assert!(config.logging.stdout);
-        assert_eq!(config.paths.state_dir, PathBuf::from("var"));
+        assert_eq!(
+            config.paths.state_dir,
+            PathBuf::from("/home/treesap/.radroots/data/services/myc/state")
+        );
         assert_eq!(
             config.paths.signer_identity_backend,
             MycIdentityBackend::EncryptedFile
         );
         assert_eq!(
             config.paths.signer_identity_path,
-            PathBuf::from("var/identities/signer.identity.secret.json")
+            PathBuf::from("/home/treesap/.radroots/secrets/services/myc/signer-identity.json")
         );
         assert_eq!(config.paths.signer_identity_keyring_account_id, None);
         assert_eq!(
@@ -1978,7 +2344,7 @@ mod tests {
         );
         assert_eq!(
             config.paths.user_identity_path,
-            PathBuf::from("var/identities/user.identity.secret.json")
+            PathBuf::from("/home/treesap/.radroots/secrets/services/myc/user-identity.json")
         );
         assert_eq!(config.paths.user_identity_keyring_account_id, None);
         assert_eq!(
@@ -2024,10 +2390,16 @@ mod tests {
         assert_eq!(config.discovery.handler_identifier, "myc");
         assert!(config.discovery.domain.is_none());
         assert_eq!(config.discovery.app_identity_backend, None);
+        assert!(config.discovery.app_identity_path.is_none());
         assert!(config.discovery.public_relays.is_empty());
         assert!(config.discovery.publish_relays.is_empty());
         assert!(config.discovery.nostrconnect_url_template.is_none());
-        assert!(config.discovery.nip05_output_path.is_none());
+        assert_eq!(
+            config.discovery.nip05_output_path,
+            Some(PathBuf::from(
+                "/home/treesap/.radroots/data/services/myc/public/.well-known/nostr.json"
+            ))
+        );
         assert!(!config.transport.enabled);
         assert_eq!(config.transport.connect_timeout_secs, 10);
         assert!(config.transport.relays.is_empty());
@@ -2043,7 +2415,8 @@ mod tests {
 
     #[test]
     fn parse_config_from_env_overrides_defaults() {
-        let config = MycConfig::from_env_str(
+        let resolver = linux_resolver("/home/treesap");
+        let config = MycConfig::from_env_str_with_source_and_resolver(
             r#"
 MYC_SERVICE_INSTANCE_NAME=myc-dev
 MYC_LOGGING_FILTER=debug,myc=trace
@@ -2097,11 +2470,22 @@ MYC_TRANSPORT_PUBLISH_MAX_ATTEMPTS=4
 MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MILLIS=100
 MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS=800
             "#,
+            Path::new("inline.env"),
+            &resolver,
         )
         .expect("config");
 
         assert_eq!(config.service.instance_name, "myc-dev");
         assert_eq!(config.logging.filter, "debug,myc=trace");
+        assert_eq!(config.paths.profile, MycPathProfile::InteractiveUser);
+        assert_eq!(
+            config.paths.config_env_path,
+            PathBuf::from("/home/treesap/.radroots/config/services/myc/config.env")
+        );
+        assert_eq!(
+            config.paths.run_dir,
+            PathBuf::from("/home/treesap/.radroots/run/services/myc")
+        );
         assert_eq!(
             config.logging.output_dir,
             Some(PathBuf::from("/tmp/myc-logs"))
@@ -2223,6 +2607,46 @@ MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS=800
         assert_eq!(config.transport.publish_max_attempts, 4);
         assert_eq!(config.transport.publish_initial_backoff_millis, 100);
         assert_eq!(config.transport.publish_max_backoff_millis, 800);
+    }
+
+    #[test]
+    fn service_host_profile_uses_canonical_defaults() {
+        let resolver = linux_resolver("/home/treesap");
+        let config =
+            MycConfig::default_with_path_selection(&resolver, MycPathProfile::ServiceHost, None)
+                .expect("service-host config");
+
+        assert_eq!(config.paths.profile, MycPathProfile::ServiceHost);
+        assert_eq!(
+            config.paths.config_env_path,
+            PathBuf::from("/etc/radroots/services/myc/config.env")
+        );
+        assert_eq!(
+            config.logging.output_dir,
+            Some(PathBuf::from("/var/log/radroots/services/myc"))
+        );
+        assert_eq!(
+            config.paths.run_dir,
+            PathBuf::from("/run/radroots/services/myc")
+        );
+        assert_eq!(
+            config.paths.state_dir,
+            PathBuf::from("/var/lib/radroots/services/myc/state")
+        );
+        assert_eq!(
+            config.paths.signer_identity_path,
+            PathBuf::from("/etc/radroots/secrets/services/myc/signer-identity.json")
+        );
+        assert_eq!(
+            config.paths.user_identity_path,
+            PathBuf::from("/etc/radroots/secrets/services/myc/user-identity.json")
+        );
+        assert_eq!(
+            config.discovery.nip05_output_path,
+            Some(PathBuf::from(
+                "/var/lib/radroots/services/myc/public/.well-known/nostr.json"
+            ))
+        );
     }
 
     #[test]
@@ -2581,15 +3005,38 @@ MYC_DISCOVERY_APP_IDENTITY_PATH=/usr/local/libexec/myc-discovery-helper
             fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".env.example"))
                 .expect("read example config");
 
-        let config = MycConfig::from_env_str(&example).expect("example config");
+        let resolver = linux_resolver("/home/treesap");
+        let config = MycConfig::from_env_str_with_source_and_resolver(
+            &example,
+            Path::new(".env.example"),
+            &resolver,
+        )
+        .expect("example config");
 
         assert_eq!(config.service.instance_name, "myc");
+        assert_eq!(config.paths.profile, MycPathProfile::ServiceHost);
         assert!(config.discovery.enabled);
         assert_eq!(config.discovery.domain.as_deref(), Some("myc.radroots.org"));
         assert_eq!(config.discovery.handler_identifier, "myc");
         assert_eq!(
             config.logging.output_dir,
             Some(PathBuf::from("/var/log/radroots/services/myc"))
+        );
+        assert_eq!(
+            config.paths.config_env_path,
+            PathBuf::from("/etc/radroots/services/myc/config.env")
+        );
+        assert_eq!(
+            config.paths.state_dir,
+            PathBuf::from("/var/lib/radroots/services/myc/state")
+        );
+        assert_eq!(
+            config.paths.signer_identity_path,
+            PathBuf::from("/etc/radroots/secrets/services/myc/signer-identity.json")
+        );
+        assert_eq!(
+            config.paths.user_identity_path,
+            PathBuf::from("/etc/radroots/secrets/services/myc/user-identity.json")
         );
         assert_eq!(config.custody.external_command_timeout_secs, 10);
         assert_eq!(
@@ -2615,7 +3062,9 @@ MYC_DISCOVERY_APP_IDENTITY_PATH=/usr/local/libexec/myc-discovery-helper
         assert_eq!(config.transport.publish_max_backoff_millis, 2_000);
         assert_eq!(
             config.discovery.nip05_output_path,
-            Some(PathBuf::from("/var/lib/myc/public/.well-known/nostr.json"))
+            Some(PathBuf::from(
+                "/var/lib/radroots/services/myc/public/.well-known/nostr.json"
+            ))
         );
     }
 

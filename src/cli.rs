@@ -13,7 +13,7 @@ use zeroize::Zeroizing;
 
 use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
-use crate::config::{DEFAULT_ENV_PATH, MycConfig, MycTransportDeliveryPolicy};
+use crate::config::{MycConfig, MycTransportDeliveryPolicy};
 use crate::control::{accept_client_uri, authorize_auth_challenge, parse_permission_values};
 use crate::discovery::{
     MycDiscoveryContext, MycDiscoveryRepairSummary, diff_live_nip89, fetch_live_nip89,
@@ -646,7 +646,7 @@ pub async fn run_from_env() -> Result<(), MycError> {
 fn load_config(path: Option<&Path>) -> Result<MycConfig, MycError> {
     match path {
         Some(path) => MycConfig::load_from_env_path(path),
-        None => MycConfig::load_from_env_path(DEFAULT_ENV_PATH),
+        None => MycConfig::load_from_default_env_path(),
     }
 }
 
