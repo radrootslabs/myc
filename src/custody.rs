@@ -18,7 +18,7 @@ use radroots_secret_vault::{RadrootsSecretVault, RadrootsSecretVaultOsKeyring};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
-use crate::config::{MycIdentityBackend, MycIdentitySourceSpec};
+use crate::config::{MycConfig, MycIdentityBackend, MycIdentitySourceSpec};
 use crate::error::MycError;
 use crate::identity_storage::{
     load_encrypted_identity, load_identity_profile, rotate_encrypted_identity,
@@ -60,6 +60,13 @@ pub struct MycIdentityStatusOutput {
     pub selected_account_label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_account_state: Option<MycManagedAccountSelectionState>,
+    pub default_shared_secret_backend: MycIdentityBackend,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_shared_secret_backends: Vec<MycIdentityBackend>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtime_specific_custody_modes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_vault_policy: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1172,6 +1179,10 @@ impl MycIdentityProvider {
             selected_account_id: None,
             selected_account_label: None,
             selected_account_state: None,
+            default_shared_secret_backend: MycConfig::default_shared_secret_backend(),
+            allowed_shared_secret_backends: MycConfig::allowed_shared_secret_backends(),
+            runtime_specific_custody_modes: MycConfig::runtime_specific_custody_modes(),
+            host_vault_policy: MycConfig::host_vault_policy(),
             identity_id: Some(identity.id.to_string()),
             public_key_hex: Some(identity.public_key_hex.clone()),
             error: None,
@@ -1190,6 +1201,10 @@ impl MycIdentityProvider {
             selected_account_id: None,
             selected_account_label: None,
             selected_account_state: None,
+            default_shared_secret_backend: MycConfig::default_shared_secret_backend(),
+            allowed_shared_secret_backends: MycConfig::allowed_shared_secret_backends(),
+            runtime_specific_custody_modes: MycConfig::runtime_specific_custody_modes(),
+            host_vault_policy: MycConfig::host_vault_policy(),
             identity_id: None,
             public_key_hex: None,
             error: Some(error.to_string()),
@@ -1246,6 +1261,12 @@ impl MycIdentityProvider {
                         selected_account_id: None,
                         selected_account_label: None,
                         selected_account_state: None,
+                        default_shared_secret_backend: MycConfig::default_shared_secret_backend(),
+                        allowed_shared_secret_backends: MycConfig::allowed_shared_secret_backends(
+                        ),
+                        runtime_specific_custody_modes: MycConfig::runtime_specific_custody_modes(
+                        ),
+                        host_vault_policy: MycConfig::host_vault_policy(),
                         identity_id: None,
                         public_key_hex: None,
                         error: Some(error.to_string()),
@@ -1305,6 +1326,10 @@ impl MycIdentityProvider {
             selected_account_id,
             selected_account_label,
             selected_account_state,
+            default_shared_secret_backend: MycConfig::default_shared_secret_backend(),
+            allowed_shared_secret_backends: MycConfig::allowed_shared_secret_backends(),
+            runtime_specific_custody_modes: MycConfig::runtime_specific_custody_modes(),
+            host_vault_policy: MycConfig::host_vault_policy(),
             identity_id,
             public_key_hex,
             error,

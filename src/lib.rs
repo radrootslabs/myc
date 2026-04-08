@@ -31,7 +31,7 @@ pub use config::{
     MycDiscoveryConfig, MycDiscoveryMetadataConfig, MycIdentityBackend, MycIdentitySourceSpec,
     MycLoggingConfig, MycObservabilityConfig, MycPathsConfig, MycPersistenceConfig,
     MycPolicyConfig, MycRuntimeAuditBackend, MycServiceConfig, MycSignerStateBackend,
-    MycTransportConfig, MycTransportDeliveryPolicy,
+    MycRuntimeContractOutput, MycTransportConfig, MycTransportDeliveryPolicy,
 };
 pub use control::{MycAcceptedConnectionOutput, MycAuthorizedReplayOutput};
 pub use custody::{

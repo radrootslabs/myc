@@ -8,7 +8,7 @@ use myc::{
 };
 use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{RadrootsNostrEventBuilder, RadrootsNostrKind};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 fn write_test_identity(path: &Path, secret_key: &str) {
     let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity from secret");
@@ -79,6 +79,24 @@ fn status_summary_command_emits_machine_readable_json() {
     let value: Value = serde_json::from_slice(&output.stdout).expect("status json");
     assert_eq!(value["status"], "unready");
     assert_eq!(value["ready"], false);
+    assert_eq!(value["runtime_contract"]["active_profile"], "interactive_user");
+    assert_eq!(
+        value["runtime_contract"]["allowed_profiles"],
+        json!(["interactive_user", "service_host", "repo_local"])
+    );
+    assert_eq!(
+        value["runtime_contract"]["default_shared_secret_backend"],
+        "encrypted_file"
+    );
+    assert_eq!(
+        value["runtime_contract"]["allowed_shared_secret_backends"],
+        json!(["encrypted_file", "host_vault", "external_command", "plaintext_file"])
+    );
+    assert_eq!(
+        value["runtime_contract"]["runtime_specific_custody_modes"],
+        json!(["managed_account"])
+    );
+    assert_eq!(value["runtime_contract"]["host_vault_policy"], "desktop");
     assert_eq!(value["custody"]["signer"]["backend"], "encrypted_file");
     assert_eq!(value["custody"]["signer"]["resolved"], true);
     assert_eq!(value["persistence"]["signer_state"]["backend"], "json_file");
@@ -177,6 +195,16 @@ fn custody_status_command_reports_role_backend_details() {
     let value: Value = serde_json::from_slice(&output.stdout).expect("custody status json");
     assert_eq!(value["backend"], "encrypted_file");
     assert_eq!(value["resolved"], true);
+    assert_eq!(value["default_shared_secret_backend"], "encrypted_file");
+    assert_eq!(
+        value["allowed_shared_secret_backends"],
+        json!(["encrypted_file", "host_vault", "external_command", "plaintext_file"])
+    );
+    assert_eq!(
+        value["runtime_specific_custody_modes"],
+        json!(["managed_account"])
+    );
+    assert_eq!(value["host_vault_policy"], "desktop");
     assert_eq!(
         value["identity_id"],
         "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa"

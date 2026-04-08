@@ -223,6 +223,18 @@ pub struct MycIdentitySourceSpec {
     pub profile_path: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycRuntimeContractOutput {
+    pub active_profile: MycPathProfile,
+    pub allowed_profiles: Vec<MycPathProfile>,
+    pub default_shared_secret_backend: MycIdentityBackend,
+    pub allowed_shared_secret_backends: Vec<MycIdentityBackend>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtime_specific_custody_modes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_vault_policy: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MycTransportDeliveryPolicy {
@@ -437,6 +449,37 @@ impl MycIdentityBackend {
     }
 }
 
+const MYC_ALLOWED_PROFILES: [MycPathProfile; 3] = [
+    MycPathProfile::InteractiveUser,
+    MycPathProfile::ServiceHost,
+    MycPathProfile::RepoLocal,
+];
+const MYC_ALLOWED_SHARED_SECRET_BACKENDS: [MycIdentityBackend; 4] = [
+    MycIdentityBackend::EncryptedFile,
+    MycIdentityBackend::HostVault,
+    MycIdentityBackend::ExternalCommand,
+    MycIdentityBackend::PlaintextFile,
+];
+const MYC_RUNTIME_SPECIFIC_CUSTODY_MODES: [&str; 1] = ["managed_account"];
+const MYC_DEFAULT_SHARED_SECRET_BACKEND: MycIdentityBackend = MycIdentityBackend::EncryptedFile;
+const MYC_HOST_VAULT_POLICY: &str = "desktop";
+
+impl MycRuntimeContractOutput {
+    pub fn for_active_profile(active_profile: MycPathProfile) -> Self {
+        Self {
+            active_profile,
+            allowed_profiles: MYC_ALLOWED_PROFILES.to_vec(),
+            default_shared_secret_backend: MYC_DEFAULT_SHARED_SECRET_BACKEND,
+            allowed_shared_secret_backends: MYC_ALLOWED_SHARED_SECRET_BACKENDS.to_vec(),
+            runtime_specific_custody_modes: MYC_RUNTIME_SPECIFIC_CUSTODY_MODES
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            host_vault_policy: Some(MYC_HOST_VAULT_POLICY.to_owned()),
+        }
+    }
+}
+
 impl MycSignerStateBackend {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -622,6 +665,33 @@ impl MycPathsConfig {
 }
 
 impl MycConfig {
+    pub fn allowed_profiles() -> Vec<MycPathProfile> {
+        MYC_ALLOWED_PROFILES.to_vec()
+    }
+
+    pub fn default_shared_secret_backend() -> MycIdentityBackend {
+        MYC_DEFAULT_SHARED_SECRET_BACKEND
+    }
+
+    pub fn allowed_shared_secret_backends() -> Vec<MycIdentityBackend> {
+        MYC_ALLOWED_SHARED_SECRET_BACKENDS.to_vec()
+    }
+
+    pub fn runtime_specific_custody_modes() -> Vec<String> {
+        MYC_RUNTIME_SPECIFIC_CUSTODY_MODES
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    pub fn host_vault_policy() -> Option<String> {
+        Some(MYC_HOST_VAULT_POLICY.to_owned())
+    }
+
+    pub fn runtime_contract_output(&self) -> MycRuntimeContractOutput {
+        MycRuntimeContractOutput::for_active_profile(self.paths.profile)
+    }
+
     fn default_with_path_selection(
         resolver: &RadrootsPathResolver,
         profile: MycPathProfile,
@@ -3225,6 +3295,31 @@ MYC_PERSISTENCE_SIGNER_STATE_BACKEND=sqlite
                 .to_env_string()
                 .expect("render env")
                 .contains("MYC_PERSISTENCE_SIGNER_STATE_BACKEND=sqlite")
+        );
+    }
+
+    #[test]
+    fn runtime_contract_output_matches_shared_runtime_contract() {
+        let config = MycConfig::default();
+        let contract = config.runtime_contract_output();
+
+        assert_eq!(contract.active_profile, MycPathProfile::InteractiveUser);
+        assert_eq!(contract.allowed_profiles, MycConfig::allowed_profiles());
+        assert_eq!(
+            contract.default_shared_secret_backend,
+            MycConfig::default_shared_secret_backend()
+        );
+        assert_eq!(
+            contract.allowed_shared_secret_backends,
+            MycConfig::allowed_shared_secret_backends()
+        );
+        assert_eq!(
+            contract.runtime_specific_custody_modes,
+            MycConfig::runtime_specific_custody_modes()
+        );
+        assert_eq!(
+            contract.host_vault_policy,
+            MycConfig::host_vault_policy()
         );
     }
 }

@@ -18,7 +18,10 @@ use tokio::task::JoinSet;
 
 use crate::app::MycRuntime;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome};
-use crate::config::{MycRuntimeAuditBackend, MycSignerStateBackend, MycTransportDeliveryPolicy};
+use crate::config::{
+    MycRuntimeAuditBackend, MycRuntimeContractOutput, MycSignerStateBackend,
+    MycTransportDeliveryPolicy,
+};
 use crate::custody::{MycActiveIdentity, MycIdentityStatusOutput};
 use crate::discovery::MycDiscoveryContext;
 use crate::error::MycError;
@@ -183,6 +186,7 @@ pub struct MycStatusFullOutput {
     pub status: MycRuntimeStatus,
     pub ready: bool,
     pub reasons: Vec<String>,
+    pub runtime_contract: MycRuntimeContractOutput,
     pub startup: crate::app::MycStartupSnapshot,
     pub signer_backend: MycSignerBackendStatusOutput,
     pub custody: MycCustodyStatusOutput,
@@ -198,6 +202,7 @@ pub struct MycStatusSummaryOutput {
     pub ready: bool,
     pub reasons: Vec<String>,
     pub instance_name: String,
+    pub runtime_contract: MycRuntimeContractOutput,
     pub signer_backend: MycSignerBackendStatusOutput,
     pub custody: MycCustodyStatusOutput,
     pub persistence: MycPersistenceStatusOutput,
@@ -352,6 +357,7 @@ pub async fn collect_status_full(runtime: &MycRuntime) -> Result<MycStatusFullOu
         status,
         ready,
         reasons,
+        runtime_contract: runtime.config().runtime_contract_output(),
         startup: snapshot,
         signer_backend,
         custody: custody.output,
@@ -371,6 +377,7 @@ pub async fn collect_status_summary(
         ready: full.ready,
         reasons: full.reasons,
         instance_name: full.startup.instance_name,
+        runtime_contract: full.runtime_contract,
         signer_backend: MycSignerBackendStatusOutput {
             local_signer: full.signer_backend.local_signer.clone(),
             remote_session_count: full.signer_backend.remote_session_count,
