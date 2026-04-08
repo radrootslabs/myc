@@ -2650,6 +2650,49 @@ MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS=800
     }
 
     #[test]
+    fn repo_local_profile_uses_explicit_repo_local_root() {
+        let resolver = linux_resolver("/home/treesap");
+        let repo_local_root = PathBuf::from("/repo/.local/radroots/dev/myc");
+        let config = MycConfig::default_with_path_selection(
+            &resolver,
+            MycPathProfile::RepoLocal,
+            Some(repo_local_root.as_path()),
+        )
+        .expect("repo-local config");
+
+        assert_eq!(config.paths.profile, MycPathProfile::RepoLocal);
+        assert_eq!(config.paths.repo_local_root, Some(repo_local_root.clone()));
+        assert_eq!(
+            config.paths.config_env_path,
+            repo_local_root.join("config/services/myc/config.env")
+        );
+        assert_eq!(
+            config.logging.output_dir,
+            Some(repo_local_root.join("logs/services/myc"))
+        );
+        assert_eq!(
+            config.paths.run_dir,
+            repo_local_root.join("run/services/myc")
+        );
+        assert_eq!(
+            config.paths.state_dir,
+            repo_local_root.join("data/services/myc/state")
+        );
+        assert_eq!(
+            config.paths.signer_identity_path,
+            repo_local_root.join("secrets/services/myc/signer-identity.json")
+        );
+        assert_eq!(
+            config.paths.user_identity_path,
+            repo_local_root.join("secrets/services/myc/user-identity.json")
+        );
+        assert_eq!(
+            config.discovery.nip05_output_path,
+            Some(repo_local_root.join("data/services/myc/public/.well-known/nostr.json"))
+        );
+    }
+
+    #[test]
     fn load_from_missing_env_path_fails() {
         let temp = tempfile::tempdir().expect("tempdir");
         let err = MycConfig::load_from_env_path(temp.path().join("missing.env"))
