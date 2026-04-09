@@ -7,25 +7,13 @@ use nostr::PublicKey;
 use radroots_nostr::prelude::RadrootsNostrRelayUrl;
 use radroots_nostr_connect::prelude::RadrootsNostrConnectPermissions;
 use radroots_nostr_signer::prelude::RadrootsNostrSignerApprovalRequirement;
-use radroots_runtime_paths::{
-    RadrootsPathOverrides, RadrootsPathProfile, RadrootsPathResolver, RadrootsRuntimeNamespace,
-};
+use radroots_runtime_paths::RadrootsPathResolver;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
 use crate::error::MycError;
-
-pub const DEFAULT_ENV_PATH: &str = "config.env";
-const DEFAULT_STATE_DIR_NAME: &str = "state";
-const DEFAULT_CUSTODY_DIR_NAME: &str = "custody";
-const DEFAULT_SIGNER_IDENTITY_FILE_NAME: &str = "signer-identity.json";
-const DEFAULT_USER_IDENTITY_FILE_NAME: &str = "user-identity.json";
-const DEFAULT_DISCOVERY_APP_IDENTITY_FILE_NAME: &str = "discovery-app-identity.json";
-const DEFAULT_SIGNER_MANAGED_ACCOUNT_FILE_NAME: &str = "signer-accounts.json";
-const DEFAULT_USER_MANAGED_ACCOUNT_FILE_NAME: &str = "user-accounts.json";
-const DEFAULT_DISCOVERY_MANAGED_ACCOUNT_FILE_NAME: &str = "discovery-accounts.json";
-const DEFAULT_DISCOVERY_PUBLIC_DIR_NAME: &str = "public";
-const DEFAULT_DISCOVERY_NIP05_RELATIVE_PATH: &str = ".well-known/nostr.json";
+use crate::paths::MycPathOverrideFlags;
+pub use crate::paths::{DEFAULT_ENV_PATH, MycPathProfile, MycPathsConfig};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -60,26 +48,6 @@ pub struct MycLoggingConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct MycCustodyConfig {
     pub external_command_timeout_secs: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct MycPathsConfig {
-    pub profile: MycPathProfile,
-    pub repo_local_root: Option<PathBuf>,
-    pub config_env_path: PathBuf,
-    pub run_dir: PathBuf,
-    pub state_dir: PathBuf,
-    pub signer_identity_backend: MycIdentityBackend,
-    pub signer_identity_path: PathBuf,
-    pub signer_identity_keyring_account_id: Option<String>,
-    pub signer_identity_keyring_service_name: String,
-    pub signer_identity_profile_path: Option<PathBuf>,
-    pub user_identity_backend: MycIdentityBackend,
-    pub user_identity_path: PathBuf,
-    pub user_identity_keyring_account_id: Option<String>,
-    pub user_identity_keyring_service_name: String,
-    pub user_identity_profile_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -165,14 +133,6 @@ pub enum MycIdentityBackend {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum MycPathProfile {
-    InteractiveUser,
-    ServiceHost,
-    RepoLocal,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum MycSignerStateBackend {
     JsonFile,
     Sqlite,
@@ -183,31 +143,6 @@ pub enum MycSignerStateBackend {
 pub enum MycRuntimeAuditBackend {
     JsonlFile,
     Sqlite,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct MycResolvedRuntimePaths {
-    config_env_path: PathBuf,
-    logs_dir: PathBuf,
-    run_dir: PathBuf,
-    state_dir: PathBuf,
-    signer_identity_path: PathBuf,
-    user_identity_path: PathBuf,
-    signer_managed_account_path: PathBuf,
-    user_managed_account_path: PathBuf,
-    discovery_app_identity_path: PathBuf,
-    discovery_managed_account_path: PathBuf,
-    discovery_nip05_output_path: PathBuf,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct MycPathOverrideFlags {
-    logging_output_dir: bool,
-    state_dir: bool,
-    signer_identity_path: bool,
-    user_identity_path: bool,
-    discovery_app_identity_path: bool,
-    discovery_nip05_output_path: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -295,17 +230,6 @@ impl Default for MycCustodyConfig {
         Self {
             external_command_timeout_secs: 10,
         }
-    }
-}
-
-impl Default for MycPathsConfig {
-    fn default() -> Self {
-        Self::default_with_path_selection(
-            &RadrootsPathResolver::current(),
-            MycPathProfile::InteractiveUser,
-            None,
-        )
-        .expect("current process should resolve myc runtime paths")
     }
 }
 
@@ -412,12 +336,6 @@ impl Default for MycIdentityBackend {
     }
 }
 
-impl Default for MycPathProfile {
-    fn default() -> Self {
-        Self::InteractiveUser
-    }
-}
-
 impl MycConnectionApproval {
     pub fn into_signer_approval_requirement(self) -> RadrootsNostrSignerApprovalRequirement {
         match self {
@@ -498,172 +416,6 @@ impl MycRuntimeAuditBackend {
     }
 }
 
-impl MycPathProfile {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::InteractiveUser => "interactive_user",
-            Self::ServiceHost => "service_host",
-            Self::RepoLocal => "repo_local",
-        }
-    }
-
-    fn into_radroots_profile(self) -> RadrootsPathProfile {
-        match self {
-            Self::InteractiveUser => RadrootsPathProfile::InteractiveUser,
-            Self::ServiceHost => RadrootsPathProfile::ServiceHost,
-            Self::RepoLocal => RadrootsPathProfile::RepoLocal,
-        }
-    }
-}
-
-impl MycResolvedRuntimePaths {
-    fn resolve(
-        resolver: &RadrootsPathResolver,
-        profile: MycPathProfile,
-        repo_local_root: Option<&Path>,
-    ) -> Result<Self, MycError> {
-        let overrides = match profile {
-            MycPathProfile::InteractiveUser | MycPathProfile::ServiceHost => {
-                RadrootsPathOverrides::default()
-            }
-            MycPathProfile::RepoLocal => {
-                let repo_local_root = repo_local_root.ok_or_else(|| {
-                    MycError::InvalidConfig(
-                        "paths.repo_local_root must be set when paths.profile is `repo_local`"
-                            .to_owned(),
-                    )
-                })?;
-                RadrootsPathOverrides::repo_local(repo_local_root)
-            }
-        };
-        let namespace = RadrootsRuntimeNamespace::service("myc")
-            .map_err(|error| MycError::InvalidConfig(format!("resolve myc namespace: {error}")))?;
-        let namespaced = resolver
-            .resolve(profile.into_radroots_profile(), &overrides)
-            .map_err(|error| {
-                MycError::InvalidConfig(format!("resolve myc runtime paths: {error}"))
-            })?
-            .namespaced(&namespace);
-        let custody_dir = namespaced.data.join(DEFAULT_CUSTODY_DIR_NAME);
-        Ok(Self {
-            config_env_path: namespaced.config.join(DEFAULT_ENV_PATH),
-            logs_dir: namespaced.logs,
-            run_dir: namespaced.run,
-            state_dir: namespaced.data.join(DEFAULT_STATE_DIR_NAME),
-            signer_identity_path: namespaced.secrets.join(DEFAULT_SIGNER_IDENTITY_FILE_NAME),
-            user_identity_path: namespaced.secrets.join(DEFAULT_USER_IDENTITY_FILE_NAME),
-            signer_managed_account_path: custody_dir.join(DEFAULT_SIGNER_MANAGED_ACCOUNT_FILE_NAME),
-            user_managed_account_path: custody_dir.join(DEFAULT_USER_MANAGED_ACCOUNT_FILE_NAME),
-            discovery_app_identity_path: namespaced
-                .secrets
-                .join(DEFAULT_DISCOVERY_APP_IDENTITY_FILE_NAME),
-            discovery_managed_account_path: custody_dir
-                .join(DEFAULT_DISCOVERY_MANAGED_ACCOUNT_FILE_NAME),
-            discovery_nip05_output_path: namespaced
-                .data
-                .join(DEFAULT_DISCOVERY_PUBLIC_DIR_NAME)
-                .join(DEFAULT_DISCOVERY_NIP05_RELATIVE_PATH),
-        })
-    }
-}
-
-impl MycPathsConfig {
-    fn default_with_path_selection(
-        resolver: &RadrootsPathResolver,
-        profile: MycPathProfile,
-        repo_local_root: Option<&Path>,
-    ) -> Result<Self, MycError> {
-        let resolved = MycResolvedRuntimePaths::resolve(resolver, profile, repo_local_root)?;
-        Ok(Self {
-            profile,
-            repo_local_root: repo_local_root.map(Path::to_path_buf),
-            config_env_path: resolved.config_env_path,
-            run_dir: resolved.run_dir,
-            state_dir: resolved.state_dir,
-            signer_identity_backend: MycIdentityBackend::EncryptedFile,
-            signer_identity_path: resolved.signer_identity_path,
-            signer_identity_keyring_account_id: None,
-            signer_identity_keyring_service_name: "org.radroots.myc.signer".to_owned(),
-            signer_identity_profile_path: None,
-            user_identity_backend: MycIdentityBackend::EncryptedFile,
-            user_identity_path: resolved.user_identity_path,
-            user_identity_keyring_account_id: None,
-            user_identity_keyring_service_name: "org.radroots.myc.user".to_owned(),
-            user_identity_profile_path: None,
-        })
-    }
-
-    pub fn signer_identity_source(&self) -> MycIdentitySourceSpec {
-        MycIdentitySourceSpec {
-            backend: self.signer_identity_backend,
-            path: match self.signer_identity_backend {
-                MycIdentityBackend::EncryptedFile
-                | MycIdentityBackend::PlaintextFile
-                | MycIdentityBackend::ManagedAccount
-                | MycIdentityBackend::ExternalCommand => Some(self.signer_identity_path.clone()),
-                MycIdentityBackend::HostVault => None,
-            },
-            keyring_account_id: match self.signer_identity_backend {
-                MycIdentityBackend::EncryptedFile
-                | MycIdentityBackend::PlaintextFile
-                | MycIdentityBackend::ManagedAccount
-                | MycIdentityBackend::ExternalCommand => None,
-                MycIdentityBackend::HostVault => self.signer_identity_keyring_account_id.clone(),
-            },
-            keyring_service_name: match self.signer_identity_backend {
-                MycIdentityBackend::EncryptedFile
-                | MycIdentityBackend::PlaintextFile
-                | MycIdentityBackend::ExternalCommand => None,
-                MycIdentityBackend::HostVault | MycIdentityBackend::ManagedAccount => {
-                    Some(self.signer_identity_keyring_service_name.clone())
-                }
-            },
-            profile_path: match self.signer_identity_backend {
-                MycIdentityBackend::EncryptedFile
-                | MycIdentityBackend::PlaintextFile
-                | MycIdentityBackend::ManagedAccount
-                | MycIdentityBackend::ExternalCommand => None,
-                MycIdentityBackend::HostVault => self.signer_identity_profile_path.clone(),
-            },
-        }
-    }
-
-    pub fn user_identity_source(&self) -> MycIdentitySourceSpec {
-        MycIdentitySourceSpec {
-            backend: self.user_identity_backend,
-            path: match self.user_identity_backend {
-                MycIdentityBackend::EncryptedFile
-                | MycIdentityBackend::PlaintextFile
-                | MycIdentityBackend::ManagedAccount
-                | MycIdentityBackend::ExternalCommand => Some(self.user_identity_path.clone()),
-                MycIdentityBackend::HostVault => None,
-            },
-            keyring_account_id: match self.user_identity_backend {
-                MycIdentityBackend::EncryptedFile
-                | MycIdentityBackend::PlaintextFile
-                | MycIdentityBackend::ManagedAccount
-                | MycIdentityBackend::ExternalCommand => None,
-                MycIdentityBackend::HostVault => self.user_identity_keyring_account_id.clone(),
-            },
-            keyring_service_name: match self.user_identity_backend {
-                MycIdentityBackend::EncryptedFile
-                | MycIdentityBackend::PlaintextFile
-                | MycIdentityBackend::ExternalCommand => None,
-                MycIdentityBackend::HostVault | MycIdentityBackend::ManagedAccount => {
-                    Some(self.user_identity_keyring_service_name.clone())
-                }
-            },
-            profile_path: match self.user_identity_backend {
-                MycIdentityBackend::EncryptedFile
-                | MycIdentityBackend::PlaintextFile
-                | MycIdentityBackend::ManagedAccount
-                | MycIdentityBackend::ExternalCommand => None,
-                MycIdentityBackend::HostVault => self.user_identity_profile_path.clone(),
-            },
-        }
-    }
-}
-
 impl MycConfig {
     pub fn allowed_profiles() -> Vec<MycPathProfile> {
         MYC_ALLOWED_PROFILES.to_vec()
@@ -709,27 +461,12 @@ impl MycConfig {
             policy: MycPolicyConfig::default(),
             transport: MycTransportConfig::default(),
         };
-        config.apply_path_defaults(resolver, &MycPathOverrideFlags::default())?;
+        crate::paths::apply_path_defaults(&mut config, resolver, &MycPathOverrideFlags::default())?;
         Ok(config)
     }
 
     fn process_path_selection() -> Result<(MycPathProfile, Option<PathBuf>), MycError> {
-        let profile = match std::env::var("MYC_PATHS_PROFILE") {
-            Ok(value) => parse_path_profile_env(
-                "MYC_PATHS_PROFILE",
-                value.as_str(),
-                Path::new("<process-env>"),
-                0,
-            )?,
-            Err(std::env::VarError::NotPresent) => MycPathProfile::InteractiveUser,
-            Err(std::env::VarError::NotUnicode(_)) => {
-                return Err(MycError::InvalidConfig(
-                    "MYC_PATHS_PROFILE must be valid utf-8 when set".to_owned(),
-                ));
-            }
-        };
-        let repo_local_root = std::env::var_os("MYC_PATHS_REPO_LOCAL_ROOT").map(PathBuf::from);
-        Ok((profile, repo_local_root))
+        crate::paths::process_path_selection()
     }
 
     fn default_env_path_with_path_selection(
@@ -737,7 +474,7 @@ impl MycConfig {
         profile: MycPathProfile,
         repo_local_root: Option<&Path>,
     ) -> Result<PathBuf, MycError> {
-        Ok(MycResolvedRuntimePaths::resolve(resolver, profile, repo_local_root)?.config_env_path)
+        crate::paths::default_env_path_with_path_selection(resolver, profile, repo_local_root)
     }
 
     pub fn load_from_default_env_path() -> Result<Self, MycError> {
@@ -1295,70 +1032,14 @@ impl MycConfig {
         Ok(())
     }
 
-    fn apply_path_defaults(
-        &mut self,
-        resolver: &RadrootsPathResolver,
-        overrides: &MycPathOverrideFlags,
-    ) -> Result<(), MycError> {
-        let resolved = MycResolvedRuntimePaths::resolve(
-            resolver,
-            self.paths.profile,
-            self.paths.repo_local_root.as_deref(),
-        )?;
-        self.paths.config_env_path = resolved.config_env_path;
-        self.paths.run_dir = resolved.run_dir;
-        if !overrides.logging_output_dir {
-            self.logging.output_dir = Some(resolved.logs_dir);
-        }
-        if !overrides.state_dir {
-            self.paths.state_dir = resolved.state_dir;
-        }
-        if !overrides.signer_identity_path {
-            self.paths.signer_identity_path = match self.paths.signer_identity_backend {
-                MycIdentityBackend::EncryptedFile | MycIdentityBackend::PlaintextFile => {
-                    resolved.signer_identity_path
-                }
-                MycIdentityBackend::ManagedAccount => resolved.signer_managed_account_path,
-                MycIdentityBackend::HostVault => PathBuf::new(),
-                MycIdentityBackend::ExternalCommand => PathBuf::new(),
-            };
-        }
-        if !overrides.user_identity_path {
-            self.paths.user_identity_path = match self.paths.user_identity_backend {
-                MycIdentityBackend::EncryptedFile | MycIdentityBackend::PlaintextFile => {
-                    resolved.user_identity_path
-                }
-                MycIdentityBackend::ManagedAccount => resolved.user_managed_account_path,
-                MycIdentityBackend::HostVault => PathBuf::new(),
-                MycIdentityBackend::ExternalCommand => PathBuf::new(),
-            };
-        }
-        if !overrides.discovery_app_identity_path {
-            self.discovery.app_identity_path = match self.discovery.app_identity_backend {
-                Some(MycIdentityBackend::EncryptedFile)
-                | Some(MycIdentityBackend::PlaintextFile) => {
-                    Some(resolved.discovery_app_identity_path)
-                }
-                Some(MycIdentityBackend::ManagedAccount) => {
-                    Some(resolved.discovery_managed_account_path)
-                }
-                Some(MycIdentityBackend::HostVault) | None => None,
-                Some(MycIdentityBackend::ExternalCommand) => None,
-            };
-        }
-        if !overrides.discovery_nip05_output_path {
-            self.discovery.nip05_output_path = Some(resolved.discovery_nip05_output_path);
-        }
-        Ok(())
-    }
-
     fn from_env_str_with_source_and_resolver(
         value: &str,
         path: &Path,
         resolver: &RadrootsPathResolver,
     ) -> Result<Self, MycError> {
         let entries = parse_env_entries(value, path)?;
-        let (profile, repo_local_root) = path_selection_from_entries(entries.as_slice(), path)?;
+        let (profile, repo_local_root) =
+            crate::paths::path_selection_from_entries(entries.as_slice(), path)?;
         let mut config =
             Self::default_with_path_selection(resolver, profile, repo_local_root.as_deref())?;
         let mut path_overrides = MycPathOverrideFlags::default();
@@ -1372,7 +1053,7 @@ impl MycConfig {
                 line_number,
             )?;
         }
-        config.apply_path_defaults(resolver, &path_overrides)?;
+        crate::paths::apply_path_defaults(&mut config, resolver, &path_overrides)?;
         config.validate()?;
         Ok(config)
     }
@@ -1473,26 +1154,6 @@ fn parse_env_value(value: &str, path: &Path, line_number: usize) -> Result<Strin
     Ok(value.to_owned())
 }
 
-fn path_selection_from_entries(
-    entries: &[(String, String, usize)],
-    path: &Path,
-) -> Result<(MycPathProfile, Option<PathBuf>), MycError> {
-    let mut profile = MycPathProfile::InteractiveUser;
-    let mut repo_local_root = None;
-    for (key, value, line_number) in entries {
-        match key.as_str() {
-            "MYC_PATHS_PROFILE" => {
-                profile = parse_path_profile_env(key, value, path, *line_number)?;
-            }
-            "MYC_PATHS_REPO_LOCAL_ROOT" => {
-                repo_local_root = parse_optional_path_env(value);
-            }
-            _ => {}
-        }
-    }
-    Ok((profile, repo_local_root))
-}
-
 fn apply_env_entry(
     config: &mut MycConfig,
     path_overrides: &mut MycPathOverrideFlags,
@@ -1516,7 +1177,8 @@ fn apply_env_entry(
                 parse_u64_env(key, value, path, line_number)?;
         }
         "MYC_PATHS_PROFILE" => {
-            config.paths.profile = parse_path_profile_env(key, value, path, line_number)?;
+            config.paths.profile =
+                crate::paths::parse_path_profile_env(key, value, path, line_number)?;
         }
         "MYC_PATHS_REPO_LOCAL_ROOT" => {
             config.paths.repo_local_root = parse_optional_path_env(value);
@@ -1821,24 +1483,6 @@ fn parse_identity_backend_env(
     }
 }
 
-fn parse_path_profile_env(
-    key: &str,
-    value: &str,
-    path: &Path,
-    line_number: usize,
-) -> Result<MycPathProfile, MycError> {
-    match value {
-        "interactive_user" => Ok(MycPathProfile::InteractiveUser),
-        "service_host" => Ok(MycPathProfile::ServiceHost),
-        "repo_local" => Ok(MycPathProfile::RepoLocal),
-        _ => Err(config_parse_error(
-            path,
-            line_number,
-            format!("{key} must be `interactive_user`, `service_host`, or `repo_local`"),
-        )),
-    }
-}
-
 fn parse_optional_identity_backend_env(
     key: &str,
     value: &str,
@@ -1987,7 +1631,7 @@ fn normalize_policy_client_pubkeys(values: &[String]) -> Result<BTreeSet<String>
         .collect()
 }
 
-fn parse_optional_path_env(value: &str) -> Option<PathBuf> {
+pub(crate) fn parse_optional_path_env(value: &str) -> Option<PathBuf> {
     parse_optional_string_env(value).map(PathBuf::from)
 }
 
@@ -2000,7 +1644,11 @@ fn parse_string_list_env(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn config_parse_error(path: &Path, line_number: usize, message: impl Into<String>) -> MycError {
+pub(crate) fn config_parse_error(
+    path: &Path,
+    line_number: usize,
+    message: impl Into<String>,
+) -> MycError {
     MycError::ConfigParse {
         path: path.to_path_buf(),
         line_number,
@@ -3317,9 +2965,6 @@ MYC_PERSISTENCE_SIGNER_STATE_BACKEND=sqlite
             contract.runtime_specific_custody_modes,
             MycConfig::runtime_specific_custody_modes()
         );
-        assert_eq!(
-            contract.host_vault_policy,
-            MycConfig::host_vault_policy()
-        );
+        assert_eq!(contract.host_vault_policy, MycConfig::host_vault_policy());
     }
 }

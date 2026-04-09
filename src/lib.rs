@@ -14,6 +14,7 @@ pub mod logging;
 pub mod operability;
 pub mod outbox;
 mod outbox_sqlite;
+mod paths;
 pub mod persistence;
 pub mod policy;
 pub mod transport;
@@ -30,8 +31,8 @@ pub use config::{
     DEFAULT_ENV_PATH, MycAuditConfig, MycConfig, MycConnectionApproval, MycCustodyConfig,
     MycDiscoveryConfig, MycDiscoveryMetadataConfig, MycIdentityBackend, MycIdentitySourceSpec,
     MycLoggingConfig, MycObservabilityConfig, MycPathsConfig, MycPersistenceConfig,
-    MycPolicyConfig, MycRuntimeAuditBackend, MycServiceConfig, MycSignerStateBackend,
-    MycRuntimeContractOutput, MycTransportConfig, MycTransportDeliveryPolicy,
+    MycPolicyConfig, MycRuntimeAuditBackend, MycRuntimeContractOutput, MycServiceConfig,
+    MycSignerStateBackend, MycTransportConfig, MycTransportDeliveryPolicy,
 };
 pub use control::{MycAcceptedConnectionOutput, MycAuthorizedReplayOutput};
 pub use custody::{

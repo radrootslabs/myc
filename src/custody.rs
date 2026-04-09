@@ -1262,10 +1262,8 @@ impl MycIdentityProvider {
                         selected_account_label: None,
                         selected_account_state: None,
                         default_shared_secret_backend: MycConfig::default_shared_secret_backend(),
-                        allowed_shared_secret_backends: MycConfig::allowed_shared_secret_backends(
-                        ),
-                        runtime_specific_custody_modes: MycConfig::runtime_specific_custody_modes(
-                        ),
+                        allowed_shared_secret_backends: MycConfig::allowed_shared_secret_backends(),
+                        runtime_specific_custody_modes: MycConfig::runtime_specific_custody_modes(),
                         host_vault_policy: MycConfig::host_vault_policy(),
                         identity_id: None,
                         public_key_hex: None,

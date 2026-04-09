@@ -79,7 +79,10 @@ fn status_summary_command_emits_machine_readable_json() {
     let value: Value = serde_json::from_slice(&output.stdout).expect("status json");
     assert_eq!(value["status"], "unready");
     assert_eq!(value["ready"], false);
-    assert_eq!(value["runtime_contract"]["active_profile"], "interactive_user");
+    assert_eq!(
+        value["runtime_contract"]["active_profile"],
+        "interactive_user"
+    );
     assert_eq!(
         value["runtime_contract"]["allowed_profiles"],
         json!(["interactive_user", "service_host", "repo_local"])
@@ -90,7 +93,12 @@ fn status_summary_command_emits_machine_readable_json() {
     );
     assert_eq!(
         value["runtime_contract"]["allowed_shared_secret_backends"],
-        json!(["encrypted_file", "host_vault", "external_command", "plaintext_file"])
+        json!([
+            "encrypted_file",
+            "host_vault",
+            "external_command",
+            "plaintext_file"
+        ])
     );
     assert_eq!(
         value["runtime_contract"]["runtime_specific_custody_modes"],
@@ -198,7 +206,12 @@ fn custody_status_command_reports_role_backend_details() {
     assert_eq!(value["default_shared_secret_backend"], "encrypted_file");
     assert_eq!(
         value["allowed_shared_secret_backends"],
-        json!(["encrypted_file", "host_vault", "external_command", "plaintext_file"])
+        json!([
+            "encrypted_file",
+            "host_vault",
+            "external_command",
+            "plaintext_file"
+        ])
     );
     assert_eq!(
         value["runtime_specific_custody_modes"],
