@@ -7,7 +7,10 @@ use nostr::PublicKey;
 use radroots_nostr::prelude::RadrootsNostrRelayUrl;
 use radroots_nostr_connect::prelude::RadrootsNostrConnectPermissions;
 use radroots_nostr_signer::prelude::RadrootsNostrSignerApprovalRequirement;
-use radroots_runtime_paths::RadrootsPathResolver;
+use radroots_runtime_paths::{
+    RadrootsLegacyPathCandidate, RadrootsMigrationReport, RadrootsPathResolver,
+    inspect_legacy_paths,
+};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
@@ -169,6 +172,7 @@ pub struct MycRuntimeContractOutput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_vault_policy: Option<String>,
     pub path_overrides: MycRuntimePathOverrideContractOutput,
+    pub migration: MycRuntimeMigrationContractOutput,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -177,6 +181,25 @@ pub struct MycRuntimePathOverrideContractOutput {
     pub canonical_subordinate_path_override: &'static str,
     pub leaf_path_env_posture: &'static str,
     pub compatibility_leaf_path_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycRuntimeMigrationContractOutput {
+    pub posture: String,
+    pub state: String,
+    pub silent_startup_relocation: bool,
+    pub compatibility_window: String,
+    pub detected_legacy_paths: Vec<MycRuntimeLegacyPathOutput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycRuntimeLegacyPathOutput {
+    pub id: String,
+    pub description: String,
+    pub path: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination: Option<PathBuf>,
+    pub import_hint: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -393,6 +416,7 @@ const MYC_HOST_VAULT_POLICY: &str = "desktop";
 const MYC_CANONICAL_ROOT_SELECTION: &str = "profile_root_env_or_repo_wrapper";
 const MYC_CANONICAL_SUBORDINATE_PATH_OVERRIDE: &str = "config_artifact";
 const MYC_LEAF_PATH_ENV_POSTURE: &str = "compatibility_break_glass";
+const MYC_MIGRATION_IMPORT_HINT: &str = "stop myc, inspect this legacy path, then run an explicit backup/restore, custody import, or manual copy into the canonical destination; myc will not move it on startup";
 const MYC_COMPATIBILITY_LEAF_PATH_KEYS: [&str; 6] = [
     "MYC_LOGGING_OUTPUT_DIR",
     "MYC_PATHS_STATE_DIR",
@@ -415,6 +439,9 @@ impl MycRuntimeContractOutput {
                 .collect(),
             host_vault_policy: Some(MYC_HOST_VAULT_POLICY.to_owned()),
             path_overrides: MycRuntimePathOverrideContractOutput::current(),
+            migration: MycRuntimeMigrationContractOutput::from_report(
+                RadrootsMigrationReport::empty(),
+            ),
         }
     }
 }
@@ -428,6 +455,28 @@ impl MycRuntimePathOverrideContractOutput {
             compatibility_leaf_path_keys: MYC_COMPATIBILITY_LEAF_PATH_KEYS
                 .into_iter()
                 .map(str::to_owned)
+                .collect(),
+        }
+    }
+}
+
+impl MycRuntimeMigrationContractOutput {
+    fn from_report(report: RadrootsMigrationReport) -> Self {
+        Self {
+            posture: report.posture.to_owned(),
+            state: report.state.to_owned(),
+            silent_startup_relocation: report.silent_startup_relocation,
+            compatibility_window: report.compatibility_window.to_owned(),
+            detected_legacy_paths: report
+                .detected_legacy_paths
+                .into_iter()
+                .map(|path| MycRuntimeLegacyPathOutput {
+                    id: path.id,
+                    description: path.description,
+                    path: path.path,
+                    destination: path.destination,
+                    import_hint: path.import_hint,
+                })
                 .collect(),
         }
     }
@@ -476,7 +525,30 @@ impl MycConfig {
     }
 
     pub fn runtime_contract_output(&self) -> MycRuntimeContractOutput {
-        MycRuntimeContractOutput::for_active_profile(self.paths.profile)
+        let mut output = MycRuntimeContractOutput::for_active_profile(self.paths.profile);
+        output.migration = MycRuntimeMigrationContractOutput::from_report(inspect_legacy_paths(
+            self.legacy_path_candidates(),
+        ));
+        output
+    }
+
+    fn legacy_path_candidates(&self) -> Vec<RadrootsLegacyPathCandidate> {
+        vec![
+            RadrootsLegacyPathCandidate::new(
+                "myc_repo_var_v0",
+                "legacy myc repo-relative var directory",
+                PathBuf::from("var"),
+                Some(self.paths.state_dir.clone()),
+                MYC_MIGRATION_IMPORT_HINT,
+            ),
+            RadrootsLegacyPathCandidate::new(
+                "myc_service_var_lib_v0",
+                "legacy myc service state root",
+                PathBuf::from("/var/lib/myc"),
+                Some(self.paths.state_dir.clone()),
+                MYC_MIGRATION_IMPORT_HINT,
+            ),
+        ]
     }
 
     fn default_with_path_selection(
@@ -3023,6 +3095,15 @@ MYC_PERSISTENCE_SIGNER_STATE_BACKEND=sqlite
                 "MYC_DISCOVERY_APP_IDENTITY_PATH",
                 "MYC_DISCOVERY_NIP05_OUTPUT_PATH"
             ]
+        );
+        assert_eq!(
+            contract.migration.posture,
+            "explicit_operator_import_required"
+        );
+        assert_eq!(contract.migration.silent_startup_relocation, false);
+        assert_eq!(
+            contract.migration.compatibility_window,
+            "detect_and_report_only"
         );
     }
 }
