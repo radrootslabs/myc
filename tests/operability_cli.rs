@@ -84,6 +84,29 @@ fn status_summary_command_emits_machine_readable_json() {
         "interactive_user"
     );
     assert_eq!(
+        value["runtime_contract"]["path_overrides"]["canonical_root_selection"],
+        "profile_root_env_or_repo_wrapper"
+    );
+    assert_eq!(
+        value["runtime_contract"]["path_overrides"]["canonical_subordinate_path_override"],
+        "config_artifact"
+    );
+    assert_eq!(
+        value["runtime_contract"]["path_overrides"]["leaf_path_env_posture"],
+        "compatibility_break_glass"
+    );
+    assert_eq!(
+        value["runtime_contract"]["path_overrides"]["compatibility_leaf_path_keys"],
+        json!([
+            "MYC_LOGGING_OUTPUT_DIR",
+            "MYC_PATHS_STATE_DIR",
+            "MYC_PATHS_SIGNER_IDENTITY_PATH",
+            "MYC_PATHS_USER_IDENTITY_PATH",
+            "MYC_DISCOVERY_APP_IDENTITY_PATH",
+            "MYC_DISCOVERY_NIP05_OUTPUT_PATH"
+        ])
+    );
+    assert_eq!(
         value["runtime_contract"]["allowed_profiles"],
         json!(["interactive_user", "service_host", "repo_local"])
     );

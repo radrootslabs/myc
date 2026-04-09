@@ -168,6 +168,15 @@ pub struct MycRuntimeContractOutput {
     pub runtime_specific_custody_modes: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_vault_policy: Option<String>,
+    pub path_overrides: MycRuntimePathOverrideContractOutput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycRuntimePathOverrideContractOutput {
+    pub canonical_root_selection: &'static str,
+    pub canonical_subordinate_path_override: &'static str,
+    pub leaf_path_env_posture: &'static str,
+    pub compatibility_leaf_path_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -381,6 +390,17 @@ const MYC_ALLOWED_SHARED_SECRET_BACKENDS: [MycIdentityBackend; 4] = [
 const MYC_RUNTIME_SPECIFIC_CUSTODY_MODES: [&str; 1] = ["managed_account"];
 const MYC_DEFAULT_SHARED_SECRET_BACKEND: MycIdentityBackend = MycIdentityBackend::EncryptedFile;
 const MYC_HOST_VAULT_POLICY: &str = "desktop";
+const MYC_CANONICAL_ROOT_SELECTION: &str = "profile_root_env_or_repo_wrapper";
+const MYC_CANONICAL_SUBORDINATE_PATH_OVERRIDE: &str = "config_artifact";
+const MYC_LEAF_PATH_ENV_POSTURE: &str = "compatibility_break_glass";
+const MYC_COMPATIBILITY_LEAF_PATH_KEYS: [&str; 6] = [
+    "MYC_LOGGING_OUTPUT_DIR",
+    "MYC_PATHS_STATE_DIR",
+    "MYC_PATHS_SIGNER_IDENTITY_PATH",
+    "MYC_PATHS_USER_IDENTITY_PATH",
+    "MYC_DISCOVERY_APP_IDENTITY_PATH",
+    "MYC_DISCOVERY_NIP05_OUTPUT_PATH",
+];
 
 impl MycRuntimeContractOutput {
     pub fn for_active_profile(active_profile: MycPathProfile) -> Self {
@@ -394,6 +414,21 @@ impl MycRuntimeContractOutput {
                 .map(str::to_owned)
                 .collect(),
             host_vault_policy: Some(MYC_HOST_VAULT_POLICY.to_owned()),
+            path_overrides: MycRuntimePathOverrideContractOutput::current(),
+        }
+    }
+}
+
+impl MycRuntimePathOverrideContractOutput {
+    pub fn current() -> Self {
+        Self {
+            canonical_root_selection: MYC_CANONICAL_ROOT_SELECTION,
+            canonical_subordinate_path_override: MYC_CANONICAL_SUBORDINATE_PATH_OVERRIDE,
+            leaf_path_env_posture: MYC_LEAF_PATH_ENV_POSTURE,
+            compatibility_leaf_path_keys: MYC_COMPATIBILITY_LEAF_PATH_KEYS
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
         }
     }
 }
@@ -2966,5 +3001,28 @@ MYC_PERSISTENCE_SIGNER_STATE_BACKEND=sqlite
             MycConfig::runtime_specific_custody_modes()
         );
         assert_eq!(contract.host_vault_policy, MycConfig::host_vault_policy());
+        assert_eq!(
+            contract.path_overrides.canonical_root_selection,
+            "profile_root_env_or_repo_wrapper"
+        );
+        assert_eq!(
+            contract.path_overrides.canonical_subordinate_path_override,
+            "config_artifact"
+        );
+        assert_eq!(
+            contract.path_overrides.leaf_path_env_posture,
+            "compatibility_break_glass"
+        );
+        assert_eq!(
+            contract.path_overrides.compatibility_leaf_path_keys,
+            [
+                "MYC_LOGGING_OUTPUT_DIR",
+                "MYC_PATHS_STATE_DIR",
+                "MYC_PATHS_SIGNER_IDENTITY_PATH",
+                "MYC_PATHS_USER_IDENTITY_PATH",
+                "MYC_DISCOVERY_APP_IDENTITY_PATH",
+                "MYC_DISCOVERY_NIP05_OUTPUT_PATH"
+            ]
+        );
     }
 }
