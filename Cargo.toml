@@ -19,16 +19,16 @@ chacha20poly1305 = "0.10"
 clap = { version = "4.5", features = ["derive"] }
 getrandom = "0.2"
 nostr = { version = "0.44.2", features = ["nip04", "nip44", "nip46"] }
-radroots-identity = { path = "../lib/crates/identity" }
-radroots-log = { path = "../lib/crates/log" }
-radroots-nostr-accounts = { path = "../lib/crates/nostr-accounts", default-features = false, features = ["std", "memory-vault", "os-keyring"] }
-radroots-nostr = { path = "../lib/crates/nostr", features = ["client", "events"] }
-radroots-nostr-connect = { path = "../lib/crates/nostr-connect" }
-radroots-nostr-signer = { path = "../lib/crates/nostr-signer", features = ["native"] }
-radroots-protected-store = { path = "../lib/crates/protected-store" }
-radroots-runtime-paths = { path = "../lib/crates/runtime-paths" }
-radroots-secret-vault = { path = "../lib/crates/secret-vault", features = ["std", "os-keyring"] }
-radroots-sql-core = { path = "../lib/crates/sql-core", features = ["native"] }
+radroots_identity = { path = "../lib/crates/identity" }
+radroots_log = { path = "../lib/crates/log" }
+radroots_nostr_accounts = { path = "../lib/crates/nostr_accounts", default-features = false, features = ["std", "memory-vault", "os-keyring"] }
+radroots_nostr = { path = "../lib/crates/nostr", features = ["client", "events"] }
+radroots_nostr_connect = { path = "../lib/crates/nostr_connect" }
+radroots_nostr_signer = { path = "../lib/crates/nostr_signer", features = ["native"] }
+radroots_protected_store = { path = "../lib/crates/protected_store" }
+radroots_runtime_paths = { path = "../lib/crates/runtime_paths" }
+radroots_secret_vault = { path = "../lib/crates/secret_vault", features = ["std", "os-keyring"] }
+radroots_sql_core = { path = "../lib/crates/sql_core", features = ["native"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
