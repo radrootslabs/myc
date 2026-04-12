@@ -11,8 +11,7 @@ use radroots_nostr::prelude::{
     RadrootsNostrClient, RadrootsNostrEvent, RadrootsNostrEventBuilder, RadrootsNostrPublicKey,
 };
 use radroots_nostr_accounts::prelude::{
-    RadrootsNostrAccountRecord, RadrootsNostrAccountsManager, RadrootsNostrFileAccountStore,
-    RadrootsNostrSelectedAccountStatus,
+    RadrootsNostrAccountRecord, RadrootsNostrAccountsManager, RadrootsNostrSelectedAccountStatus,
 };
 use radroots_secret_vault::{RadrootsSecretVault, RadrootsSecretVaultOsKeyring};
 use serde::{Deserialize, Serialize};
@@ -1443,11 +1442,9 @@ impl MycIdentityProvider {
                 source,
             })?;
         }
-        let manager = RadrootsNostrAccountsManager::new(
-            Arc::new(RadrootsNostrFileAccountStore::new(
-                account_store_path.as_path(),
-            )),
-            Arc::new(RadrootsSecretVaultOsKeyring::new(service_name.clone())),
+        let manager = RadrootsNostrAccountsManager::new_file_backed_with_vault(
+            account_store_path.as_path(),
+            RadrootsSecretVaultOsKeyring::new(service_name.clone()),
         )
         .map_err(|source| MycError::CustodyManager {
             role: role.to_owned(),
