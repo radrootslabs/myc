@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     config::{
-        config_parse_error, parse_optional_path_env, MycConfig, MycIdentityBackend,
-        MycIdentitySourceSpec,
+        MycConfig, MycIdentityBackend, MycIdentitySourceSpec, config_parse_error,
+        parse_optional_path_env,
     },
     error::MycError,
 };
