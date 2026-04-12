@@ -8,9 +8,9 @@ use radroots_nostr_connect::prelude::{
     RadrootsNostrConnectRequest, RadrootsNostrConnectRequestMessage,
 };
 use radroots_nostr_signer::prelude::{
-    RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerConnectionRecord,
-    RadrootsNostrSignerManager, RadrootsNostrSignerRequestAuditRecord,
-    RadrootsNostrSignerRequestDecision,
+    RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerBackend,
+    RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerManager,
+    RadrootsNostrSignerNip46ConnectDecision, RadrootsNostrSignerNip46Policy,
 };
 
 use crate::config::{MycConnectionApproval, MycPolicyConfig};
@@ -176,9 +176,9 @@ impl MycPolicyContext {
         }
     }
 
-    pub fn prepare_request(
+    pub fn prepare_request<B: RadrootsNostrSignerBackend>(
         &self,
-        manager: &RadrootsNostrSignerManager,
+        backend: &B,
         connection: &RadrootsNostrSignerConnectionRecord,
         request_message: &RadrootsNostrConnectRequestMessage,
     ) -> Result<Option<String>, MycError> {
@@ -196,7 +196,7 @@ impl MycPolicyContext {
         {
             if self.request_uses_automatic_auth(connection, &request_message.request) {
                 if let Some(reason) =
-                    self.require_auth_challenge_with_guardrails(manager, connection)?
+                    self.require_auth_challenge_with_guardrails(backend, connection)?
                 {
                     return Ok(Some(reason));
                 }
@@ -207,7 +207,7 @@ impl MycPolicyContext {
             }
         } else if self.should_require_fresh_auth(connection, &request_message.request) {
             if let Some(reason) =
-                self.require_auth_challenge_with_guardrails(manager, connection)?
+                self.require_auth_challenge_with_guardrails(backend, connection)?
             {
                 return Ok(Some(reason));
             }
@@ -240,27 +240,10 @@ impl MycPolicyContext {
             if !self.stale_session_requires_cleanup(&connection) {
                 continue;
             }
-            self.require_auth_challenge(manager, &connection)?;
+            self.require_auth_challenge_with_manager(manager, &connection)?;
             cleaned += 1;
         }
         Ok(cleaned)
-    }
-
-    pub fn record_policy_denied_request(
-        &self,
-        manager: &RadrootsNostrSignerManager,
-        connection: &RadrootsNostrSignerConnectionRecord,
-        request_message: &RadrootsNostrConnectRequestMessage,
-        reason: impl Into<String>,
-    ) -> Result<RadrootsNostrSignerRequestAuditRecord, MycError> {
-        let reason = reason.into();
-        Ok(manager.record_request(
-            &connection.connection_id,
-            &request_message.id,
-            request_message.request.method(),
-            RadrootsNostrSignerRequestDecision::Denied,
-            Some(reason.clone()),
-        )?)
     }
 
     fn client_is_denied(&self, client_public_key: &PublicKey) -> bool {
@@ -386,9 +369,9 @@ impl MycPolicyContext {
         self.auth_url.is_some() && self.client_is_trusted(&connection.client_public_key)
     }
 
-    fn require_auth_challenge_with_guardrails(
+    fn require_auth_challenge_with_guardrails<B: RadrootsNostrSignerBackend>(
         &self,
-        manager: &RadrootsNostrSignerManager,
+        backend: &B,
         connection: &RadrootsNostrSignerConnectionRecord,
     ) -> Result<Option<String>, MycError> {
         if let Some(retry_after_secs) = self
@@ -401,11 +384,20 @@ impl MycPolicyContext {
                 retry_after_secs,
             )));
         }
-        self.require_auth_challenge(manager, connection)?;
+        self.require_auth_challenge_with_backend(backend, connection)?;
         Ok(None)
     }
 
-    fn require_auth_challenge(
+    fn require_auth_challenge_with_backend<B: RadrootsNostrSignerBackend>(
+        &self,
+        backend: &B,
+        connection: &RadrootsNostrSignerConnectionRecord,
+    ) -> Result<(), MycError> {
+        backend.require_auth_challenge(&connection.connection_id, self.auth_url()?)?;
+        Ok(())
+    }
+
+    fn require_auth_challenge_with_manager(
         &self,
         manager: &RadrootsNostrSignerManager,
         connection: &RadrootsNostrSignerConnectionRecord,
@@ -445,6 +437,56 @@ impl MycPolicyContext {
                     now_unix > last_request_at_unix.saturating_add(ttl)
                 })
         })
+    }
+}
+
+impl<B: RadrootsNostrSignerBackend> RadrootsNostrSignerNip46Policy<B> for MycPolicyContext {
+    fn connect_decision(
+        &self,
+        client_public_key: &PublicKey,
+    ) -> RadrootsNostrSignerNip46ConnectDecision {
+        match self.connect_decision(client_public_key) {
+            MycConnectDecision::Allow => RadrootsNostrSignerNip46ConnectDecision::Allow,
+            MycConnectDecision::RequireApproval => {
+                RadrootsNostrSignerNip46ConnectDecision::RequireApproval
+            }
+            MycConnectDecision::Deny => RadrootsNostrSignerNip46ConnectDecision::Deny,
+        }
+    }
+
+    fn connect_rate_limit_denied_reason(&self, client_public_key: &PublicKey) -> Option<String> {
+        self.connect_rate_limit_denied_reason(client_public_key)
+    }
+
+    fn approval_requirement_for_client(
+        &self,
+        client_public_key: &PublicKey,
+    ) -> Option<RadrootsNostrSignerApprovalRequirement> {
+        self.approval_requirement_for_client(client_public_key)
+    }
+
+    fn filtered_requested_permissions(
+        &self,
+        requested_permissions: &RadrootsNostrConnectPermissions,
+    ) -> RadrootsNostrConnectPermissions {
+        self.filtered_requested_permissions(requested_permissions)
+    }
+
+    fn auto_granted_permissions(
+        &self,
+        requested_permissions: &RadrootsNostrConnectPermissions,
+    ) -> RadrootsNostrConnectPermissions {
+        self.auto_granted_permissions(requested_permissions)
+    }
+
+    fn prepare_request(
+        &self,
+        backend: &B,
+        connection: &RadrootsNostrSignerConnectionRecord,
+        request_message: &RadrootsNostrConnectRequestMessage,
+    ) -> Result<Option<String>, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+        self.prepare_request(backend, connection, request_message)
+            .map_err(myc_policy_signer_error)
     }
 }
 
@@ -625,6 +667,12 @@ fn now_unix_secs() -> u64 {
         .unwrap_or_default()
 }
 
+fn myc_policy_signer_error(
+    error: MycError,
+) -> radroots_nostr_signer::prelude::RadrootsNostrSignerError {
+    radroots_nostr_signer::prelude::RadrootsNostrSignerError::InvalidState(error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{MycConnectDecision, MycPolicyContext};
@@ -637,8 +685,9 @@ mod tests {
         RadrootsNostrConnectRequestMessage,
     };
     use radroots_nostr_signer::prelude::{
-        RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerAuthState,
-        RadrootsNostrSignerConnectionDraft, RadrootsNostrSignerManager,
+        RadrootsNostrEmbeddedSignerBackend, RadrootsNostrSignerApprovalRequirement,
+        RadrootsNostrSignerAuthState, RadrootsNostrSignerConnectionDraft,
+        RadrootsNostrSignerManager,
     };
     use serde_json::json;
     use std::thread;
@@ -661,6 +710,14 @@ mod tests {
             )
             .expect("set signer identity");
         manager
+    }
+
+    fn backend_for(manager: &RadrootsNostrSignerManager) -> RadrootsNostrEmbeddedSignerBackend {
+        RadrootsNostrEmbeddedSignerBackend::new(
+            manager.clone(),
+            identity("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        )
+        .expect("backend")
     }
 
     fn register_connection(
@@ -761,6 +818,7 @@ mod tests {
         config.allowed_sign_event_kinds = vec![1];
         let policy = MycPolicyContext::from_config(&config).expect("policy");
         let manager = in_memory_manager();
+        let backend = backend_for(&manager);
         let connection = register_connection(
             &manager,
             public_key("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
@@ -768,7 +826,7 @@ mod tests {
 
         let denied = policy
             .prepare_request(
-                &manager,
+                &backend,
                 &connection,
                 &RadrootsNostrConnectRequestMessage::new(
                     "request-1",
@@ -817,6 +875,7 @@ mod tests {
         config.auth_authorized_ttl_secs = Some(1);
         let policy = MycPolicyContext::from_config(&config).expect("policy");
         let manager = in_memory_manager();
+        let backend = backend_for(&manager);
         let connection = register_connection(&manager, client_public_key);
 
         manager
@@ -833,7 +892,7 @@ mod tests {
             .expect("connection");
         let denied = policy
             .prepare_request(
-                &manager,
+                &backend,
                 &connection,
                 &RadrootsNostrConnectRequestMessage::new(
                     "request-1",
@@ -870,6 +929,7 @@ mod tests {
         config.reauth_after_inactivity_secs = Some(1);
         let policy = MycPolicyContext::from_config(&config).expect("policy");
         let manager = in_memory_manager();
+        let backend = backend_for(&manager);
         let connection = register_connection(&manager, client_public_key);
 
         manager
@@ -895,7 +955,7 @@ mod tests {
             .expect("connection");
         let denied = policy
             .prepare_request(
-                &manager,
+                &backend,
                 &connection,
                 &RadrootsNostrConnectRequestMessage::new(
                     "request-1",

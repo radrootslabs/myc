@@ -24,6 +24,7 @@ static MYC_OPERATION_AUDIT_MIGRATIONS: &[Migration] = &[Migration {
     down_sql: include_str!("../migrations/0000_runtime_audit_init.down.sql"),
 }];
 
+/// Myc keeps its operational audit store local to the service boundary.
 pub struct MycSqliteOperationAuditStore {
     db: MycOperationAuditSqliteDb,
     config: MycAuditConfig,

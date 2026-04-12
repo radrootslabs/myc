@@ -22,6 +22,7 @@ static MYC_DELIVERY_OUTBOX_MIGRATIONS: &[Migration] = &[Migration {
     down_sql: include_str!("../migrations/0000_delivery_outbox_init.down.sql"),
 }];
 
+/// Myc keeps its delivery outbox store local to the service boundary.
 pub struct MycSqliteDeliveryOutboxStore {
     db: MycDeliveryOutboxSqliteDb,
 }

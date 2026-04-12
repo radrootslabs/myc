@@ -6,30 +6,36 @@ use radroots_nostr::prelude::{
     RadrootsNostrRelayPoolNotification, RadrootsNostrRelayUrl,
 };
 use radroots_nostr_connect::prelude::{
-    RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectRequest,
-    RadrootsNostrConnectRequestMessage, RadrootsNostrConnectResponse,
+    RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectRequestMessage,
+    RadrootsNostrConnectResponse,
 };
 use radroots_nostr_signer::prelude::{
-    RadrootsNostrSignerConnectEvaluation, RadrootsNostrSignerConnectionId,
-    RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerHandledRequest,
-    RadrootsNostrSignerNip46Codec, RadrootsNostrSignerNip46Signer,
-    RadrootsNostrSignerRequestAction, RadrootsNostrSignerRequestEvaluation,
-    RadrootsNostrSignerSessionLookup, RadrootsNostrSignerWorkflowId, connect_response_outcome,
-    handled_request_for_action, response_from_hint,
+    RadrootsNostrSignerConnectionId, RadrootsNostrSignerHandledRequestOutcome,
+    RadrootsNostrSignerNip46Handler, RadrootsNostrSignerNip46Signer,
+    RadrootsNostrSignerRequestEvaluation, RadrootsNostrSignerWorkflowId,
 };
 use tokio::sync::broadcast;
 
+#[cfg(test)]
+use radroots_nostr_signer::prelude::RadrootsNostrSignerHandledRequest;
+
 use crate::app::MycSignerContext;
+use crate::app::backend::MycSignerBackend;
 use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
 use crate::error::MycError;
 use crate::outbox::{MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycDeliveryOutboxStore};
 use crate::transport::MycNostrTransport;
 
+type MycNip46CoreHandler = RadrootsNostrSignerNip46Handler<
+    MycSignerBackend,
+    crate::policy::MycPolicyContext,
+    MycNip46Signer,
+>;
+
 #[derive(Clone)]
 pub struct MycNip46Handler {
     signer: MycSignerContext,
-    relays: Vec<RadrootsNostrRelayUrl>,
-    codec: RadrootsNostrSignerNip46Codec<MycNip46Signer>,
+    handler: MycNip46CoreHandler,
 }
 
 pub struct MycNip46Service {
@@ -38,12 +44,7 @@ pub struct MycNip46Service {
     delivery_outbox_store: Arc<dyn MycDeliveryOutboxStore>,
 }
 
-enum MycPreparedRequestEvaluation {
-    Denied(String),
-    Evaluation(RadrootsNostrSignerRequestEvaluation),
-}
-
-type MycNip46HandledRequest = RadrootsNostrSignerHandledRequest;
+type MycNip46HandledOutcome = RadrootsNostrSignerHandledRequestOutcome;
 
 #[derive(Clone)]
 struct MycNip46Signer {
@@ -81,8 +82,8 @@ impl RadrootsNostrSignerNip46Signer for MycNip46Signer {
             })
     }
 
-    fn user_public_key(&self) -> RadrootsNostrPublicKey {
-        self.signer.user_identity().public_key()
+    fn user_identity(&self) -> radroots_identity::RadrootsIdentityPublic {
+        self.signer.user_public_identity()
     }
 
     fn sign_user_event(
@@ -152,25 +153,26 @@ impl RadrootsNostrSignerNip46Signer for MycNip46Signer {
 
 impl MycNip46Handler {
     pub fn new(signer: MycSignerContext, relays: Vec<RadrootsNostrRelayUrl>) -> Self {
-        let codec = RadrootsNostrSignerNip46Codec::new(MycNip46Signer {
-            signer: signer.clone(),
-        });
-        Self {
-            signer,
+        let handler = RadrootsNostrSignerNip46Handler::new(
+            MycSignerBackend::new(signer.clone()),
+            signer.policy().clone(),
             relays,
-            codec,
-        }
+            MycNip46Signer {
+                signer: signer.clone(),
+            },
+        );
+        Self { signer, handler }
     }
 
     pub fn filter(&self) -> Result<RadrootsNostrFilter, MycError> {
-        self.codec.filter().map_err(Into::into)
+        self.handler.filter().map_err(Into::into)
     }
 
     pub fn parse_request_event(
         &self,
         event: &RadrootsNostrEvent,
     ) -> Result<RadrootsNostrConnectRequestMessage, MycError> {
-        self.codec.parse_request_event(event).map_err(Into::into)
+        self.handler.parse_request_event(event).map_err(Into::into)
     }
 
     pub fn build_response_event(
@@ -179,7 +181,7 @@ impl MycNip46Handler {
         request_id: impl Into<String>,
         response: RadrootsNostrConnectResponse,
     ) -> Result<radroots_nostr::prelude::RadrootsNostrEventBuilder, MycError> {
-        self.codec
+        self.handler
             .build_response_event(client_public_key, request_id, response)
             .map_err(Into::into)
     }
@@ -188,36 +190,10 @@ impl MycNip46Handler {
         &self,
         client_public_key: RadrootsNostrPublicKey,
         request_message: RadrootsNostrConnectRequestMessage,
-    ) -> Result<MycNip46HandledRequest, MycError> {
-        match request_message.request.clone() {
-            RadrootsNostrConnectRequest::Connect { secret, .. } => {
-                self.handle_connect_request(client_public_key, request_message.request, secret)
-            }
-            RadrootsNostrConnectRequest::SignEvent(unsigned_event) => {
-                self.handle_sign_event_request(client_public_key, request_message, unsigned_event)
-            }
-            RadrootsNostrConnectRequest::Nip04Encrypt { .. }
-            | RadrootsNostrConnectRequest::Nip04Decrypt { .. }
-            | RadrootsNostrConnectRequest::Nip44Encrypt { .. }
-            | RadrootsNostrConnectRequest::Nip44Decrypt { .. } => {
-                self.handle_crypto_request(client_public_key, request_message)
-            }
-            RadrootsNostrConnectRequest::GetPublicKey
-            | RadrootsNostrConnectRequest::GetSessionCapability
-            | RadrootsNostrConnectRequest::Ping
-            | RadrootsNostrConnectRequest::SwitchRelays => {
-                self.handle_base_request(client_public_key, request_message)
-            }
-            _ => Ok(MycNip46HandledRequest::respond(
-                RadrootsNostrConnectResponse::Error {
-                    result: None,
-                    error: format!(
-                        "method `{}` is not implemented yet",
-                        request_message.request.method()
-                    ),
-                },
-            )),
-        }
+    ) -> Result<MycNip46HandledOutcome, MycError> {
+        self.handler
+            .handle_request(client_public_key, request_message)
+            .map_err(Into::into)
     }
 
     #[cfg(test)]
@@ -227,203 +203,16 @@ impl MycNip46Handler {
         request_message: RadrootsNostrConnectRequestMessage,
     ) -> Result<RadrootsNostrConnectResponse, MycError> {
         match self.handle_request(client_public_key, request_message)? {
-            MycNip46HandledRequest::Respond { response, .. } => Ok(response),
-            MycNip46HandledRequest::Ignore => Err(MycError::InvalidOperation(
+            MycNip46HandledOutcome {
+                handled_request: RadrootsNostrSignerHandledRequest::Respond { response, .. },
+                ..
+            } => Ok(response),
+            MycNip46HandledOutcome {
+                handled_request: RadrootsNostrSignerHandledRequest::Ignore,
+                ..
+            } => Err(MycError::InvalidOperation(
                 "request was ignored without a response".to_owned(),
             )),
-        }
-    }
-
-    fn handle_connect_request(
-        &self,
-        client_public_key: RadrootsNostrPublicKey,
-        request: RadrootsNostrConnectRequest,
-        secret: Option<String>,
-    ) -> Result<MycNip46HandledRequest, MycError> {
-        let manager = self.signer.load_signer_manager()?;
-        let connect_decision = self.signer.policy().connect_decision(&client_public_key);
-        if let Some(connect_secret) = secret.as_deref() {
-            if let Some(connection) = manager.find_connection_by_connect_secret(connect_secret)? {
-                if connection.connect_secret_is_consumed() {
-                    tracing::debug!(
-                        connection_id = %connection.connection_id,
-                        "ignoring reused consumed NIP-46 connect secret"
-                    );
-                    return Ok(MycNip46HandledRequest::Ignore);
-                }
-            }
-        }
-        if !matches!(connect_decision, crate::policy::MycConnectDecision::Deny) {
-            if let Some(reason) = self
-                .signer
-                .policy()
-                .connect_rate_limit_denied_reason(&client_public_key)
-            {
-                return Ok(MycNip46HandledRequest::respond(
-                    RadrootsNostrConnectResponse::Error {
-                        result: None,
-                        error: reason,
-                    },
-                ));
-            }
-        }
-        let evaluation = manager.evaluate_connect_request(client_public_key, request)?;
-
-        match evaluation {
-            RadrootsNostrSignerConnectEvaluation::ExistingConnection(connection) => {
-                if secret.is_some() && connection.connect_secret_is_consumed() {
-                    tracing::debug!(
-                        connection_id = %connection.connection_id,
-                        "ignoring reused consumed NIP-46 connect secret"
-                    );
-                    return Ok(MycNip46HandledRequest::Ignore);
-                }
-                if matches!(connect_decision, crate::policy::MycConnectDecision::Deny) {
-                    return Ok(MycNip46HandledRequest::respond(
-                        RadrootsNostrConnectResponse::Error {
-                            result: None,
-                            error: "client public key denied by policy".to_owned(),
-                        },
-                    ));
-                }
-                Ok(connect_response_outcome(&connection, secret))
-            }
-            RadrootsNostrSignerConnectEvaluation::RegistrationRequired(proposal) => {
-                let requested_permissions = self
-                    .signer
-                    .policy()
-                    .filtered_requested_permissions(&proposal.requested_permissions);
-                let Some(approval_requirement) = self
-                    .signer
-                    .policy()
-                    .approval_requirement_for_client(&client_public_key)
-                else {
-                    return Ok(MycNip46HandledRequest::respond(
-                        RadrootsNostrConnectResponse::Error {
-                            result: None,
-                            error: "client public key denied by policy".to_owned(),
-                        },
-                    ));
-                };
-                let draft = proposal
-                    .into_connection_draft(self.signer.user_public_identity())
-                    .with_requested_permissions(requested_permissions)
-                    .with_relays(self.relays.clone())
-                    .with_approval_requirement(approval_requirement);
-                let connection = manager.register_connection(draft)?;
-                if approval_requirement
-                    == radroots_nostr_signer::prelude::RadrootsNostrSignerApprovalRequirement::NotRequired
-                {
-                    let granted_permissions = self
-                        .signer
-                        .policy()
-                        .auto_granted_permissions(&connection.requested_permissions);
-                    let _ = manager.set_granted_permissions(
-                        &connection.connection_id,
-                        granted_permissions,
-                    )?;
-                }
-                Ok(connect_response_outcome(&connection, secret))
-            }
-        }
-    }
-
-    fn handle_base_request(
-        &self,
-        client_public_key: RadrootsNostrPublicKey,
-        request_message: RadrootsNostrConnectRequestMessage,
-    ) -> Result<MycNip46HandledRequest, MycError> {
-        let connection = match self.lookup_connection(client_public_key)? {
-            Ok(connection) => connection,
-            Err(response) => return Ok(MycNip46HandledRequest::respond(response)),
-        };
-
-        match self.evaluate_request_with_policy(&connection, request_message)? {
-            MycPreparedRequestEvaluation::Denied(reason) => {
-                Ok(MycNip46HandledRequest::respond_for_connection(
-                    Some(connection.connection_id.clone()),
-                    RadrootsNostrConnectResponse::Error {
-                        result: None,
-                        error: reason,
-                    },
-                ))
-            }
-            MycPreparedRequestEvaluation::Evaluation(evaluation) => {
-                let response_hint = match &evaluation.action {
-                    RadrootsNostrSignerRequestAction::Allowed { response_hint, .. } => {
-                        Some(response_hint.clone())
-                    }
-                    _ => None,
-                };
-                Ok(handled_request_for_action(
-                    &evaluation.connection,
-                    evaluation.action,
-                    || {
-                        Ok(response_from_hint(
-                            &evaluation.connection,
-                            response_hint.expect("allowed action carries response hint"),
-                        ))
-                    },
-                )?)
-            }
-        }
-    }
-
-    fn handle_sign_event_request(
-        &self,
-        client_public_key: RadrootsNostrPublicKey,
-        request_message: RadrootsNostrConnectRequestMessage,
-        unsigned_event: nostr::UnsignedEvent,
-    ) -> Result<MycNip46HandledRequest, MycError> {
-        let connection = match self.lookup_connection(client_public_key)? {
-            Ok(connection) => connection,
-            Err(response) => return Ok(MycNip46HandledRequest::respond(response)),
-        };
-
-        match self.evaluate_request_with_policy(&connection, request_message)? {
-            MycPreparedRequestEvaluation::Denied(reason) => {
-                Ok(MycNip46HandledRequest::respond_for_connection(
-                    Some(connection.connection_id.clone()),
-                    RadrootsNostrConnectResponse::Error {
-                        result: None,
-                        error: reason,
-                    },
-                ))
-            }
-            MycPreparedRequestEvaluation::Evaluation(evaluation) => Ok(handled_request_for_action(
-                &evaluation.connection,
-                evaluation.action,
-                || self.codec.sign_event_response(unsigned_event),
-            )?),
-        }
-    }
-
-    fn handle_crypto_request(
-        &self,
-        client_public_key: RadrootsNostrPublicKey,
-        request_message: RadrootsNostrConnectRequestMessage,
-    ) -> Result<MycNip46HandledRequest, MycError> {
-        let request = request_message.request.clone();
-        let connection = match self.lookup_connection(client_public_key)? {
-            Ok(connection) => connection,
-            Err(response) => return Ok(MycNip46HandledRequest::respond(response)),
-        };
-
-        match self.evaluate_request_with_policy(&connection, request_message)? {
-            MycPreparedRequestEvaluation::Denied(reason) => {
-                Ok(MycNip46HandledRequest::respond_for_connection(
-                    Some(connection.connection_id.clone()),
-                    RadrootsNostrConnectResponse::Error {
-                        result: None,
-                        error: reason,
-                    },
-                ))
-            }
-            MycPreparedRequestEvaluation::Evaluation(evaluation) => Ok(handled_request_for_action(
-                &evaluation.connection,
-                evaluation.action,
-                || self.codec.crypto_response(request),
-            )?),
         }
     }
 
@@ -431,104 +220,10 @@ impl MycNip46Handler {
         &self,
         request_message: RadrootsNostrConnectRequestMessage,
         evaluation: RadrootsNostrSignerRequestEvaluation,
-    ) -> Result<MycNip46HandledRequest, MycError> {
-        Ok(match request_message.request.clone() {
-            RadrootsNostrConnectRequest::SignEvent(unsigned_event) => {
-                handled_request_for_action(&evaluation.connection, evaluation.action, || {
-                    self.codec.sign_event_response(unsigned_event)
-                })?
-            }
-            RadrootsNostrConnectRequest::Nip04Encrypt { .. }
-            | RadrootsNostrConnectRequest::Nip04Decrypt { .. }
-            | RadrootsNostrConnectRequest::Nip44Encrypt { .. }
-            | RadrootsNostrConnectRequest::Nip44Decrypt { .. } => {
-                handled_request_for_action(&evaluation.connection, evaluation.action, || {
-                    self.codec.crypto_response(request_message.request)
-                })?
-            }
-            RadrootsNostrConnectRequest::GetPublicKey
-            | RadrootsNostrConnectRequest::GetSessionCapability
-            | RadrootsNostrConnectRequest::Ping
-            | RadrootsNostrConnectRequest::SwitchRelays => {
-                let response_hint = match &evaluation.action {
-                    RadrootsNostrSignerRequestAction::Allowed { response_hint, .. } => {
-                        Some(response_hint.clone())
-                    }
-                    _ => None,
-                };
-                handled_request_for_action(&evaluation.connection, evaluation.action, || {
-                    Ok(response_from_hint(
-                        &evaluation.connection,
-                        response_hint.expect("allowed action carries response hint"),
-                    ))
-                })?
-            }
-            other => MycNip46HandledRequest::respond_for_connection(
-                Some(evaluation.connection.connection_id.clone()),
-                RadrootsNostrConnectResponse::Error {
-                    result: None,
-                    error: format!("method `{}` is not implemented yet", other.method()),
-                },
-            ),
-        })
-    }
-
-    fn evaluate_request_with_policy(
-        &self,
-        connection: &RadrootsNostrSignerConnectionRecord,
-        request_message: RadrootsNostrConnectRequestMessage,
-    ) -> Result<MycPreparedRequestEvaluation, MycError> {
-        let manager = self.signer.load_signer_manager()?;
-        if let Some(reason) =
-            self.signer
-                .policy()
-                .prepare_request(&manager, connection, &request_message)?
-        {
-            let audit = self.signer.policy().record_policy_denied_request(
-                &manager,
-                connection,
-                &request_message,
-                reason,
-            )?;
-            self.signer.record_signer_request_audit(&audit);
-            return Ok(MycPreparedRequestEvaluation::Denied(
-                audit
-                    .message
-                    .unwrap_or_else(|| "request denied by policy".to_owned()),
-            ));
-        }
-
-        let evaluation = manager.evaluate_request(&connection.connection_id, request_message)?;
-        self.signer.record_signer_request_audit(&evaluation.audit);
-        Ok(MycPreparedRequestEvaluation::Evaluation(evaluation))
-    }
-
-    fn lookup_connection(
-        &self,
-        client_public_key: RadrootsNostrPublicKey,
-    ) -> Result<Result<RadrootsNostrSignerConnectionRecord, RadrootsNostrConnectResponse>, MycError>
-    {
-        Ok(
-            match self
-                .signer
-                .load_signer_manager()?
-                .lookup_session(&client_public_key, None)?
-            {
-                RadrootsNostrSignerSessionLookup::Connection(connection) => Ok(connection),
-                RadrootsNostrSignerSessionLookup::None => {
-                    Err(RadrootsNostrConnectResponse::Error {
-                        result: None,
-                        error: "unauthorized".to_owned(),
-                    })
-                }
-                RadrootsNostrSignerSessionLookup::Ambiguous(_) => {
-                    Err(RadrootsNostrConnectResponse::Error {
-                        result: None,
-                        error: "ambiguous client sessions".to_owned(),
-                    })
-                }
-            },
-        )
+    ) -> Result<MycNip46HandledOutcome, MycError> {
+        self.handler
+            .handle_authorized_request_evaluation(request_message, evaluation)
+            .map_err(Into::into)
     }
 }
 
@@ -596,18 +291,21 @@ impl MycNip46Service {
             };
 
             let request_id = request_message.id.clone();
-            let handled_request = match self.handler.handle_request(event.pubkey, request_message) {
-                Ok(handled_request) => handled_request,
+            let handled_outcome = match self.handler.handle_request(event.pubkey, request_message) {
+                Ok(handled_outcome) => handled_outcome,
                 Err(error) => {
                     tracing::warn!(error = %error, "failed to handle NIP-46 request");
-                    MycNip46HandledRequest::respond(RadrootsNostrConnectResponse::Error {
+                    MycNip46HandledOutcome::respond(RadrootsNostrConnectResponse::Error {
                         result: None,
                         error: error.to_string(),
                     })
                 }
             };
+            if let Some(audit) = handled_outcome.audit.as_ref() {
+                self.handler.signer.record_signer_request_audit(audit);
+            }
             let Some((response, connection_id, consume_connect_secret_for)) =
-                handled_request.into_publish_parts()
+                handled_outcome.handled_request.into_publish_parts()
             else {
                 tracing::debug!(
                     request_id = %request_id,
@@ -984,13 +682,15 @@ mod tests {
         RadrootsNostrConnectRequestMessage, RadrootsNostrConnectResponse,
         RadrootsNostrConnectResponseEnvelope,
     };
-    use radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionRecord;
+    use radroots_nostr_signer::prelude::{
+        RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerHandledRequest,
+    };
     use serde_json::json;
 
     use crate::app::MycRuntime;
     use crate::config::{MycConfig, MycConnectionApproval};
 
-    use super::{MycNip46HandledRequest, MycNip46Handler};
+    use super::MycNip46Handler;
 
     fn write_identity(path: &std::path::Path, secret_key: &str) {
         let identity =
@@ -1336,7 +1036,10 @@ mod tests {
             )
             .expect("ignored response");
 
-        assert_eq!(ignored, MycNip46HandledRequest::Ignore);
+        assert_eq!(
+            ignored.handled_request,
+            RadrootsNostrSignerHandledRequest::Ignore
+        );
         let connections = runtime
             .signer_manager()
             .expect("manager")

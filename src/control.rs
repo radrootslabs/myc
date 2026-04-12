@@ -358,13 +358,10 @@ async fn replay_authorized_request(
             ));
         }
     };
-    runtime
-        .signer_context()
-        .record_signer_request_audit(&evaluation.audit);
-    let handled_request = match handler
+    let handled_outcome = match handler
         .handle_authorized_request_evaluation(pending_request.request_message.clone(), evaluation)
     {
-        Ok(handled_request) => handled_request,
+        Ok(handled_outcome) => handled_outcome,
         Err(error) => {
             return Err(cancel_auth_replay_workflow_on_error(
                 runtime,
@@ -375,7 +372,11 @@ async fn replay_authorized_request(
             ));
         }
     };
-    let Some((response, _, consume_connect_secret_for)) = handled_request.into_publish_parts()
+    if let Some(audit) = handled_outcome.audit.as_ref() {
+        runtime.signer_context().record_signer_request_audit(audit);
+    }
+    let Some((response, _, consume_connect_secret_for)) =
+        handled_outcome.handled_request.into_publish_parts()
     else {
         let error = MycError::InvalidOperation(
             "authorized auth replay did not produce a response".to_owned(),
