@@ -1,9 +1,9 @@
 use std::future::Future;
+use std::sync::Arc;
 
 use radroots_nostr::prelude::{
-    RadrootsNostrEvent, RadrootsNostrEventBuilder, RadrootsNostrFilter, RadrootsNostrKind,
-    RadrootsNostrPublicKey, RadrootsNostrRelayPoolNotification, RadrootsNostrRelayUrl,
-    RadrootsNostrTag, RadrootsNostrTimestamp, radroots_nostr_filter_tag, radroots_nostr_kind,
+    RadrootsNostrEvent, RadrootsNostrFilter, RadrootsNostrKind, RadrootsNostrPublicKey,
+    RadrootsNostrRelayPoolNotification, RadrootsNostrRelayUrl,
 };
 use radroots_nostr_connect::prelude::{
     RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectRequest,
@@ -11,9 +11,11 @@ use radroots_nostr_connect::prelude::{
 };
 use radroots_nostr_signer::prelude::{
     RadrootsNostrSignerConnectEvaluation, RadrootsNostrSignerConnectionId,
-    RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerRequestAction,
-    RadrootsNostrSignerRequestEvaluation, RadrootsNostrSignerRequestResponseHint,
-    RadrootsNostrSignerSessionLookup, RadrootsNostrSignerWorkflowId,
+    RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerHandledRequest,
+    RadrootsNostrSignerNip46Codec, RadrootsNostrSignerNip46Signer,
+    RadrootsNostrSignerRequestAction, RadrootsNostrSignerRequestEvaluation,
+    RadrootsNostrSignerSessionLookup, RadrootsNostrSignerWorkflowId, connect_response_outcome,
+    handled_request_for_action, response_from_hint,
 };
 use tokio::sync::broadcast;
 
@@ -22,12 +24,12 @@ use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperation
 use crate::error::MycError;
 use crate::outbox::{MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycDeliveryOutboxStore};
 use crate::transport::MycNostrTransport;
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct MycNip46Handler {
     signer: MycSignerContext,
     relays: Vec<RadrootsNostrRelayUrl>,
+    codec: RadrootsNostrSignerNip46Codec<MycNip46Signer>,
 }
 
 pub struct MycNip46Service {
@@ -36,49 +38,139 @@ pub struct MycNip46Service {
     delivery_outbox_store: Arc<dyn MycDeliveryOutboxStore>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum MycNip46HandledRequest {
-    Respond {
-        response: RadrootsNostrConnectResponse,
-        connection_id: Option<RadrootsNostrSignerConnectionId>,
-        consume_connect_secret_for: Option<RadrootsNostrSignerConnectionId>,
-    },
-    Ignore,
-}
-
 enum MycPreparedRequestEvaluation {
     Denied(String),
     Evaluation(RadrootsNostrSignerRequestEvaluation),
 }
 
+type MycNip46HandledRequest = RadrootsNostrSignerHandledRequest;
+
+#[derive(Clone)]
+struct MycNip46Signer {
+    signer: MycSignerContext,
+}
+
+impl RadrootsNostrSignerNip46Signer for MycNip46Signer {
+    fn signer_public_key_hex(&self) -> String {
+        self.signer.signer_public_identity().public_key_hex
+    }
+
+    fn decrypt_request(
+        &self,
+        client_public_key: &RadrootsNostrPublicKey,
+        ciphertext: &str,
+    ) -> Result<String, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+        self.signer
+            .signer_identity()
+            .nip44_decrypt(client_public_key, ciphertext)
+            .map_err(|error| {
+                radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
+            })
+    }
+
+    fn encrypt_response(
+        &self,
+        client_public_key: &RadrootsNostrPublicKey,
+        payload: &str,
+    ) -> Result<String, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+        self.signer
+            .signer_identity()
+            .nip44_encrypt(client_public_key, payload.to_owned())
+            .map_err(|error| {
+                radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
+            })
+    }
+
+    fn user_public_key(&self) -> RadrootsNostrPublicKey {
+        self.signer.user_identity().public_key()
+    }
+
+    fn sign_user_event(
+        &self,
+        unsigned_event: nostr::UnsignedEvent,
+    ) -> Result<RadrootsNostrEvent, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+        self.signer
+            .user_identity()
+            .sign_unsigned_event(unsigned_event, "managed user sign_event")
+            .map_err(|error| {
+                radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
+            })
+    }
+
+    fn nip04_encrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        plaintext: &str,
+    ) -> Result<String, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+        self.signer
+            .user_identity()
+            .nip04_encrypt(public_key, plaintext.to_owned())
+            .map_err(|error| {
+                radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
+            })
+    }
+
+    fn nip04_decrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        ciphertext: &str,
+    ) -> Result<String, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+        self.signer
+            .user_identity()
+            .nip04_decrypt(public_key, ciphertext.to_owned())
+            .map_err(|error| {
+                radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
+            })
+    }
+
+    fn nip44_encrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        plaintext: &str,
+    ) -> Result<String, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+        self.signer
+            .user_identity()
+            .nip44_encrypt(public_key, plaintext.to_owned())
+            .map_err(|error| {
+                radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
+            })
+    }
+
+    fn nip44_decrypt(
+        &self,
+        public_key: &RadrootsNostrPublicKey,
+        ciphertext: &str,
+    ) -> Result<String, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+        self.signer
+            .user_identity()
+            .nip44_decrypt(public_key, ciphertext.to_owned())
+            .map_err(|error| {
+                radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
+            })
+    }
+}
+
 impl MycNip46Handler {
     pub fn new(signer: MycSignerContext, relays: Vec<RadrootsNostrRelayUrl>) -> Self {
-        Self { signer, relays }
+        let codec = RadrootsNostrSignerNip46Codec::new(MycNip46Signer {
+            signer: signer.clone(),
+        });
+        Self {
+            signer,
+            relays,
+            codec,
+        }
     }
 
     pub fn filter(&self) -> Result<RadrootsNostrFilter, MycError> {
-        let filter = RadrootsNostrFilter::new()
-            .kind(RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND))
-            .since(RadrootsNostrTimestamp::now());
-        radroots_nostr_filter_tag(
-            filter,
-            "p",
-            vec![self.signer.signer_public_identity().public_key_hex],
-        )
-        .map_err(Into::into)
+        self.codec.filter().map_err(Into::into)
     }
 
     pub fn parse_request_event(
         &self,
         event: &RadrootsNostrEvent,
     ) -> Result<RadrootsNostrConnectRequestMessage, MycError> {
-        let decrypted = self
-            .signer
-            .signer_identity()
-            .nip44_decrypt(&event.pubkey, &event.content)?;
-        serde_json::from_str(&decrypted)
-            .map_err(radroots_nostr_connect::prelude::RadrootsNostrConnectError::from)
-            .map_err(Into::into)
+        self.codec.parse_request_event(event).map_err(Into::into)
     }
 
     pub fn build_response_event(
@@ -86,20 +178,10 @@ impl MycNip46Handler {
         client_public_key: RadrootsNostrPublicKey,
         request_id: impl Into<String>,
         response: RadrootsNostrConnectResponse,
-    ) -> Result<RadrootsNostrEventBuilder, MycError> {
-        let envelope = response.into_envelope(request_id.into())?;
-        let payload = serde_json::to_string(&envelope)
-            .map_err(|err| MycError::Nip46Encrypt(err.to_string()))?;
-        let ciphertext = self
-            .signer
-            .signer_identity()
-            .nip44_encrypt(&client_public_key, payload)?;
-
-        Ok(RadrootsNostrEventBuilder::new(
-            radroots_nostr_kind(RADROOTS_NOSTR_CONNECT_RPC_KIND),
-            ciphertext,
-        )
-        .tags(vec![RadrootsNostrTag::public_key(client_public_key)]))
+    ) -> Result<radroots_nostr::prelude::RadrootsNostrEventBuilder, MycError> {
+        self.codec
+            .build_response_event(client_public_key, request_id, response)
+            .map_err(Into::into)
     }
 
     pub(crate) fn handle_request(
@@ -266,31 +348,24 @@ impl MycNip46Handler {
                     },
                 ))
             }
-            MycPreparedRequestEvaluation::Evaluation(evaluation) => match evaluation.action {
-                RadrootsNostrSignerRequestAction::Denied { reason } => {
-                    Ok(MycNip46HandledRequest::respond_for_connection(
-                        Some(connection.connection_id.clone()),
-                        RadrootsNostrConnectResponse::Error {
-                            result: None,
-                            error: reason,
-                        },
-                    ))
-                }
-                RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
-                    Ok(MycNip46HandledRequest::respond_for_connection(
-                        Some(connection.connection_id.clone()),
-                        RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
-                    ))
-                }
-                RadrootsNostrSignerRequestAction::Allowed { response_hint, .. } => {
-                    response_from_hint(&evaluation.connection, response_hint).map(|response| {
-                        MycNip46HandledRequest::respond_for_connection(
-                            Some(evaluation.connection.connection_id.clone()),
-                            response,
-                        )
-                    })
-                }
-            },
+            MycPreparedRequestEvaluation::Evaluation(evaluation) => {
+                let response_hint = match &evaluation.action {
+                    RadrootsNostrSignerRequestAction::Allowed { response_hint, .. } => {
+                        Some(response_hint.clone())
+                    }
+                    _ => None,
+                };
+                Ok(handled_request_for_action(
+                    &evaluation.connection,
+                    evaluation.action,
+                    || {
+                        Ok(response_from_hint(
+                            &evaluation.connection,
+                            response_hint.expect("allowed action carries response hint"),
+                        ))
+                    },
+                )?)
+            }
         }
     }
 
@@ -315,31 +390,11 @@ impl MycNip46Handler {
                     },
                 ))
             }
-            MycPreparedRequestEvaluation::Evaluation(evaluation) => match evaluation.action {
-                RadrootsNostrSignerRequestAction::Denied { reason } => {
-                    Ok(MycNip46HandledRequest::respond_for_connection(
-                        Some(connection.connection_id.clone()),
-                        RadrootsNostrConnectResponse::Error {
-                            result: None,
-                            error: reason,
-                        },
-                    ))
-                }
-                RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
-                    Ok(MycNip46HandledRequest::respond_for_connection(
-                        Some(connection.connection_id.clone()),
-                        RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
-                    ))
-                }
-                RadrootsNostrSignerRequestAction::Allowed { .. } => {
-                    self.sign_event_response(unsigned_event).map(|response| {
-                        MycNip46HandledRequest::respond_for_connection(
-                            Some(connection.connection_id.clone()),
-                            response,
-                        )
-                    })
-                }
-            },
+            MycPreparedRequestEvaluation::Evaluation(evaluation) => Ok(handled_request_for_action(
+                &evaluation.connection,
+                evaluation.action,
+                || self.codec.sign_event_response(unsigned_event),
+            )?),
         }
     }
 
@@ -364,31 +419,11 @@ impl MycNip46Handler {
                     },
                 ))
             }
-            MycPreparedRequestEvaluation::Evaluation(evaluation) => match evaluation.action {
-                RadrootsNostrSignerRequestAction::Denied { reason } => {
-                    Ok(MycNip46HandledRequest::respond_for_connection(
-                        Some(connection.connection_id.clone()),
-                        RadrootsNostrConnectResponse::Error {
-                            result: None,
-                            error: reason,
-                        },
-                    ))
-                }
-                RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
-                    Ok(MycNip46HandledRequest::respond_for_connection(
-                        Some(connection.connection_id.clone()),
-                        RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
-                    ))
-                }
-                RadrootsNostrSignerRequestAction::Allowed { .. } => {
-                    self.crypto_response(request).map(|response| {
-                        MycNip46HandledRequest::respond_for_connection(
-                            Some(connection.connection_id.clone()),
-                            response,
-                        )
-                    })
-                }
-            },
+            MycPreparedRequestEvaluation::Evaluation(evaluation) => Ok(handled_request_for_action(
+                &evaluation.connection,
+                evaluation.action,
+                || self.codec.crypto_response(request),
+            )?),
         }
     }
 
@@ -397,85 +432,39 @@ impl MycNip46Handler {
         request_message: RadrootsNostrConnectRequestMessage,
         evaluation: RadrootsNostrSignerRequestEvaluation,
     ) -> Result<MycNip46HandledRequest, MycError> {
-        let connection_id = Some(evaluation.connection.connection_id.clone());
         Ok(match request_message.request.clone() {
-            RadrootsNostrConnectRequest::SignEvent(unsigned_event) => match evaluation.action {
-                RadrootsNostrSignerRequestAction::Denied { reason } => {
-                    MycNip46HandledRequest::respond_for_connection(
-                        connection_id,
-                        RadrootsNostrConnectResponse::Error {
-                            result: None,
-                            error: reason,
-                        },
-                    )
-                }
-                RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
-                    MycNip46HandledRequest::respond_for_connection(
-                        connection_id,
-                        RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
-                    )
-                }
-                RadrootsNostrSignerRequestAction::Allowed { .. } => {
-                    MycNip46HandledRequest::respond_for_connection(
-                        connection_id,
-                        self.sign_event_response(unsigned_event)?,
-                    )
-                }
-            },
+            RadrootsNostrConnectRequest::SignEvent(unsigned_event) => {
+                handled_request_for_action(&evaluation.connection, evaluation.action, || {
+                    self.codec.sign_event_response(unsigned_event)
+                })?
+            }
             RadrootsNostrConnectRequest::Nip04Encrypt { .. }
             | RadrootsNostrConnectRequest::Nip04Decrypt { .. }
             | RadrootsNostrConnectRequest::Nip44Encrypt { .. }
-            | RadrootsNostrConnectRequest::Nip44Decrypt { .. } => match evaluation.action {
-                RadrootsNostrSignerRequestAction::Denied { reason } => {
-                    MycNip46HandledRequest::respond_for_connection(
-                        connection_id,
-                        RadrootsNostrConnectResponse::Error {
-                            result: None,
-                            error: reason,
-                        },
-                    )
-                }
-                RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
-                    MycNip46HandledRequest::respond_for_connection(
-                        connection_id,
-                        RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
-                    )
-                }
-                RadrootsNostrSignerRequestAction::Allowed { .. } => {
-                    MycNip46HandledRequest::respond_for_connection(
-                        connection_id,
-                        self.crypto_response(request_message.request)?,
-                    )
-                }
-            },
+            | RadrootsNostrConnectRequest::Nip44Decrypt { .. } => {
+                handled_request_for_action(&evaluation.connection, evaluation.action, || {
+                    self.codec.crypto_response(request_message.request)
+                })?
+            }
             RadrootsNostrConnectRequest::GetPublicKey
             | RadrootsNostrConnectRequest::GetSessionCapability
             | RadrootsNostrConnectRequest::Ping
-            | RadrootsNostrConnectRequest::SwitchRelays => match evaluation.action {
-                RadrootsNostrSignerRequestAction::Denied { reason } => {
-                    MycNip46HandledRequest::respond_for_connection(
-                        connection_id,
-                        RadrootsNostrConnectResponse::Error {
-                            result: None,
-                            error: reason,
-                        },
-                    )
-                }
-                RadrootsNostrSignerRequestAction::Challenged { auth_challenge, .. } => {
-                    MycNip46HandledRequest::respond_for_connection(
-                        connection_id,
-                        RadrootsNostrConnectResponse::AuthUrl(auth_challenge.auth_url),
-                    )
-                }
-                RadrootsNostrSignerRequestAction::Allowed { response_hint, .. } => {
-                    MycNip46HandledRequest::respond_for_connection(
-                        connection_id,
-                        response_from_hint(&evaluation.connection, response_hint)?,
-                    )
-                }
-            },
+            | RadrootsNostrConnectRequest::SwitchRelays => {
+                let response_hint = match &evaluation.action {
+                    RadrootsNostrSignerRequestAction::Allowed { response_hint, .. } => {
+                        Some(response_hint.clone())
+                    }
+                    _ => None,
+                };
+                handled_request_for_action(&evaluation.connection, evaluation.action, || {
+                    Ok(response_from_hint(
+                        &evaluation.connection,
+                        response_hint.expect("allowed action carries response hint"),
+                    ))
+                })?
+            }
             other => MycNip46HandledRequest::respond_for_connection(
-                connection_id,
+                Some(evaluation.connection.connection_id.clone()),
                 RadrootsNostrConnectResponse::Error {
                     result: None,
                     error: format!("method `{}` is not implemented yet", other.method()),
@@ -540,99 +529,6 @@ impl MycNip46Handler {
                 }
             },
         )
-    }
-
-    fn sign_event_response(
-        &self,
-        unsigned_event: nostr::UnsignedEvent,
-    ) -> Result<RadrootsNostrConnectResponse, MycError> {
-        let user_public_key = self.signer.user_identity().public_key();
-        if unsigned_event.pubkey != user_public_key {
-            return Ok(RadrootsNostrConnectResponse::Error {
-                result: None,
-                error: "sign_event pubkey does not match the managed user identity".to_owned(),
-            });
-        }
-
-        match self
-            .signer
-            .user_identity()
-            .sign_unsigned_event(unsigned_event, "managed user sign_event")
-        {
-            Ok(event) => Ok(RadrootsNostrConnectResponse::SignedEvent(event)),
-            Err(error) => Ok(RadrootsNostrConnectResponse::Error {
-                result: None,
-                error: format!("failed to sign event: {error}"),
-            }),
-        }
-    }
-
-    fn crypto_response(
-        &self,
-        request: RadrootsNostrConnectRequest,
-    ) -> Result<RadrootsNostrConnectResponse, MycError> {
-        Ok(match request {
-            RadrootsNostrConnectRequest::Nip04Encrypt {
-                public_key,
-                plaintext,
-            } => match self
-                .signer
-                .user_identity()
-                .nip04_encrypt(&public_key, plaintext)
-            {
-                Ok(ciphertext) => RadrootsNostrConnectResponse::Nip04Encrypt(ciphertext),
-                Err(error) => RadrootsNostrConnectResponse::Error {
-                    result: None,
-                    error: format!("nip04 encrypt failed: {error}"),
-                },
-            },
-            RadrootsNostrConnectRequest::Nip04Decrypt {
-                public_key,
-                ciphertext,
-            } => match self
-                .signer
-                .user_identity()
-                .nip04_decrypt(&public_key, ciphertext)
-            {
-                Ok(plaintext) => RadrootsNostrConnectResponse::Nip04Decrypt(plaintext),
-                Err(error) => RadrootsNostrConnectResponse::Error {
-                    result: None,
-                    error: format!("nip04 decrypt failed: {error}"),
-                },
-            },
-            RadrootsNostrConnectRequest::Nip44Encrypt {
-                public_key,
-                plaintext,
-            } => match self
-                .signer
-                .user_identity()
-                .nip44_encrypt(&public_key, plaintext)
-            {
-                Ok(ciphertext) => RadrootsNostrConnectResponse::Nip44Encrypt(ciphertext),
-                Err(error) => RadrootsNostrConnectResponse::Error {
-                    result: None,
-                    error: format!("nip44 encrypt failed: {error}"),
-                },
-            },
-            RadrootsNostrConnectRequest::Nip44Decrypt {
-                public_key,
-                ciphertext,
-            } => match self
-                .signer
-                .user_identity()
-                .nip44_decrypt(&public_key, ciphertext)
-            {
-                Ok(plaintext) => RadrootsNostrConnectResponse::Nip44Decrypt(plaintext),
-                Err(error) => RadrootsNostrConnectResponse::Error {
-                    result: None,
-                    error: format!("nip44 decrypt failed: {error}"),
-                },
-            },
-            other => RadrootsNostrConnectResponse::Error {
-                result: None,
-                error: format!("request `{}` is not a crypto method", other.method()),
-            },
-        })
     }
 }
 
@@ -1073,85 +969,6 @@ impl MycNip46Service {
             ),
         );
     }
-}
-
-impl MycNip46HandledRequest {
-    fn respond(response: RadrootsNostrConnectResponse) -> Self {
-        Self::respond_for_connection(None, response)
-    }
-
-    fn respond_for_connection(
-        connection_id: Option<RadrootsNostrSignerConnectionId>,
-        response: RadrootsNostrConnectResponse,
-    ) -> Self {
-        Self::Respond {
-            response,
-            connection_id,
-            consume_connect_secret_for: None,
-        }
-    }
-
-    pub(crate) fn into_publish_parts(
-        self,
-    ) -> Option<(
-        RadrootsNostrConnectResponse,
-        Option<RadrootsNostrSignerConnectionId>,
-        Option<RadrootsNostrSignerConnectionId>,
-    )> {
-        match self {
-            Self::Respond {
-                response,
-                connection_id,
-                consume_connect_secret_for,
-            } => Some((response, connection_id, consume_connect_secret_for)),
-            Self::Ignore => None,
-        }
-    }
-}
-
-fn connect_response(secret: Option<String>) -> RadrootsNostrConnectResponse {
-    match secret {
-        Some(secret) => RadrootsNostrConnectResponse::ConnectSecretEcho(secret),
-        None => RadrootsNostrConnectResponse::ConnectAcknowledged,
-    }
-}
-
-fn connect_response_outcome(
-    connection: &RadrootsNostrSignerConnectionRecord,
-    secret: Option<String>,
-) -> MycNip46HandledRequest {
-    let consume_connect_secret_for = secret.as_ref().map(|_| connection.connection_id.clone());
-    MycNip46HandledRequest::Respond {
-        response: connect_response(secret),
-        connection_id: Some(connection.connection_id.clone()),
-        consume_connect_secret_for,
-    }
-}
-
-fn response_from_hint(
-    connection: &RadrootsNostrSignerConnectionRecord,
-    hint: RadrootsNostrSignerRequestResponseHint,
-) -> Result<RadrootsNostrConnectResponse, MycError> {
-    Ok(match hint {
-        RadrootsNostrSignerRequestResponseHint::Pong => RadrootsNostrConnectResponse::Pong,
-        RadrootsNostrSignerRequestResponseHint::UserPublicKey(public_key) => {
-            RadrootsNostrConnectResponse::UserPublicKey(public_key)
-        }
-        RadrootsNostrSignerRequestResponseHint::RemoteSessionCapability(capability) => {
-            RadrootsNostrConnectResponse::RemoteSessionCapability(capability)
-        }
-        RadrootsNostrSignerRequestResponseHint::RelayList(relays) => {
-            if relays == connection.relays {
-                RadrootsNostrConnectResponse::RelayList(relays)
-            } else {
-                RadrootsNostrConnectResponse::RelayList(connection.relays.clone())
-            }
-        }
-        RadrootsNostrSignerRequestResponseHint::None => RadrootsNostrConnectResponse::Error {
-            result: None,
-            error: "request evaluation did not provide a response hint".to_owned(),
-        },
-    })
 }
 
 #[cfg(test)]
