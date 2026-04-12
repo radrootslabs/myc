@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 fn write_test_identity(path: &Path, secret_key: &str) {
     let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity from secret");
-    myc::identity_storage::store_encrypted_identity(path, &identity).expect("write identity");
+    myc::identity_files::store_encrypted_identity(path, &identity).expect("write identity");
 }
 
 fn write_env_file(temp: &tempfile::TempDir) -> std::path::PathBuf {
@@ -253,7 +253,7 @@ fn custody_export_import_and_rotate_nip49_for_encrypted_file_backend() {
     let env_path = write_env_file(&temp);
     let signer_path = temp.path().join("signer.json");
     let export_path = temp.path().join("signer.ncryptsec");
-    let key_path = myc::identity_storage::encrypted_identity_wrapping_key_path(&signer_path);
+    let key_path = myc::identity_files::encrypted_identity_wrapping_key_path(&signer_path);
 
     let export_output = Command::new(env!("CARGO_BIN_EXE_myc"))
         .env("MYC_TEST_PASSWORD", "correct horse battery staple")
@@ -301,7 +301,7 @@ fn custody_export_import_and_rotate_nip49_for_encrypted_file_backend() {
         serde_json::from_slice(&import_output.stdout).expect("import-nip49 json");
     assert_eq!(import_value["format"], "nip49");
     assert_eq!(import_value["status"]["resolved"], true);
-    let restored = myc::identity_storage::load_encrypted_identity(&signer_path)
+    let restored = myc::identity_files::load_encrypted_identity(&signer_path)
         .expect("load restored encrypted identity");
     assert_eq!(
         restored.id().to_string(),

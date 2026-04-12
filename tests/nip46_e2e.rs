@@ -495,7 +495,7 @@ impl MycTestRuntime {
 
 fn write_identity(path: &std::path::Path, secret_key: &str) {
     let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity");
-    myc::identity_storage::store_encrypted_identity(path, &identity).expect("save identity");
+    myc::identity_files::store_encrypted_identity(path, &identity).expect("save identity");
 }
 
 fn identity(secret_key: &str) -> RadrootsIdentity {
@@ -2880,7 +2880,7 @@ async fn explicit_nip89_publish_uses_app_identity_and_records_audit() -> TestRes
     let test_runtime =
         MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
     let runtime = test_runtime.runtime;
-    let app_identity = myc::identity_storage::load_encrypted_identity(
+    let app_identity = myc::identity_files::load_encrypted_identity(
         runtime
             .config()
             .discovery
@@ -3107,7 +3107,7 @@ async fn explicit_nip89_publish_retries_cleanly_after_rejection() -> TestResult<
     let test_runtime =
         MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
     let runtime = test_runtime.runtime;
-    let app_identity = myc::identity_storage::load_encrypted_identity(
+    let app_identity = myc::identity_files::load_encrypted_identity(
         runtime
             .config()
             .discovery
@@ -3353,7 +3353,7 @@ async fn diff_live_nip89_reports_matched_after_publish() -> TestResult<()> {
     let test_runtime =
         MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
     let runtime = test_runtime.runtime;
-    let app_identity = myc::identity_storage::load_encrypted_identity(
+    let app_identity = myc::identity_files::load_encrypted_identity(
         runtime
             .config()
             .discovery
@@ -3396,7 +3396,7 @@ async fn refresh_nip89_publishes_when_live_handler_is_missing() -> TestResult<()
     let test_runtime =
         MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
     let runtime = test_runtime.runtime;
-    let app_identity = myc::identity_storage::load_encrypted_identity(
+    let app_identity = myc::identity_files::load_encrypted_identity(
         runtime
             .config()
             .discovery
@@ -3479,7 +3479,7 @@ async fn refresh_nip89_repairs_missing_relays_without_republishing_matched_relay
         MycConnectionApproval::ExplicitUser,
     );
     let runtime = test_runtime.runtime;
-    let app_identity = myc::identity_storage::load_encrypted_identity(
+    let app_identity = myc::identity_files::load_encrypted_identity(
         runtime
             .config()
             .discovery
@@ -3563,7 +3563,7 @@ async fn refresh_nip89_skips_when_live_handler_matches() -> TestResult<()> {
     let test_runtime =
         MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
     let runtime = test_runtime.runtime;
-    let app_identity = myc::identity_storage::load_encrypted_identity(
+    let app_identity = myc::identity_files::load_encrypted_identity(
         runtime
             .config()
             .discovery
@@ -3623,7 +3623,7 @@ async fn refresh_nip89_republishes_when_live_handler_drifted() -> TestResult<()>
     let test_runtime =
         MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
     let runtime = test_runtime.runtime;
-    let app_identity = myc::identity_storage::load_encrypted_identity(
+    let app_identity = myc::identity_files::load_encrypted_identity(
         runtime
             .config()
             .discovery
@@ -3700,7 +3700,7 @@ async fn refresh_nip89_repairs_drifted_relays_without_force_when_other_relays_ma
         MycConnectionApproval::ExplicitUser,
     );
     let runtime = test_runtime.runtime;
-    let app_identity = myc::identity_storage::load_encrypted_identity(
+    let app_identity = myc::identity_files::load_encrypted_identity(
         runtime
             .config()
             .discovery
@@ -3791,7 +3791,7 @@ async fn refresh_nip89_reports_remaining_relays_after_mixed_targeted_repair() ->
         MycConnectionApproval::ExplicitUser,
     );
     let runtime = test_runtime.runtime;
-    let app_identity = myc::identity_storage::load_encrypted_identity(
+    let app_identity = myc::identity_files::load_encrypted_identity(
         runtime
             .config()
             .discovery
@@ -3904,7 +3904,7 @@ async fn diff_live_nip89_reports_conflicted_when_live_groups_disagree() -> TestR
     let test_runtime =
         MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
     let runtime = test_runtime.runtime;
-    let app_identity = myc::identity_storage::load_encrypted_identity(
+    let app_identity = myc::identity_files::load_encrypted_identity(
         runtime
             .config()
             .discovery
@@ -3945,7 +3945,7 @@ async fn diff_live_nip89_surfaces_relay_divergence_with_provenance() -> TestResu
         MycConnectionApproval::ExplicitUser,
     );
     let runtime = test_runtime.runtime;
-    let app_identity = myc::identity_storage::load_encrypted_identity(
+    let app_identity = myc::identity_files::load_encrypted_identity(
         runtime
             .config()
             .discovery
@@ -4050,7 +4050,7 @@ async fn refresh_nip89_requires_force_when_any_discovery_relay_is_unavailable() 
         MycConnectionApproval::ExplicitUser,
     );
     let runtime = test_runtime.runtime;
-    let app_identity = myc::identity_storage::load_encrypted_identity(
+    let app_identity = myc::identity_files::load_encrypted_identity(
         runtime
             .config()
             .discovery
@@ -4129,7 +4129,7 @@ async fn refresh_nip89_requires_force_when_live_handler_is_conflicted() -> TestR
     let test_runtime =
         MycTestRuntime::new_with_discovery(relay.url(), MycConnectionApproval::ExplicitUser);
     let runtime = test_runtime.runtime;
-    let app_identity = myc::identity_storage::load_encrypted_identity(
+    let app_identity = myc::identity_files::load_encrypted_identity(
         runtime
             .config()
             .discovery

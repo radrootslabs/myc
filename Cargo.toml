@@ -25,7 +25,6 @@ radroots_nostr_accounts = { path = "../lib/crates/nostr_accounts", default-featu
 radroots_nostr = { path = "../lib/crates/nostr", features = ["client", "events"] }
 radroots_nostr_connect = { path = "../lib/crates/nostr_connect" }
 radroots_nostr_signer = { path = "../lib/crates/nostr_signer", features = ["native"] }
-radroots_protected_store = { path = "../lib/crates/protected_store", features = ["std"] }
 radroots_runtime_paths = { path = "../lib/crates/runtime_paths" }
 radroots_secret_vault = { path = "../lib/crates/secret_vault", features = ["std", "os-keyring"] }
 radroots_sql_core = { path = "../lib/crates/sql_core", features = ["native"] }

@@ -803,7 +803,7 @@ mod tests {
 
     fn write_identity(path: &std::path::Path, secret_key: &str) {
         let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity");
-        crate::identity_storage::store_encrypted_identity(path, &identity).expect("save identity");
+        crate::identity_files::store_encrypted_identity(path, &identity).expect("save identity");
     }
 
     fn runtime_with_config<F>(approval: MycConnectionApproval, configure: F) -> MycRuntime

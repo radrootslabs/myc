@@ -21,7 +21,7 @@ use crate::config::{
 };
 use crate::custody::MycIdentityProvider;
 use crate::error::MycError;
-use crate::identity_storage::encrypted_identity_wrapping_key_path;
+use crate::identity_files::encrypted_identity_wrapping_key_path;
 use crate::outbox::{
     MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycDeliveryOutboxStatus, MycDeliveryOutboxStore,
 };
@@ -1454,7 +1454,7 @@ mod tests {
 
     fn write_identity(path: &Path, secret_key: &str) {
         let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity");
-        crate::identity_storage::store_encrypted_identity(path, &identity).expect("save identity");
+        crate::identity_files::store_encrypted_identity(path, &identity).expect("save identity");
     }
 
     fn identity(secret_key: &str) -> RadrootsIdentity {

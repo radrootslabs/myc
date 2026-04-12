@@ -305,7 +305,7 @@ async fn accept_published_event(
 
 fn write_identity(path: &Path, secret_key: &str) {
     let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity");
-    myc::identity_storage::store_encrypted_identity(path, &identity).expect("save identity");
+    myc::identity_files::store_encrypted_identity(path, &identity).expect("save identity");
 }
 
 fn write_env_file(
@@ -505,7 +505,7 @@ async fn discovery_sync_commands_work_through_the_cli() -> TestResult<()> {
         &user_identity_path,
         "2222222222222222222222222222222222222222222222222222222222222222",
     );
-    myc::identity_storage::store_encrypted_identity(&app_identity_path, &app_identity)?;
+    myc::identity_files::store_encrypted_identity(&app_identity_path, &app_identity)?;
     write_env_file(
         &env_path,
         &state_dir,
@@ -619,7 +619,7 @@ async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
         &user_identity_path,
         "2222222222222222222222222222222222222222222222222222222222222222",
     );
-    myc::identity_storage::store_encrypted_identity(&app_identity_path, &app_identity)?;
+    myc::identity_files::store_encrypted_identity(&app_identity_path, &app_identity)?;
     write_env_file(
         &env_path,
         &state_dir,
@@ -771,7 +771,7 @@ async fn refresh_reports_partial_repair_and_audit_summary_through_the_cli() -> T
         &user_identity_path,
         "2222222222222222222222222222222222222222222222222222222222222222",
     );
-    myc::identity_storage::store_encrypted_identity(&app_identity_path, &app_identity)?;
+    myc::identity_files::store_encrypted_identity(&app_identity_path, &app_identity)?;
     write_env_file(
         &env_path,
         &state_dir,
@@ -872,7 +872,7 @@ async fn failed_refresh_publish_surfaces_attempt_id_and_exact_audit_lookup() -> 
         &user_identity_path,
         "2222222222222222222222222222222222222222222222222222222222222222",
     );
-    myc::identity_storage::store_encrypted_identity(&app_identity_path, &app_identity)?;
+    myc::identity_files::store_encrypted_identity(&app_identity_path, &app_identity)?;
     write_env_file(
         &env_path,
         &state_dir,
@@ -971,7 +971,7 @@ async fn discovery_repair_attempt_commands_correlate_multiple_refresh_runs() -> 
         &user_identity_path,
         "2222222222222222222222222222222222222222222222222222222222222222",
     );
-    myc::identity_storage::store_encrypted_identity(&app_identity_path, &app_identity)?;
+    myc::identity_files::store_encrypted_identity(&app_identity_path, &app_identity)?;
     write_env_file(
         &env_path,
         &state_dir,
@@ -1154,7 +1154,7 @@ async fn discovery_diff_surfaces_relay_provenance_through_the_cli() -> TestResul
         &user_identity_path,
         "2222222222222222222222222222222222222222222222222222222222222222",
     );
-    myc::identity_storage::store_encrypted_identity(&app_identity_path, &app_identity)?;
+    myc::identity_files::store_encrypted_identity(&app_identity_path, &app_identity)?;
     write_env_file(
         &env_path,
         &state_dir,
@@ -1293,7 +1293,7 @@ async fn refresh_requires_force_when_a_discovery_relay_is_unavailable_through_th
         &user_identity_path,
         "2222222222222222222222222222222222222222222222222222222222222222",
     );
-    myc::identity_storage::store_encrypted_identity(&app_identity_path, &app_identity)?;
+    myc::identity_files::store_encrypted_identity(&app_identity_path, &app_identity)?;
     write_env_file(
         &env_path,
         &state_dir,

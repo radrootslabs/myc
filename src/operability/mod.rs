@@ -1614,7 +1614,7 @@ mod tests {
     fn write_test_identity(path: &Path, secret_key: &str) {
         let identity =
             RadrootsIdentity::from_secret_key_str(secret_key).expect("identity from secret");
-        crate::identity_storage::store_encrypted_identity(path, &identity).expect("write identity");
+        crate::identity_files::store_encrypted_identity(path, &identity).expect("write identity");
     }
 
     #[test]

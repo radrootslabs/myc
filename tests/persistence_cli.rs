@@ -12,7 +12,7 @@ use serde_json::Value;
 
 fn write_identity(path: &Path, secret_key: &str) {
     let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity");
-    myc::identity_storage::store_encrypted_identity(path, &identity).expect("save identity");
+    myc::identity_files::store_encrypted_identity(path, &identity).expect("save identity");
 }
 
 fn copy_dir_recursive(source: &Path, destination: &Path) {
@@ -339,13 +339,13 @@ fn persistence_restore_cli_restores_backup_and_verify_restore_passes() {
     assert!(restored_config.paths.signer_identity_path.is_file());
     assert!(restored_config.paths.user_identity_path.is_file());
     assert!(
-        myc::identity_storage::encrypted_identity_wrapping_key_path(
+        myc::identity_files::encrypted_identity_wrapping_key_path(
             &restored_config.paths.signer_identity_path
         )
         .is_file()
     );
     assert!(
-        myc::identity_storage::encrypted_identity_wrapping_key_path(
+        myc::identity_files::encrypted_identity_wrapping_key_path(
             &restored_config.paths.user_identity_path
         )
         .is_file()
@@ -479,10 +479,10 @@ fn persistence_verify_restore_cli_rejects_signer_identity_mismatch() {
     std::fs::copy(&sqlite_config.paths.user_identity_path, &restored_user)
         .expect("copy user identity");
     std::fs::copy(
-        myc::identity_storage::encrypted_identity_wrapping_key_path(
+        myc::identity_files::encrypted_identity_wrapping_key_path(
             &sqlite_config.paths.user_identity_path,
         ),
-        myc::identity_storage::encrypted_identity_wrapping_key_path(&restored_user),
+        myc::identity_files::encrypted_identity_wrapping_key_path(&restored_user),
     )
     .expect("copy user identity wrapping key");
 

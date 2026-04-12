@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -19,9 +20,9 @@ use zeroize::Zeroizing;
 
 use crate::config::{MycConfig, MycIdentityBackend, MycIdentitySourceSpec};
 use crate::error::MycError;
-use crate::identity_storage::{
+use crate::identity_files::{
     load_encrypted_identity, load_identity_profile, rotate_encrypted_identity,
-    store_encrypted_identity, store_identity_profile, store_plaintext_identity, store_secret_text,
+    store_encrypted_identity, store_identity_profile,
 };
 
 #[derive(Clone)]
@@ -29,6 +30,46 @@ pub struct MycActiveIdentity {
     public_identity: RadrootsIdentityPublic,
     public_key: RadrootsNostrPublicKey,
     operations: Arc<dyn MycIdentityOperations>,
+}
+
+fn store_plaintext_identity(
+    path: impl AsRef<Path>,
+    identity: &RadrootsIdentity,
+) -> Result<(), MycError> {
+    identity.save_json(path).map_err(MycError::from)
+}
+
+fn store_secret_text(path: impl AsRef<Path>, value: &str) -> Result<(), MycError> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).map_err(|source| MycError::CreateDir {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+
+    fs::write(path, value).map_err(|source| MycError::PersistenceIo {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    set_secret_permissions(path)?;
+    Ok(())
+}
+
+fn set_secret_permissions(path: &Path) -> Result<(), MycError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let permissions = std::fs::Permissions::from_mode(0o600);
+        fs::set_permissions(path, permissions).map_err(|source| MycError::PersistenceIo {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -674,7 +715,9 @@ impl MycIdentityProvider {
 
     pub fn load_identity(&self) -> Result<RadrootsIdentity, MycError> {
         match &self.backend {
-            MycIdentityProviderBackend::EncryptedFile { path } => load_encrypted_identity(path),
+            MycIdentityProviderBackend::EncryptedFile { path } => {
+                Ok(load_encrypted_identity(path)?)
+            }
             MycIdentityProviderBackend::PlaintextFile { path } => {
                 RadrootsIdentity::load_from_path_auto(path).map_err(Into::into)
             }
@@ -1019,7 +1062,7 @@ impl MycIdentityProvider {
     fn store_identity(&self, identity: &RadrootsIdentity) -> Result<(), MycError> {
         match &self.backend {
             MycIdentityProviderBackend::EncryptedFile { path } => {
-                store_encrypted_identity(path, identity)
+                Ok(store_encrypted_identity(path, identity)?)
             }
             MycIdentityProviderBackend::PlaintextFile { path } => {
                 store_plaintext_identity(path, identity)
@@ -1637,7 +1680,7 @@ mod tests {
 
     fn write_identity(path: &Path, secret_key: &str) {
         let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity");
-        crate::identity_storage::store_encrypted_identity(path, &identity).expect("save identity");
+        crate::identity_files::store_encrypted_identity(path, &identity).expect("save identity");
     }
 
     fn fixture_source(path: &Path) -> MycIdentitySourceSpec {
@@ -1897,7 +1940,7 @@ mod tests {
             "1111111111111111111111111111111111111111111111111111111111111111",
         )
         .expect("identity");
-        crate::identity_storage::store_identity_profile(&profile_path, &identity)
+        crate::identity_files::store_identity_profile(&profile_path, &identity)
             .expect("save profile");
 
         let account_id = identity.id();
