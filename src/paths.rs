@@ -1,14 +1,14 @@
 use std::path::{Path, PathBuf};
 
 use radroots_runtime_paths::{
-    RadrootsPathOverrides, RadrootsPathProfile, RadrootsPathResolver, RadrootsRuntimeNamespace,
+    RadrootsPathProfile, RadrootsPathResolver, RadrootsRuntimePathSelection,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
     config::{
-        MycConfig, MycIdentityBackend, MycIdentitySourceSpec, config_parse_error,
-        parse_optional_path_env,
+        config_parse_error, parse_optional_path_env, MycConfig, MycIdentityBackend,
+        MycIdentitySourceSpec,
     },
     error::MycError,
 };
@@ -121,28 +121,20 @@ impl MycResolvedRuntimePaths {
         profile: MycPathProfile,
         repo_local_root: Option<&Path>,
     ) -> Result<Self, MycError> {
-        let overrides = match profile {
-            MycPathProfile::InteractiveUser | MycPathProfile::ServiceHost => {
-                RadrootsPathOverrides::default()
-            }
-            MycPathProfile::RepoLocal => {
-                let repo_local_root = repo_local_root.ok_or_else(|| {
-                    MycError::InvalidConfig(
-                        "paths.repo_local_root must be set when paths.profile is `repo_local`"
-                            .to_owned(),
-                    )
-                })?;
-                RadrootsPathOverrides::repo_local(repo_local_root)
-            }
-        };
-        let namespace = RadrootsRuntimeNamespace::service("myc")
-            .map_err(|error| MycError::InvalidConfig(format!("resolve myc namespace: {error}")))?;
-        let namespaced = resolver
-            .resolve(profile.into_radroots_profile(), &overrides)
+        let selection = RadrootsRuntimePathSelection::caller(
+            profile.into_radroots_profile(),
+            repo_local_root.map(Path::to_path_buf),
+        );
+        let namespaced = selection
+            .resolve_service_roots(
+                resolver,
+                "myc",
+                MYC_PATHS_PROFILE_ENV,
+                MYC_PATHS_REPO_LOCAL_ROOT_ENV,
+            )
             .map_err(|error| {
                 MycError::InvalidConfig(format!("resolve myc runtime paths: {error}"))
-            })?
-            .namespaced(&namespace);
+            })?;
         let custody_dir = namespaced.data.join(DEFAULT_CUSTODY_DIR_NAME);
         Ok(Self {
             config_env_path: namespaced.config.join(DEFAULT_ENV_PATH),
@@ -264,22 +256,25 @@ impl MycPathsConfig {
 }
 
 pub(crate) fn process_path_selection() -> Result<(MycPathProfile, Option<PathBuf>), MycError> {
-    let profile = match std::env::var(MYC_PATHS_PROFILE_ENV) {
-        Ok(value) => parse_path_profile_env(
-            MYC_PATHS_PROFILE_ENV,
-            value.as_str(),
-            Path::new("<process-env>"),
-            0,
-        )?,
-        Err(std::env::VarError::NotPresent) => MycPathProfile::InteractiveUser,
-        Err(std::env::VarError::NotUnicode(_)) => {
-            return Err(MycError::InvalidConfig(
-                "MYC_PATHS_PROFILE must be valid utf-8 when set".to_owned(),
-            ));
-        }
-    };
-    let repo_local_root = std::env::var_os(MYC_PATHS_REPO_LOCAL_ROOT_ENV).map(PathBuf::from);
-    Ok((profile, repo_local_root))
+    let selection = RadrootsRuntimePathSelection::from_env(
+        MYC_PATHS_PROFILE_ENV,
+        MYC_PATHS_REPO_LOCAL_ROOT_ENV,
+        RadrootsPathProfile::InteractiveUser,
+    )
+    .map_err(|error| MycError::InvalidConfig(error.to_string()))?;
+    Ok((
+        from_radroots_profile(selection.profile),
+        selection.repo_local_root,
+    ))
+}
+
+fn from_radroots_profile(profile: RadrootsPathProfile) -> MycPathProfile {
+    match profile {
+        RadrootsPathProfile::InteractiveUser => MycPathProfile::InteractiveUser,
+        RadrootsPathProfile::ServiceHost => MycPathProfile::ServiceHost,
+        RadrootsPathProfile::RepoLocal => MycPathProfile::RepoLocal,
+        RadrootsPathProfile::MobileNative => MycPathProfile::InteractiveUser,
+    }
 }
 
 pub(crate) fn default_env_path_with_path_selection(
