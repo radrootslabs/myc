@@ -9,7 +9,8 @@ use radroots_nostr_connect::prelude::RadrootsNostrConnectPermissions;
 use radroots_nostr_signer::prelude::RadrootsNostrSignerApprovalRequirement;
 use radroots_runtime_paths::{
     RadrootsLegacyPathCandidate, RadrootsMigrationReport, RadrootsPathResolver,
-    inspect_legacy_paths,
+    RadrootsRuntimeLegacyPathContract, RadrootsRuntimeMigrationContract,
+    RadrootsRuntimePathPolicyContract, inspect_legacy_paths, runtime_migration_contract,
 };
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
@@ -175,32 +176,9 @@ pub struct MycRuntimeContractOutput {
     pub migration: MycRuntimeMigrationContractOutput,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct MycRuntimePathOverrideContractOutput {
-    pub canonical_root_selection: &'static str,
-    pub canonical_subordinate_path_override: &'static str,
-    pub leaf_path_env_posture: &'static str,
-    pub compatibility_leaf_path_keys: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct MycRuntimeMigrationContractOutput {
-    pub posture: String,
-    pub state: String,
-    pub silent_startup_relocation: bool,
-    pub compatibility_window: String,
-    pub detected_legacy_paths: Vec<MycRuntimeLegacyPathOutput>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct MycRuntimeLegacyPathOutput {
-    pub id: String,
-    pub description: String,
-    pub path: PathBuf,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub destination: Option<PathBuf>,
-    pub import_hint: String,
-}
+pub type MycRuntimePathOverrideContractOutput = RadrootsRuntimePathPolicyContract;
+pub type MycRuntimeMigrationContractOutput = RadrootsRuntimeMigrationContract;
+pub type MycRuntimeLegacyPathOutput = RadrootsRuntimeLegacyPathContract;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -438,46 +416,13 @@ impl MycRuntimeContractOutput {
                 .map(str::to_owned)
                 .collect(),
             host_vault_policy: Some(MYC_HOST_VAULT_POLICY.to_owned()),
-            path_overrides: MycRuntimePathOverrideContractOutput::current(),
-            migration: MycRuntimeMigrationContractOutput::from_report(
-                RadrootsMigrationReport::empty(),
+            path_overrides: RadrootsRuntimePathPolicyContract::new(
+                MYC_CANONICAL_ROOT_SELECTION,
+                MYC_CANONICAL_SUBORDINATE_PATH_OVERRIDE,
+                MYC_LEAF_PATH_ENV_POSTURE,
+                &MYC_COMPATIBILITY_LEAF_PATH_KEYS,
             ),
-        }
-    }
-}
-
-impl MycRuntimePathOverrideContractOutput {
-    pub fn current() -> Self {
-        Self {
-            canonical_root_selection: MYC_CANONICAL_ROOT_SELECTION,
-            canonical_subordinate_path_override: MYC_CANONICAL_SUBORDINATE_PATH_OVERRIDE,
-            leaf_path_env_posture: MYC_LEAF_PATH_ENV_POSTURE,
-            compatibility_leaf_path_keys: MYC_COMPATIBILITY_LEAF_PATH_KEYS
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-        }
-    }
-}
-
-impl MycRuntimeMigrationContractOutput {
-    fn from_report(report: RadrootsMigrationReport) -> Self {
-        Self {
-            posture: report.posture.to_owned(),
-            state: report.state.to_owned(),
-            silent_startup_relocation: report.silent_startup_relocation,
-            compatibility_window: report.compatibility_window.to_owned(),
-            detected_legacy_paths: report
-                .detected_legacy_paths
-                .into_iter()
-                .map(|path| MycRuntimeLegacyPathOutput {
-                    id: path.id,
-                    description: path.description,
-                    path: path.path,
-                    destination: path.destination,
-                    import_hint: path.import_hint,
-                })
-                .collect(),
+            migration: runtime_migration_contract(RadrootsMigrationReport::empty()),
         }
     }
 }
@@ -526,9 +471,8 @@ impl MycConfig {
 
     pub fn runtime_contract_output(&self) -> MycRuntimeContractOutput {
         let mut output = MycRuntimeContractOutput::for_active_profile(self.paths.profile);
-        output.migration = MycRuntimeMigrationContractOutput::from_report(inspect_legacy_paths(
-            self.legacy_path_candidates(),
-        ));
+        output.migration =
+            runtime_migration_contract(inspect_legacy_paths(self.legacy_path_candidates()));
         output
     }
 
