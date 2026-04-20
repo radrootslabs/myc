@@ -12,7 +12,7 @@ use radroots_nostr::prelude::{
     RadrootsNostrClient, RadrootsNostrEvent, RadrootsNostrEventBuilder, RadrootsNostrPublicKey,
 };
 use radroots_nostr_accounts::prelude::{
-    RadrootsNostrAccountRecord, RadrootsNostrAccountsManager, RadrootsNostrSelectedAccountStatus,
+    RadrootsNostrAccountRecord, RadrootsNostrAccountStatus, RadrootsNostrAccountsManager,
 };
 use radroots_secret_vault::{RadrootsSecretVault, RadrootsSecretVaultOsKeyring};
 use serde::{Deserialize, Serialize};
@@ -767,19 +767,19 @@ impl MycIdentityProvider {
                 account_store_path,
                 service_name,
                 manager,
-            } => match manager.selected_account_status().map_err(|source| {
+            } => match manager.default_account_status().map_err(|source| {
                 MycError::CustodyManager {
                     role: self.role.clone(),
                     source,
                 }
             })? {
-                RadrootsNostrSelectedAccountStatus::NotConfigured => {
+                RadrootsNostrAccountStatus::NotConfigured => {
                     Err(MycError::CustodyManagedAccountNotConfigured {
                         role: self.role.clone(),
                         path: account_store_path.clone(),
                     })
                 }
-                RadrootsNostrSelectedAccountStatus::PublicOnly { account } => {
+                RadrootsNostrAccountStatus::PublicOnly { account } => {
                     Err(MycError::CustodyManagedAccountPublicOnly {
                         role: self.role.clone(),
                         path: account_store_path.clone(),
@@ -787,8 +787,8 @@ impl MycIdentityProvider {
                         account_id: account.account_id.to_string(),
                     })
                 }
-                RadrootsNostrSelectedAccountStatus::Ready { .. } => manager
-                    .selected_signing_identity()
+                RadrootsNostrAccountStatus::Ready { .. } => manager
+                    .default_signing_identity()
                     .map_err(|source| MycError::CustodyManager {
                         role: self.role.clone(),
                         source,
@@ -1020,12 +1020,12 @@ impl MycIdentityProvider {
         })?;
         {
             let manager = self.managed_accounts_manager()?;
-            manager
-                .select_account(&account_id)
-                .map_err(|source| MycError::CustodyManager {
+            manager.set_default_account(&account_id).map_err(|source| {
+                MycError::CustodyManager {
                     role: self.role.clone(),
                     source,
-                })?;
+                }
+            })?;
         }
         Ok(MycManagedAccountMutationOutput {
             role: self.role.clone(),
@@ -1258,7 +1258,7 @@ impl MycIdentityProvider {
     ) -> Result<Option<RadrootsNostrAccountRecord>, MycError> {
         let manager = self.managed_accounts_manager()?;
         manager
-            .selected_account()
+            .default_account()
             .map_err(|source| MycError::CustodyManager {
                 role: self.role.clone(),
                 source,
@@ -1315,12 +1315,12 @@ impl MycIdentityProvider {
             };
 
         let (resolved, selected_account_state, error) = match manager
-            .selected_account_status()
+            .default_account_status()
             .map_err(|source| MycError::CustodyManager {
                 role: self.role.clone(),
                 source,
             }) {
-            Ok(RadrootsNostrSelectedAccountStatus::NotConfigured) => (
+            Ok(RadrootsNostrAccountStatus::NotConfigured) => (
                 false,
                 Some(MycManagedAccountSelectionState::NotConfigured),
                 Some(
@@ -1331,7 +1331,7 @@ impl MycIdentityProvider {
                     .to_string(),
                 ),
             ),
-            Ok(RadrootsNostrSelectedAccountStatus::PublicOnly { account }) => (
+            Ok(RadrootsNostrAccountStatus::PublicOnly { account }) => (
                 false,
                 Some(MycManagedAccountSelectionState::PublicOnly),
                 Some(
@@ -1344,7 +1344,7 @@ impl MycIdentityProvider {
                     .to_string(),
                 ),
             ),
-            Ok(RadrootsNostrSelectedAccountStatus::Ready { .. }) => match identity_result {
+            Ok(RadrootsNostrAccountStatus::Ready { .. }) => match identity_result {
                 Ok(_) => (true, Some(MycManagedAccountSelectionState::Ready), None),
                 Err(error) => (
                     false,
@@ -1397,7 +1397,7 @@ impl MycIdentityProvider {
                 source,
             })?;
         let selected_account_id = manager
-            .selected_account_id()
+            .default_account_id()
             .map_err(|source| MycError::CustodyManager {
                 role: self.role.clone(),
                 source,
@@ -1405,20 +1405,18 @@ impl MycIdentityProvider {
             .map(|value| value.to_string());
         let selected_account_state =
             match manager
-                .selected_account_status()
+                .default_account_status()
                 .map_err(|source| MycError::CustodyManager {
                     role: self.role.clone(),
                     source,
                 })? {
-                RadrootsNostrSelectedAccountStatus::NotConfigured => {
+                RadrootsNostrAccountStatus::NotConfigured => {
                     MycManagedAccountSelectionState::NotConfigured
                 }
-                RadrootsNostrSelectedAccountStatus::PublicOnly { .. } => {
+                RadrootsNostrAccountStatus::PublicOnly { .. } => {
                     MycManagedAccountSelectionState::PublicOnly
                 }
-                RadrootsNostrSelectedAccountStatus::Ready { .. } => {
-                    MycManagedAccountSelectionState::Ready
-                }
+                RadrootsNostrAccountStatus::Ready { .. } => MycManagedAccountSelectionState::Ready,
             };
 
         Ok(MycManagedAccountsOutput {
