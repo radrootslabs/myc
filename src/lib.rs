@@ -53,14 +53,14 @@ pub use discovery::{
 };
 pub use error::MycError;
 pub use operability::{
-    MycAuditDecisionCounts, MycCustodyStatusOutput, MycDeliveryOutboxStatusOutput,
-    MycDeliveryRecoveryStatusOutput, MycDiscoveryStatusOutput, MycMetricsSnapshot,
-    MycOperationOutcomeCounts, MycPersistenceStatusOutput, MycRelayProbe,
+    MYC_SIGNER_STATUS_CONTRACT_VERSION, MycAuditDecisionCounts, MycCustodyStatusOutput,
+    MycDeliveryOutboxStatusOutput, MycDeliveryRecoveryStatusOutput, MycDiscoveryStatusOutput,
+    MycMetricsSnapshot, MycOperationOutcomeCounts, MycPersistenceStatusOutput, MycRelayProbe,
     MycRelayProbeAvailability, MycRuntimeAuditPersistenceStatusOutput, MycRuntimeStatus,
     MycSignerBackendStatusOutput, MycSignerStatePersistenceStatusOutput,
-    MycSqliteSchemaStatusOutput, MycStatusFullOutput, MycStatusSummaryOutput,
-    MycTransportStatusOutput, collect_metrics, collect_status_full, collect_status_summary,
-    render_metrics_text,
+    MycSqliteSchemaStatusOutput, MycStatusFullOutput, MycStatusSignerOutput,
+    MycStatusSummaryOutput, MycTransportStatusOutput, collect_metrics, collect_status_full,
+    collect_status_signer, collect_status_summary, render_metrics_text,
 };
 pub use outbox::{
     MycDeliveryOutboxJobId, MycDeliveryOutboxKind, MycDeliveryOutboxRecord,

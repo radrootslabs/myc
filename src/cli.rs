@@ -22,9 +22,10 @@ use crate::discovery::{
 use crate::error::MycError;
 use crate::logging;
 use crate::operability::{
-    MycAuditDecisionCounts, MycOperationOutcomeCounts, MycStatusFullOutput, MycStatusSummaryOutput,
-    collect_metrics, collect_status_full, collect_status_summary, increment_outcome_counts,
-    is_aggregate_publish_operation, operation_kind_label, render_metrics_text,
+    MycAuditDecisionCounts, MycOperationOutcomeCounts, MycStatusFullOutput, MycStatusSignerOutput,
+    MycStatusSummaryOutput, collect_metrics, collect_status_full, collect_status_signer,
+    collect_status_summary, increment_outcome_counts, is_aggregate_publish_operation,
+    operation_kind_label, render_metrics_text,
 };
 use crate::persistence::{
     MycPersistenceImportSelection, backup_persistence, import_json_to_sqlite, restore_backup,
@@ -222,6 +223,7 @@ pub enum MycDiscoveryRepairAttemptView {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum MycStatusView {
+    Signer,
     Summary,
     Full,
 }
@@ -373,6 +375,7 @@ pub enum MycDiscoveryRepairAttemptOutput {
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum MycStatusOutput {
+    Signer(MycStatusSignerOutput),
     Summary(MycStatusSummaryOutput),
     Full(MycStatusFullOutput),
 }
@@ -389,6 +392,7 @@ pub async fn run_from_env() -> Result<(), MycError> {
         MycCommand::Status { view } => {
             let runtime = MycRuntime::bootstrap(config)?;
             let output = match view {
+                MycStatusView::Signer => MycStatusOutput::Signer(collect_status_signer(&runtime)?),
                 MycStatusView::Summary => {
                     MycStatusOutput::Summary(collect_status_summary(&runtime).await?)
                 }
@@ -1052,7 +1056,7 @@ mod tests {
     use crate::config::MycConfig;
 
     use super::{
-        MycAuditScope, MycCli, MycCommand, MycCustodyCommand, MycCustodyRole,
+        MycAuditScope, MycCli, MycCommand, MycCustodyCommand, MycCustodyRole, MycStatusView,
         granted_permissions_for_approval, load_audit_output, summarize_audit_output,
     };
     use crate::app::MycRuntime;
@@ -1373,6 +1377,19 @@ mod tests {
                 .rejected,
             1
         );
+    }
+
+    #[test]
+    fn parses_signer_status_view() {
+        let cli = MycCli::try_parse_from(["myc", "status", "--view", "signer"])
+            .expect("parse signer status");
+
+        assert!(matches!(
+            cli.command,
+            Some(MycCommand::Status {
+                view: MycStatusView::Signer
+            })
+        ));
     }
 
     #[test]

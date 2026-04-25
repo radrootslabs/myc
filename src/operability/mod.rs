@@ -29,6 +29,7 @@ use crate::outbox::{MycDeliveryOutboxRecord, MycDeliveryOutboxStatus, now_unix_s
 use crate::transport::MycTransportSnapshot;
 
 const MYC_RELAY_PROBE_CONCURRENCY_LIMIT: usize = 4;
+pub const MYC_SIGNER_STATUS_CONTRACT_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -194,6 +195,17 @@ pub struct MycStatusFullOutput {
     pub delivery_outbox: MycDeliveryOutboxStatusOutput,
     pub transport: MycTransportStatusOutput,
     pub discovery: MycDiscoveryStatusOutput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycStatusSignerOutput {
+    pub status_contract_version: u32,
+    pub status: MycRuntimeStatus,
+    pub ready: bool,
+    pub reasons: Vec<String>,
+    pub runtime_contract: MycRuntimeContractOutput,
+    pub signer_backend: MycSignerBackendStatusOutput,
+    pub custody: MycCustodyStatusOutput,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -365,6 +377,39 @@ pub async fn collect_status_full(runtime: &MycRuntime) -> Result<MycStatusFullOu
         delivery_outbox: delivery_outbox.output,
         transport: transport.output,
         discovery: discovery.output,
+    })
+}
+
+pub fn collect_status_signer(runtime: &MycRuntime) -> Result<MycStatusSignerOutput, MycError> {
+    let signer_backend = collect_signer_backend_status(runtime)?;
+    let custody = collect_custody_status(runtime)?;
+    let mut reasons = Vec::new();
+
+    if !custody.output.signer.resolved {
+        reasons.push("signer identity could not be resolved".to_owned());
+    }
+    if !custody.output.user.resolved {
+        reasons.push("user identity could not be resolved".to_owned());
+    }
+    match signer_backend.local_signer.as_ref() {
+        Some(local_signer) if local_signer.is_secret_backed() => {}
+        Some(_) => reasons.push("local signer capability is not secret-backed".to_owned()),
+        None => reasons.push("local signer capability is unavailable".to_owned()),
+    }
+
+    let ready = reasons.is_empty();
+    Ok(MycStatusSignerOutput {
+        status_contract_version: MYC_SIGNER_STATUS_CONTRACT_VERSION,
+        status: if ready {
+            MycRuntimeStatus::Healthy
+        } else {
+            MycRuntimeStatus::Unready
+        },
+        ready,
+        reasons,
+        runtime_contract: runtime.config().runtime_contract_output(),
+        signer_backend,
+        custody: custody.output,
     })
 }
 
@@ -1603,9 +1648,9 @@ mod tests {
     };
 
     use super::{
-        MycMetricsSnapshot, MycOperationOutcomeCounts, MycRuntimeStatus, collect_metrics,
-        collect_status_full, inspect_runtime_audit_sqlite_schema, render_metrics_text,
-        worse_runtime_status,
+        MYC_SIGNER_STATUS_CONTRACT_VERSION, MycMetricsSnapshot, MycOperationOutcomeCounts,
+        MycRuntimeStatus, collect_metrics, collect_status_full, collect_status_signer,
+        inspect_runtime_audit_sqlite_schema, render_metrics_text, worse_runtime_status,
     };
     use crate::app::{MycRuntime, MycRuntimePaths};
     use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
@@ -1798,6 +1843,69 @@ mod tests {
             status
                 .signer_backend
                 .local_signer
+                .expect("local signer")
+                .is_secret_backed()
+        );
+        assert_eq!(status.signer_backend.remote_session_count, 1);
+        assert_eq!(status.signer_backend.remote_sessions.len(), 1);
+        assert_eq!(
+            status.signer_backend.remote_sessions[0].connection_id,
+            connection.connection_id
+        );
+    }
+
+    #[test]
+    fn status_signer_reports_remote_sessions_without_transport_diagnostics() {
+        use radroots_nostr_signer::prelude::RadrootsNostrSignerBackend;
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let mut config = MycConfig::default();
+        config.paths.state_dir = temp.path().join("state");
+        config.paths.signer_identity_path = temp.path().join("signer.json");
+        config.paths.user_identity_path = temp.path().join("user.json");
+        config.transport.enabled = true;
+        config.transport.relays = vec!["ws://127.0.0.1:9".to_owned()];
+        config.transport.connect_timeout_secs = 99;
+        write_test_identity(
+            &config.paths.signer_identity_path,
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+        write_test_identity(
+            &config.paths.user_identity_path,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        );
+
+        let runtime = MycRuntime::bootstrap(config).expect("runtime");
+        let backend = runtime.signer_backend();
+        let connection = backend
+            .register_connection(RadrootsNostrSignerConnectionDraft::new(
+                nostr::Keys::generate().public_key(),
+                runtime.user_public_identity(),
+            ))
+            .expect("register connection");
+
+        let status = collect_status_signer(&runtime).expect("status");
+
+        assert_eq!(
+            status.status_contract_version,
+            MYC_SIGNER_STATUS_CONTRACT_VERSION
+        );
+        assert_eq!(status.status, MycRuntimeStatus::Healthy);
+        assert!(status.ready);
+        assert!(status.reasons.is_empty());
+        assert_eq!(
+            status.custody.signer.public_key_hex.as_deref(),
+            Some("4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa")
+        );
+        assert_eq!(
+            status.custody.user.public_key_hex.as_deref(),
+            Some("466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27")
+        );
+        assert!(
+            status
+                .signer_backend
+                .local_signer
+                .as_ref()
                 .expect("local signer")
                 .is_secret_backed()
         );

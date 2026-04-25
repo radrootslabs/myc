@@ -3,8 +3,9 @@ use std::path::Path;
 use std::process::Command;
 
 use myc::{
-    MycActiveIdentity, MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycOperationAuditKind,
-    MycOperationAuditOutcome, MycOperationAuditRecord, MycRuntime,
+    MYC_SIGNER_STATUS_CONTRACT_VERSION, MycActiveIdentity, MycDeliveryOutboxKind,
+    MycDeliveryOutboxRecord, MycOperationAuditKind, MycOperationAuditOutcome,
+    MycOperationAuditRecord, MycRuntime,
 };
 use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{RadrootsNostrEventBuilder, RadrootsNostrKind};
@@ -59,6 +60,45 @@ fn signed_event(identity: &MycActiveIdentity) -> nostr::Event {
             "operability test event",
         )
         .expect("sign event")
+}
+
+#[test]
+fn status_signer_command_emits_local_contract_json() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let env_path = write_env_file(&temp);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_myc"))
+        .arg("--env-file")
+        .arg(&env_path)
+        .arg("status")
+        .arg("--view")
+        .arg("signer")
+        .output()
+        .expect("run myc signer status");
+
+    assert!(output.status.success());
+    let value: Value = serde_json::from_slice(&output.stdout).expect("signer status json");
+    assert_eq!(
+        value["status_contract_version"],
+        MYC_SIGNER_STATUS_CONTRACT_VERSION
+    );
+    assert_eq!(value["status"], "healthy");
+    assert_eq!(value["ready"], true);
+    assert_eq!(
+        value["runtime_contract"]["active_profile"],
+        "interactive_user"
+    );
+    assert_eq!(value["custody"]["signer"]["resolved"], true);
+    assert_eq!(value["custody"]["user"]["resolved"], true);
+    assert_eq!(
+        value["signer_backend"]["local_signer"]["availability"],
+        "SecretBacked"
+    );
+    assert_eq!(value["signer_backend"]["remote_session_count"], 0);
+    assert!(value.get("transport").is_none());
+    assert!(value.get("discovery").is_none());
+    assert!(value.get("persistence").is_none());
+    assert!(value.get("delivery_outbox").is_none());
 }
 
 #[test]
