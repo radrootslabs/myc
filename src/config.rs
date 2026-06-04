@@ -398,9 +398,9 @@ const MYC_MIGRATION_IMPORT_HINT: &str = "stop myc, inspect this legacy path, the
 const MYC_COMPATIBILITY_LEAF_PATH_KEYS: [&str; 6] = [
     "MYC_LOGGING_OUTPUT_DIR",
     "MYC_PATHS_STATE_DIR",
-    "MYC_PATHS_SIGNER_IDENTITY_PATH",
-    "MYC_PATHS_USER_IDENTITY_PATH",
-    "MYC_DISCOVERY_APP_IDENTITY_PATH",
+    "MYC_IDENTITY_SIGNER_PATH",
+    "MYC_IDENTITY_USER_PATH",
+    "MYC_IDENTITY_DISCOVERY_APP_PATH",
     "MYC_DISCOVERY_NIP05_OUTPUT_PATH",
 ];
 
@@ -605,52 +605,52 @@ impl MycConfig {
         );
         push_env_line(
             &mut lines,
-            "MYC_PATHS_SIGNER_IDENTITY_BACKEND",
+            "MYC_IDENTITY_SIGNER_BACKEND",
             self.paths.signer_identity_backend.as_str(),
         );
         push_env_line(
             &mut lines,
-            "MYC_PATHS_SIGNER_IDENTITY_PATH",
+            "MYC_IDENTITY_SIGNER_PATH",
             self.paths.signer_identity_path.display().to_string(),
         );
         push_optional_string_env_line(
             &mut lines,
-            "MYC_PATHS_SIGNER_IDENTITY_KEYRING_ACCOUNT_ID",
+            "MYC_IDENTITY_SIGNER_KEYRING_ACCOUNT_ID",
             self.paths.signer_identity_keyring_account_id.as_deref(),
         );
         push_env_line(
             &mut lines,
-            "MYC_PATHS_SIGNER_IDENTITY_KEYRING_SERVICE_NAME",
+            "MYC_IDENTITY_SIGNER_KEYRING_SERVICE_NAME",
             self.paths.signer_identity_keyring_service_name.as_str(),
         );
         push_optional_path_env_line(
             &mut lines,
-            "MYC_PATHS_SIGNER_IDENTITY_PROFILE_PATH",
+            "MYC_IDENTITY_SIGNER_PROFILE_PATH",
             self.paths.signer_identity_profile_path.as_ref(),
         );
         push_env_line(
             &mut lines,
-            "MYC_PATHS_USER_IDENTITY_BACKEND",
+            "MYC_IDENTITY_USER_BACKEND",
             self.paths.user_identity_backend.as_str(),
         );
         push_env_line(
             &mut lines,
-            "MYC_PATHS_USER_IDENTITY_PATH",
+            "MYC_IDENTITY_USER_PATH",
             self.paths.user_identity_path.display().to_string(),
         );
         push_optional_string_env_line(
             &mut lines,
-            "MYC_PATHS_USER_IDENTITY_KEYRING_ACCOUNT_ID",
+            "MYC_IDENTITY_USER_KEYRING_ACCOUNT_ID",
             self.paths.user_identity_keyring_account_id.as_deref(),
         );
         push_env_line(
             &mut lines,
-            "MYC_PATHS_USER_IDENTITY_KEYRING_SERVICE_NAME",
+            "MYC_IDENTITY_USER_KEYRING_SERVICE_NAME",
             self.paths.user_identity_keyring_service_name.as_str(),
         );
         push_optional_path_env_line(
             &mut lines,
-            "MYC_PATHS_USER_IDENTITY_PROFILE_PATH",
+            "MYC_IDENTITY_USER_PROFILE_PATH",
             self.paths.user_identity_profile_path.as_ref(),
         );
         push_env_line(
@@ -705,44 +705,44 @@ impl MycConfig {
         );
         push_optional_string_env_line(
             &mut lines,
-            "MYC_DISCOVERY_APP_IDENTITY_BACKEND",
+            "MYC_IDENTITY_DISCOVERY_APP_BACKEND",
             self.discovery
                 .app_identity_backend
                 .map(MycIdentityBackend::as_str),
         );
         push_optional_path_env_line(
             &mut lines,
-            "MYC_DISCOVERY_APP_IDENTITY_PATH",
+            "MYC_IDENTITY_DISCOVERY_APP_PATH",
             self.discovery.app_identity_path.as_ref(),
         );
         push_optional_string_env_line(
             &mut lines,
-            "MYC_DISCOVERY_APP_IDENTITY_KEYRING_ACCOUNT_ID",
+            "MYC_IDENTITY_DISCOVERY_APP_KEYRING_ACCOUNT_ID",
             self.discovery.app_identity_keyring_account_id.as_deref(),
         );
         push_optional_string_env_line(
             &mut lines,
-            "MYC_DISCOVERY_APP_IDENTITY_KEYRING_SERVICE_NAME",
+            "MYC_IDENTITY_DISCOVERY_APP_KEYRING_SERVICE_NAME",
             self.discovery.app_identity_keyring_service_name.as_deref(),
         );
         push_optional_path_env_line(
             &mut lines,
-            "MYC_DISCOVERY_APP_IDENTITY_PROFILE_PATH",
+            "MYC_IDENTITY_DISCOVERY_APP_PROFILE_PATH",
             self.discovery.app_identity_profile_path.as_ref(),
         );
         push_env_line(
             &mut lines,
-            "MYC_DISCOVERY_PUBLIC_RELAYS",
+            "MYC_DISCOVERY_PUBLIC_RELAY_URLS",
             self.discovery.public_relays.join(","),
         );
         push_env_line(
             &mut lines,
-            "MYC_DISCOVERY_PUBLISH_RELAYS",
+            "MYC_DISCOVERY_PUBLISH_RELAY_URLS",
             self.discovery.publish_relays.join(","),
         );
         push_optional_string_env_line(
             &mut lines,
-            "MYC_DISCOVERY_NOSTRCONNECT_URL_TEMPLATE",
+            "MYC_DISCOVERY_NOSTR_CONNECT_URL_TEMPLATE",
             self.discovery.nostrconnect_url_template.as_deref(),
         );
         push_optional_path_env_line(
@@ -861,7 +861,7 @@ impl MycConfig {
         );
         push_env_line(
             &mut lines,
-            "MYC_TRANSPORT_RELAYS",
+            "MYC_TRANSPORT_RELAY_URLS",
             self.transport.relays.join(","),
         );
         push_env_line(
@@ -881,12 +881,12 @@ impl MycConfig {
         );
         push_env_line(
             &mut lines,
-            "MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MILLIS",
+            "MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MS",
             self.transport.publish_initial_backoff_millis.to_string(),
         );
         push_env_line(
             &mut lines,
-            "MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS",
+            "MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MS",
             self.transport.publish_max_backoff_millis.to_string(),
         );
 
@@ -1238,38 +1238,38 @@ fn apply_env_entry(
             config.paths.state_dir = PathBuf::from(value);
             path_overrides.state_dir = true;
         }
-        "MYC_PATHS_SIGNER_IDENTITY_BACKEND" => {
+        "MYC_IDENTITY_SIGNER_BACKEND" => {
             config.paths.signer_identity_backend =
                 parse_identity_backend_env(key, value, path, line_number)?;
         }
-        "MYC_PATHS_SIGNER_IDENTITY_PATH" => {
+        "MYC_IDENTITY_SIGNER_PATH" => {
             config.paths.signer_identity_path = PathBuf::from(value);
             path_overrides.signer_identity_path = true;
         }
-        "MYC_PATHS_SIGNER_IDENTITY_KEYRING_ACCOUNT_ID" => {
+        "MYC_IDENTITY_SIGNER_KEYRING_ACCOUNT_ID" => {
             config.paths.signer_identity_keyring_account_id = parse_optional_string_env(value);
         }
-        "MYC_PATHS_SIGNER_IDENTITY_KEYRING_SERVICE_NAME" => {
+        "MYC_IDENTITY_SIGNER_KEYRING_SERVICE_NAME" => {
             config.paths.signer_identity_keyring_service_name = value.to_owned();
         }
-        "MYC_PATHS_SIGNER_IDENTITY_PROFILE_PATH" => {
+        "MYC_IDENTITY_SIGNER_PROFILE_PATH" => {
             config.paths.signer_identity_profile_path = parse_optional_path_env(value);
         }
-        "MYC_PATHS_USER_IDENTITY_BACKEND" => {
+        "MYC_IDENTITY_USER_BACKEND" => {
             config.paths.user_identity_backend =
                 parse_identity_backend_env(key, value, path, line_number)?;
         }
-        "MYC_PATHS_USER_IDENTITY_PATH" => {
+        "MYC_IDENTITY_USER_PATH" => {
             config.paths.user_identity_path = PathBuf::from(value);
             path_overrides.user_identity_path = true;
         }
-        "MYC_PATHS_USER_IDENTITY_KEYRING_ACCOUNT_ID" => {
+        "MYC_IDENTITY_USER_KEYRING_ACCOUNT_ID" => {
             config.paths.user_identity_keyring_account_id = parse_optional_string_env(value);
         }
-        "MYC_PATHS_USER_IDENTITY_KEYRING_SERVICE_NAME" => {
+        "MYC_IDENTITY_USER_KEYRING_SERVICE_NAME" => {
             config.paths.user_identity_keyring_service_name = value.to_owned();
         }
-        "MYC_PATHS_USER_IDENTITY_PROFILE_PATH" => {
+        "MYC_IDENTITY_USER_PROFILE_PATH" => {
             config.paths.user_identity_profile_path = parse_optional_path_env(value);
         }
         "MYC_PERSISTENCE_SIGNER_STATE_BACKEND" => {
@@ -1304,30 +1304,30 @@ fn apply_env_entry(
         "MYC_DISCOVERY_HANDLER_IDENTIFIER" => {
             config.discovery.handler_identifier = value.to_owned();
         }
-        "MYC_DISCOVERY_APP_IDENTITY_BACKEND" => {
+        "MYC_IDENTITY_DISCOVERY_APP_BACKEND" => {
             config.discovery.app_identity_backend =
                 parse_optional_identity_backend_env(key, value, path, line_number)?;
         }
-        "MYC_DISCOVERY_APP_IDENTITY_PATH" => {
+        "MYC_IDENTITY_DISCOVERY_APP_PATH" => {
             config.discovery.app_identity_path = parse_optional_path_env(value);
             path_overrides.discovery_app_identity_path = true;
         }
-        "MYC_DISCOVERY_APP_IDENTITY_KEYRING_ACCOUNT_ID" => {
+        "MYC_IDENTITY_DISCOVERY_APP_KEYRING_ACCOUNT_ID" => {
             config.discovery.app_identity_keyring_account_id = parse_optional_string_env(value);
         }
-        "MYC_DISCOVERY_APP_IDENTITY_KEYRING_SERVICE_NAME" => {
+        "MYC_IDENTITY_DISCOVERY_APP_KEYRING_SERVICE_NAME" => {
             config.discovery.app_identity_keyring_service_name = parse_optional_string_env(value);
         }
-        "MYC_DISCOVERY_APP_IDENTITY_PROFILE_PATH" => {
+        "MYC_IDENTITY_DISCOVERY_APP_PROFILE_PATH" => {
             config.discovery.app_identity_profile_path = parse_optional_path_env(value);
         }
-        "MYC_DISCOVERY_PUBLIC_RELAYS" => {
+        "MYC_DISCOVERY_PUBLIC_RELAY_URLS" => {
             config.discovery.public_relays = parse_string_list_env(value);
         }
-        "MYC_DISCOVERY_PUBLISH_RELAYS" => {
+        "MYC_DISCOVERY_PUBLISH_RELAY_URLS" => {
             config.discovery.publish_relays = parse_string_list_env(value);
         }
-        "MYC_DISCOVERY_NOSTRCONNECT_URL_TEMPLATE" => {
+        "MYC_DISCOVERY_NOSTR_CONNECT_URL_TEMPLATE" => {
             config.discovery.nostrconnect_url_template = parse_optional_string_env(value);
         }
         "MYC_DISCOVERY_NIP05_OUTPUT_PATH" => {
@@ -1403,7 +1403,7 @@ fn apply_env_entry(
         "MYC_TRANSPORT_CONNECT_TIMEOUT_SECS" => {
             config.transport.connect_timeout_secs = parse_u64_env(key, value, path, line_number)?;
         }
-        "MYC_TRANSPORT_RELAYS" => {
+        "MYC_TRANSPORT_RELAY_URLS" => {
             config.transport.relays = parse_string_list_env(value);
         }
         "MYC_TRANSPORT_DELIVERY_POLICY" => {
@@ -1417,11 +1417,11 @@ fn apply_env_entry(
         "MYC_TRANSPORT_PUBLISH_MAX_ATTEMPTS" => {
             config.transport.publish_max_attempts = parse_usize_env(key, value, path, line_number)?;
         }
-        "MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MILLIS" => {
+        "MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MS" => {
             config.transport.publish_initial_backoff_millis =
                 parse_u64_env(key, value, path, line_number)?;
         }
-        "MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS" => {
+        "MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MS" => {
             config.transport.publish_max_backoff_millis =
                 parse_u64_env(key, value, path, line_number)?;
         }
@@ -1522,8 +1522,6 @@ fn parse_identity_backend_env(
         "managed_account" => Ok(MycIdentityBackend::ManagedAccount),
         "external_command" => Ok(MycIdentityBackend::ExternalCommand),
         "plaintext_file" => Ok(MycIdentityBackend::PlaintextFile),
-        "filesystem" => Ok(MycIdentityBackend::PlaintextFile),
-        "os_keyring" => Ok(MycIdentityBackend::HostVault),
         _ => Err(config_parse_error(
             path,
             line_number,
@@ -2192,10 +2190,10 @@ MYC_LOGGING_FILTER=debug,myc=trace
 MYC_LOGGING_OUTPUT_DIR=/tmp/myc-logs
 MYC_LOGGING_STDOUT=false
 MYC_PATHS_STATE_DIR=/tmp/myc
-MYC_PATHS_SIGNER_IDENTITY_BACKEND=encrypted_file
-MYC_PATHS_SIGNER_IDENTITY_PATH=/tmp/myc-identity.json
-MYC_PATHS_USER_IDENTITY_BACKEND=encrypted_file
-MYC_PATHS_USER_IDENTITY_PATH=/tmp/myc-user.json
+MYC_IDENTITY_SIGNER_BACKEND=encrypted_file
+MYC_IDENTITY_SIGNER_PATH=/tmp/myc-identity.json
+MYC_IDENTITY_USER_BACKEND=encrypted_file
+MYC_IDENTITY_USER_PATH=/tmp/myc-user.json
 MYC_PERSISTENCE_SIGNER_STATE_BACKEND=json_file
 MYC_PERSISTENCE_RUNTIME_AUDIT_BACKEND=jsonl_file
 MYC_AUDIT_DEFAULT_READ_LIMIT=50
@@ -2206,11 +2204,11 @@ MYC_OBSERVABILITY_BIND_ADDR=127.0.0.1:9550
 MYC_DISCOVERY_ENABLED=true
 MYC_DISCOVERY_DOMAIN=myc.example.com
 MYC_DISCOVERY_HANDLER_IDENTIFIER=myc-main
-MYC_DISCOVERY_APP_IDENTITY_BACKEND=encrypted_file
-MYC_DISCOVERY_APP_IDENTITY_PATH=/tmp/myc-app.json
-MYC_DISCOVERY_PUBLIC_RELAYS=wss://relay.discovery.example.com
-MYC_DISCOVERY_PUBLISH_RELAYS=wss://relay.publish.example.com
-MYC_DISCOVERY_NOSTRCONNECT_URL_TEMPLATE=https://myc.example.com/connect/<nostrconnect>
+MYC_IDENTITY_DISCOVERY_APP_BACKEND=encrypted_file
+MYC_IDENTITY_DISCOVERY_APP_PATH=/tmp/myc-app.json
+MYC_DISCOVERY_PUBLIC_RELAY_URLS=wss://relay.discovery.example.com
+MYC_DISCOVERY_PUBLISH_RELAY_URLS=wss://relay.publish.example.com
+MYC_DISCOVERY_NOSTR_CONNECT_URL_TEMPLATE=https://myc.example.com/connect/<nostrconnect>
 MYC_DISCOVERY_NIP05_OUTPUT_PATH=/tmp/nostr.json
 MYC_DISCOVERY_METADATA_NAME=myc
 MYC_DISCOVERY_METADATA_DISPLAY_NAME=Mycorrhiza
@@ -2232,12 +2230,12 @@ MYC_POLICY_AUTH_CHALLENGE_RATE_LIMIT_WINDOW_SECS=120
 MYC_POLICY_AUTH_CHALLENGE_RATE_LIMIT_MAX_ATTEMPTS=3
 MYC_TRANSPORT_ENABLED=true
 MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=15
-MYC_TRANSPORT_RELAYS=wss://relay.example.com,wss://relay2.example.com
+MYC_TRANSPORT_RELAY_URLS=wss://relay.example.com,wss://relay2.example.com
 MYC_TRANSPORT_DELIVERY_POLICY=quorum
 MYC_TRANSPORT_DELIVERY_QUORUM=2
 MYC_TRANSPORT_PUBLISH_MAX_ATTEMPTS=4
-MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MILLIS=100
-MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS=800
+MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MS=100
+MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MS=800
             "#,
             Path::new("inline.env"),
             &resolver,
@@ -2484,6 +2482,42 @@ MYC_UNKNOWN=nope
     }
 
     #[test]
+    fn parse_rejects_retired_env_keys() {
+        for key in [
+            "MYC_PATHS_SIGNER_IDENTITY_BACKEND",
+            "MYC_PATHS_SIGNER_IDENTITY_PATH",
+            "MYC_PATHS_USER_IDENTITY_BACKEND",
+            "MYC_PATHS_USER_IDENTITY_PATH",
+            "MYC_DISCOVERY_APP_IDENTITY_BACKEND",
+            "MYC_DISCOVERY_APP_IDENTITY_PATH",
+            "MYC_DISCOVERY_PUBLIC_RELAYS",
+            "MYC_DISCOVERY_PUBLISH_RELAYS",
+            "MYC_DISCOVERY_NOSTRCONNECT_URL_TEMPLATE",
+            "MYC_TRANSPORT_RELAYS",
+            "MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MILLIS",
+            "MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS",
+        ] {
+            let err = MycConfig::from_env_str(format!("{key}=value\n").as_str())
+                .expect_err("retired key should be rejected");
+            assert!(err.to_string().contains("unknown environment variable"));
+            assert!(err.to_string().contains(key));
+        }
+    }
+
+    #[test]
+    fn parse_rejects_retired_identity_backend_aliases() {
+        for value in ["filesystem", "os_keyring"] {
+            let err =
+                MycConfig::from_env_str(format!("MYC_IDENTITY_SIGNER_BACKEND={value}\n").as_str())
+                    .expect_err("retired backend alias should be rejected");
+            assert!(
+                err.to_string()
+                    .contains("MYC_IDENTITY_SIGNER_BACKEND must be")
+            );
+        }
+    }
+
+    #[test]
     fn validate_rejects_enabled_transport_without_relays() {
         let mut config = MycConfig::default();
         config.transport.enabled = true;
@@ -2669,18 +2703,18 @@ MYC_UNKNOWN=nope
     fn parse_and_validate_host_vault_identity_backends() {
         let config = MycConfig::from_env_str(
             r#"
-MYC_PATHS_SIGNER_IDENTITY_BACKEND=host_vault
-MYC_PATHS_SIGNER_IDENTITY_KEYRING_ACCOUNT_ID=1111111111111111111111111111111111111111111111111111111111111111
-MYC_PATHS_SIGNER_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.signer
-MYC_PATHS_USER_IDENTITY_BACKEND=host_vault
-MYC_PATHS_USER_IDENTITY_KEYRING_ACCOUNT_ID=2222222222222222222222222222222222222222222222222222222222222222
-MYC_PATHS_USER_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.user
+MYC_IDENTITY_SIGNER_BACKEND=host_vault
+MYC_IDENTITY_SIGNER_KEYRING_ACCOUNT_ID=1111111111111111111111111111111111111111111111111111111111111111
+MYC_IDENTITY_SIGNER_KEYRING_SERVICE_NAME=org.radroots.myc.test.signer
+MYC_IDENTITY_USER_BACKEND=host_vault
+MYC_IDENTITY_USER_KEYRING_ACCOUNT_ID=2222222222222222222222222222222222222222222222222222222222222222
+MYC_IDENTITY_USER_KEYRING_SERVICE_NAME=org.radroots.myc.test.user
 MYC_DISCOVERY_ENABLED=true
 MYC_DISCOVERY_DOMAIN=myc.example.com
-MYC_DISCOVERY_PUBLIC_RELAYS=wss://relay.example.com
-MYC_DISCOVERY_APP_IDENTITY_BACKEND=host_vault
-MYC_DISCOVERY_APP_IDENTITY_KEYRING_ACCOUNT_ID=3333333333333333333333333333333333333333333333333333333333333333
-MYC_DISCOVERY_APP_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
+MYC_DISCOVERY_PUBLIC_RELAY_URLS=wss://relay.example.com
+MYC_IDENTITY_DISCOVERY_APP_BACKEND=host_vault
+MYC_IDENTITY_DISCOVERY_APP_KEYRING_ACCOUNT_ID=3333333333333333333333333333333333333333333333333333333333333333
+MYC_IDENTITY_DISCOVERY_APP_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
             "#,
         )
         .expect("config");
@@ -2714,18 +2748,18 @@ MYC_DISCOVERY_APP_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
     fn parse_and_validate_managed_account_identity_backends() {
         let config = MycConfig::from_env_str(
             r#"
-MYC_PATHS_SIGNER_IDENTITY_BACKEND=managed_account
-MYC_PATHS_SIGNER_IDENTITY_PATH=/var/lib/myc/custody/signer-accounts.json
-MYC_PATHS_SIGNER_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.signer
-MYC_PATHS_USER_IDENTITY_BACKEND=managed_account
-MYC_PATHS_USER_IDENTITY_PATH=/var/lib/myc/custody/user-accounts.json
-MYC_PATHS_USER_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.user
+MYC_IDENTITY_SIGNER_BACKEND=managed_account
+MYC_IDENTITY_SIGNER_PATH=/var/lib/myc/custody/signer-accounts.json
+MYC_IDENTITY_SIGNER_KEYRING_SERVICE_NAME=org.radroots.myc.test.signer
+MYC_IDENTITY_USER_BACKEND=managed_account
+MYC_IDENTITY_USER_PATH=/var/lib/myc/custody/user-accounts.json
+MYC_IDENTITY_USER_KEYRING_SERVICE_NAME=org.radroots.myc.test.user
 MYC_DISCOVERY_ENABLED=true
 MYC_DISCOVERY_DOMAIN=myc.example.com
-MYC_DISCOVERY_PUBLIC_RELAYS=wss://relay.example.com
-MYC_DISCOVERY_APP_IDENTITY_BACKEND=managed_account
-MYC_DISCOVERY_APP_IDENTITY_PATH=/var/lib/myc/custody/discovery-accounts.json
-MYC_DISCOVERY_APP_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
+MYC_DISCOVERY_PUBLIC_RELAY_URLS=wss://relay.example.com
+MYC_IDENTITY_DISCOVERY_APP_BACKEND=managed_account
+MYC_IDENTITY_DISCOVERY_APP_PATH=/var/lib/myc/custody/discovery-accounts.json
+MYC_IDENTITY_DISCOVERY_APP_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
             "#,
         )
         .expect("config");
@@ -2771,15 +2805,15 @@ MYC_DISCOVERY_APP_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
         let config = MycConfig::from_env_str(
             r#"
 MYC_CUSTODY_EXTERNAL_COMMAND_TIMEOUT_SECS=21
-MYC_PATHS_SIGNER_IDENTITY_BACKEND=external_command
-MYC_PATHS_SIGNER_IDENTITY_PATH=/usr/local/libexec/myc-signer-helper
-MYC_PATHS_USER_IDENTITY_BACKEND=external_command
-MYC_PATHS_USER_IDENTITY_PATH=/usr/local/libexec/myc-user-helper
+MYC_IDENTITY_SIGNER_BACKEND=external_command
+MYC_IDENTITY_SIGNER_PATH=/usr/local/libexec/myc-signer-helper
+MYC_IDENTITY_USER_BACKEND=external_command
+MYC_IDENTITY_USER_PATH=/usr/local/libexec/myc-user-helper
 MYC_DISCOVERY_ENABLED=true
 MYC_DISCOVERY_DOMAIN=myc.example.com
-MYC_DISCOVERY_PUBLIC_RELAYS=wss://relay.example.com
-MYC_DISCOVERY_APP_IDENTITY_BACKEND=external_command
-MYC_DISCOVERY_APP_IDENTITY_PATH=/usr/local/libexec/myc-discovery-helper
+MYC_DISCOVERY_PUBLIC_RELAY_URLS=wss://relay.example.com
+MYC_IDENTITY_DISCOVERY_APP_BACKEND=external_command
+MYC_IDENTITY_DISCOVERY_APP_PATH=/usr/local/libexec/myc-discovery-helper
             "#,
         )
         .expect("config");
@@ -2890,14 +2924,14 @@ MYC_LOGGING_OUTPUT_DIR=/tmp/myc logs
 MYC_LOGGING_STDOUT=false
 MYC_CUSTODY_EXTERNAL_COMMAND_TIMEOUT_SECS=17
 MYC_PATHS_STATE_DIR=/tmp/myc state
-MYC_PATHS_SIGNER_IDENTITY_BACKEND=host_vault
-MYC_PATHS_SIGNER_IDENTITY_PATH=/tmp/ignored-signer.json
-MYC_PATHS_SIGNER_IDENTITY_KEYRING_ACCOUNT_ID=1111111111111111111111111111111111111111111111111111111111111111
-MYC_PATHS_SIGNER_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.signer
-MYC_PATHS_SIGNER_IDENTITY_PROFILE_PATH=/tmp/signer-profile.json
-MYC_PATHS_USER_IDENTITY_BACKEND=plaintext_file
-MYC_PATHS_USER_IDENTITY_PATH=/tmp/myc-user.json
-MYC_PATHS_USER_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.user
+MYC_IDENTITY_SIGNER_BACKEND=host_vault
+MYC_IDENTITY_SIGNER_PATH=/tmp/ignored-signer.json
+MYC_IDENTITY_SIGNER_KEYRING_ACCOUNT_ID=1111111111111111111111111111111111111111111111111111111111111111
+MYC_IDENTITY_SIGNER_KEYRING_SERVICE_NAME=org.radroots.myc.test.signer
+MYC_IDENTITY_SIGNER_PROFILE_PATH=/tmp/signer-profile.json
+MYC_IDENTITY_USER_BACKEND=plaintext_file
+MYC_IDENTITY_USER_PATH=/tmp/myc-user.json
+MYC_IDENTITY_USER_KEYRING_SERVICE_NAME=org.radroots.myc.test.user
 MYC_PERSISTENCE_SIGNER_STATE_BACKEND=json_file
 MYC_PERSISTENCE_RUNTIME_AUDIT_BACKEND=jsonl_file
 MYC_AUDIT_DEFAULT_READ_LIMIT=50
@@ -2908,12 +2942,12 @@ MYC_OBSERVABILITY_BIND_ADDR=127.0.0.1:9550
 MYC_DISCOVERY_ENABLED=true
 MYC_DISCOVERY_DOMAIN=myc.example.com
 MYC_DISCOVERY_HANDLER_IDENTIFIER=myc-main
-MYC_DISCOVERY_APP_IDENTITY_BACKEND=plaintext_file
-MYC_DISCOVERY_APP_IDENTITY_PATH=/tmp/myc-app.json
-MYC_DISCOVERY_APP_IDENTITY_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
-MYC_DISCOVERY_PUBLIC_RELAYS=wss://relay.discovery.example.com
-MYC_DISCOVERY_PUBLISH_RELAYS=wss://relay.publish.example.com
-MYC_DISCOVERY_NOSTRCONNECT_URL_TEMPLATE=https://myc.example.com/connect/<nostrconnect>
+MYC_IDENTITY_DISCOVERY_APP_BACKEND=plaintext_file
+MYC_IDENTITY_DISCOVERY_APP_PATH=/tmp/myc-app.json
+MYC_IDENTITY_DISCOVERY_APP_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
+MYC_DISCOVERY_PUBLIC_RELAY_URLS=wss://relay.discovery.example.com
+MYC_DISCOVERY_PUBLISH_RELAY_URLS=wss://relay.publish.example.com
+MYC_DISCOVERY_NOSTR_CONNECT_URL_TEMPLATE=https://myc.example.com/connect/<nostrconnect>
 MYC_DISCOVERY_NIP05_OUTPUT_PATH=/tmp/nostr.json
 MYC_DISCOVERY_METADATA_NAME=myc
 MYC_DISCOVERY_METADATA_DISPLAY_NAME=Mycorrhiza
@@ -2935,12 +2969,12 @@ MYC_POLICY_AUTH_CHALLENGE_RATE_LIMIT_WINDOW_SECS=120
 MYC_POLICY_AUTH_CHALLENGE_RATE_LIMIT_MAX_ATTEMPTS=3
 MYC_TRANSPORT_ENABLED=true
 MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=15
-MYC_TRANSPORT_RELAYS=wss://relay.example.com,wss://relay2.example.com
+MYC_TRANSPORT_RELAY_URLS=wss://relay.example.com,wss://relay2.example.com
 MYC_TRANSPORT_DELIVERY_POLICY=quorum
 MYC_TRANSPORT_DELIVERY_QUORUM=2
 MYC_TRANSPORT_PUBLISH_MAX_ATTEMPTS=4
-MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MILLIS=100
-MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS=800
+MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MS=100
+MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MS=800
             "#,
         )
         .expect("config");
@@ -2948,6 +2982,31 @@ MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS=800
         let rendered = config.to_env_string().expect("render env");
         let reparsed = MycConfig::from_env_str(&rendered).expect("reparse rendered env");
 
+        assert!(rendered.contains("MYC_IDENTITY_SIGNER_BACKEND=host_vault"));
+        assert!(rendered.contains("MYC_IDENTITY_USER_BACKEND=plaintext_file"));
+        assert!(rendered.contains("MYC_IDENTITY_DISCOVERY_APP_BACKEND=plaintext_file"));
+        assert!(
+            rendered.contains("MYC_DISCOVERY_PUBLIC_RELAY_URLS=wss://relay.discovery.example.com")
+        );
+        assert!(
+            rendered.contains("MYC_DISCOVERY_PUBLISH_RELAY_URLS=wss://relay.publish.example.com")
+        );
+        assert!(rendered.contains("MYC_DISCOVERY_NOSTR_CONNECT_URL_TEMPLATE=https://myc.example.com/connect/<nostrconnect>"));
+        assert!(
+            rendered.contains(
+                "MYC_TRANSPORT_RELAY_URLS=wss://relay.example.com,wss://relay2.example.com"
+            )
+        );
+        assert!(rendered.contains("MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MS=100"));
+        assert!(rendered.contains("MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MS=800"));
+        assert!(!rendered.contains("MYC_PATHS_SIGNER_IDENTITY"));
+        assert!(!rendered.contains("MYC_PATHS_USER_IDENTITY"));
+        assert!(!rendered.contains("MYC_DISCOVERY_APP_IDENTITY"));
+        assert!(!rendered.contains("MYC_DISCOVERY_PUBLIC_RELAYS"));
+        assert!(!rendered.contains("MYC_DISCOVERY_PUBLISH_RELAYS"));
+        assert!(!rendered.contains("MYC_DISCOVERY_NOSTRCONNECT_URL_TEMPLATE"));
+        assert!(!rendered.contains("MYC_TRANSPORT_RELAYS"));
+        assert!(!rendered.contains("_MILLIS"));
         assert_eq!(reparsed, config);
     }
 
@@ -2955,8 +3014,8 @@ MYC_TRANSPORT_PUBLISH_MAX_BACKOFF_MILLIS=800
     fn parse_runtime_audit_backend_supports_sqlite() {
         let config = MycConfig::from_env_str(
             r#"
-MYC_PATHS_SIGNER_IDENTITY_PATH=/tmp/signer.json
-MYC_PATHS_USER_IDENTITY_PATH=/tmp/user.json
+MYC_IDENTITY_SIGNER_PATH=/tmp/signer.json
+MYC_IDENTITY_USER_PATH=/tmp/user.json
 MYC_PERSISTENCE_RUNTIME_AUDIT_BACKEND=sqlite
             "#,
         )
@@ -2978,8 +3037,8 @@ MYC_PERSISTENCE_RUNTIME_AUDIT_BACKEND=sqlite
     fn parse_signer_state_backend_supports_sqlite() {
         let config = MycConfig::from_env_str(
             r#"
-MYC_PATHS_SIGNER_IDENTITY_PATH=/tmp/signer.json
-MYC_PATHS_USER_IDENTITY_PATH=/tmp/user.json
+MYC_IDENTITY_SIGNER_PATH=/tmp/signer.json
+MYC_IDENTITY_USER_PATH=/tmp/user.json
 MYC_PERSISTENCE_SIGNER_STATE_BACKEND=sqlite
             "#,
         )
@@ -3034,9 +3093,9 @@ MYC_PERSISTENCE_SIGNER_STATE_BACKEND=sqlite
             [
                 "MYC_LOGGING_OUTPUT_DIR",
                 "MYC_PATHS_STATE_DIR",
-                "MYC_PATHS_SIGNER_IDENTITY_PATH",
-                "MYC_PATHS_USER_IDENTITY_PATH",
-                "MYC_DISCOVERY_APP_IDENTITY_PATH",
+                "MYC_IDENTITY_SIGNER_PATH",
+                "MYC_IDENTITY_USER_PATH",
+                "MYC_IDENTITY_DISCOVERY_APP_PATH",
                 "MYC_DISCOVERY_NIP05_OUTPUT_PATH"
             ]
         );

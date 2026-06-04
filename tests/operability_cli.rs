@@ -38,8 +38,8 @@ fn write_env_file(temp: &tempfile::TempDir) -> std::path::PathBuf {
 MYC_LOGGING_FILTER=info,myc=info\n\
 MYC_LOGGING_STDOUT=false\n\
 MYC_PATHS_STATE_DIR={}\n\
-MYC_PATHS_SIGNER_IDENTITY_PATH={}\n\
-MYC_PATHS_USER_IDENTITY_PATH={}\n\
+MYC_IDENTITY_SIGNER_PATH={}\n\
+MYC_IDENTITY_USER_PATH={}\n\
 MYC_DISCOVERY_ENABLED=false\n\
 MYC_TRANSPORT_ENABLED=false\n\
 MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=1\n",
@@ -102,6 +102,38 @@ fn status_signer_command_emits_local_contract_json() {
 }
 
 #[test]
+fn status_ignores_retired_process_env_config_names() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let env_path = write_env_file(&temp);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_myc"))
+        .env(
+            "MYC_PATHS_SIGNER_IDENTITY_PATH",
+            temp.path().join("missing-signer.json"),
+        )
+        .env(
+            "MYC_PATHS_USER_IDENTITY_PATH",
+            temp.path().join("missing-user.json"),
+        )
+        .env("MYC_DISCOVERY_PUBLIC_RELAYS", "not-a-relay")
+        .env("MYC_TRANSPORT_RELAYS", "not-a-relay")
+        .env("MYC_TRANSPORT_PUBLISH_INITIAL_BACKOFF_MILLIS", "0")
+        .arg("--env-file")
+        .arg(&env_path)
+        .arg("status")
+        .arg("--view")
+        .arg("signer")
+        .output()
+        .expect("run myc signer status");
+
+    assert!(output.status.success());
+    let value: Value = serde_json::from_slice(&output.stdout).expect("signer status json");
+    assert_eq!(value["ready"], true);
+    assert_eq!(value["custody"]["signer"]["resolved"], true);
+    assert_eq!(value["custody"]["user"]["resolved"], true);
+}
+
+#[test]
 fn status_summary_command_emits_machine_readable_json() {
     let temp = tempfile::tempdir().expect("tempdir");
     let env_path = write_env_file(&temp);
@@ -140,9 +172,9 @@ fn status_summary_command_emits_machine_readable_json() {
         json!([
             "MYC_LOGGING_OUTPUT_DIR",
             "MYC_PATHS_STATE_DIR",
-            "MYC_PATHS_SIGNER_IDENTITY_PATH",
-            "MYC_PATHS_USER_IDENTITY_PATH",
-            "MYC_DISCOVERY_APP_IDENTITY_PATH",
+            "MYC_IDENTITY_SIGNER_PATH",
+            "MYC_IDENTITY_USER_PATH",
+            "MYC_IDENTITY_DISCOVERY_APP_PATH",
             "MYC_DISCOVERY_NIP05_OUTPUT_PATH"
         ])
     );
