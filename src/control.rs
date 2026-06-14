@@ -149,7 +149,7 @@ pub async fn accept_client_uri(
                     granted_permissions,
                 )?;
             }
-            connection
+            Box::new(connection)
         }
     };
 

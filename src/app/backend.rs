@@ -332,7 +332,7 @@ impl RadrootsNostrSignerBackend for MycSignerBackend {
             .sign_unsigned_event(unsigned_event, "myc signer backend event")
             .map_err(|error| RadrootsNostrSignerError::Sign(error.to_string()))?;
         Ok(RadrootsNostrSignerSignOutput::new(
-            RadrootsNostrSignerCapability::LocalAccount(self.local_signer_capability()),
+            RadrootsNostrSignerCapability::LocalAccount(Box::new(self.local_signer_capability())),
             event,
         ))
     }
