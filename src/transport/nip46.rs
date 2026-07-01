@@ -206,7 +206,7 @@ impl MycNip46Handler {
             MycNip46HandledOutcome {
                 handled_request: RadrootsNostrSignerHandledRequest::Respond { response, .. },
                 ..
-            } => Ok(response),
+            } => Ok(*response),
             MycNip46HandledOutcome {
                 handled_request: RadrootsNostrSignerHandledRequest::Ignore,
                 ..

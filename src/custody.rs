@@ -996,8 +996,9 @@ impl MycIdentityProvider {
     ) -> Result<MycManagedAccountMutationOutput, MycError> {
         let account_id = {
             let manager = self.managed_accounts_manager()?;
+            let identity = RadrootsIdentity::load_from_path_auto(path).map_err(MycError::from)?;
             manager
-                .migrate_legacy_identity_file(path, label, make_selected)
+                .upsert_identity(&identity, label, make_selected)
                 .map_err(|source| MycError::CustodyManager {
                     role: self.role.clone(),
                     source,
@@ -2083,10 +2084,10 @@ mod tests {
         )
         .expect("identity");
         let temp = tempfile::tempdir().expect("tempdir");
-        let path = temp.path().join("legacy.json");
+        let path = temp.path().join("managed-account.json");
         identity.save_json(&path).expect("save");
         let record = provider
-            .import_managed_account_file(&path, Some("legacy".to_owned()), true)
+            .import_managed_account_file(&path, Some("managed".to_owned()), true)
             .expect("import");
         let selected_account_id = record
             .state
