@@ -165,18 +165,7 @@ fn status_summary_command_emits_machine_readable_json() {
     );
     assert_eq!(
         value["runtime_contract"]["path_overrides"]["leaf_path_env_posture"],
-        "compatibility_break_glass"
-    );
-    assert_eq!(
-        value["runtime_contract"]["path_overrides"]["compatibility_leaf_path_keys"],
-        json!([
-            "MYC_LOGGING_OUTPUT_DIR",
-            "MYC_PATHS_STATE_DIR",
-            "MYC_IDENTITY_SIGNER_PATH",
-            "MYC_IDENTITY_USER_PATH",
-            "MYC_IDENTITY_DISCOVERY_APP_PATH",
-            "MYC_DISCOVERY_NIP05_OUTPUT_PATH"
-        ])
+        "runtime_owned_leaf_overrides"
     );
     assert_eq!(
         value["runtime_contract"]["allowed_profiles"],
