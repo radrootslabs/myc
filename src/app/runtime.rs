@@ -536,9 +536,8 @@ impl MycRuntime {
                 return Err(self.wrap_recovery_error(
                         &record,
                         MycError::InvalidOperation(format!(
-                            "signer publish workflow `{}` is in `{}` instead of `published_pending_finalize` during startup recovery",
-                            workflow.workflow_id,
-                            format!("{:?}", workflow.state)
+                            "signer publish workflow `{}` is in `{:?}` instead of `published_pending_finalize` during startup recovery",
+                            workflow.workflow_id, workflow.state
                         )),
                     ));
             }
@@ -695,15 +694,14 @@ impl MycRuntime {
                     return Err(self.wrap_recovery_error(
                         record,
                         MycError::InvalidOperation(format!(
-                            "delivery outbox job `{}` expects signer workflow kind `{}` but found `{}`",
-                            record.job_id,
-                            format!("{kind_label:?}"),
-                            format!("{:?}", workflow.kind),
+                            "delivery outbox job `{}` expects signer workflow kind `{kind_label:?}` but found `{:?}`",
+                            record.job_id, workflow.kind
                         )),
                     ));
                 }
-            if let Some(connection_id) = record.connection_id.as_ref() {
-                if &workflow.connection_id != connection_id {
+            if let Some(connection_id) = record.connection_id.as_ref()
+                && &workflow.connection_id != connection_id
+            {
                     return Err(self.wrap_recovery_error(
                         record,
                         MycError::InvalidOperation(format!(
@@ -711,7 +709,6 @@ impl MycRuntime {
                             record.job_id, workflow.connection_id
                         )),
                     ));
-                }
             }
             Ok(workflow)
         });

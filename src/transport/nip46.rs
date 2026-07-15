@@ -118,7 +118,7 @@ impl RadrootsNostrSignerNip46Signer for MycNip46Signer {
     ) -> Result<String, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
         self.signer
             .user_identity()
-            .nip04_decrypt(public_key, ciphertext.to_owned())
+            .nip04_decrypt(public_key, ciphertext)
             .map_err(|error| {
                 radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
             })
@@ -144,7 +144,7 @@ impl RadrootsNostrSignerNip46Signer for MycNip46Signer {
     ) -> Result<String, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
         self.signer
             .user_identity()
-            .nip44_decrypt(public_key, ciphertext.to_owned())
+            .nip44_decrypt(public_key, ciphertext)
             .map_err(|error| {
                 radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
             })

@@ -478,15 +478,15 @@ pub fn verify_restored_state(
 
     let signer_state = load_existing_signer_state(config, &signer_state_path)?;
     let configured_signer_identity = signer_identity.to_public();
-    if let Some(existing_signer_identity) = signer_state.signer_identity.as_ref() {
-        if existing_signer_identity.id != configured_signer_identity.id {
-            return Err(MycError::SignerIdentityMismatch {
-                identity_path: config.paths.signer_identity_path.clone(),
-                state_path: signer_state_path.clone(),
-                configured_identity_id: configured_signer_identity.id.to_string(),
-                persisted_identity_id: existing_signer_identity.id.to_string(),
-            });
-        }
+    if let Some(existing_signer_identity) = signer_state.signer_identity.as_ref()
+        && existing_signer_identity.id != configured_signer_identity.id
+    {
+        return Err(MycError::SignerIdentityMismatch {
+            identity_path: config.paths.signer_identity_path.clone(),
+            state_path: signer_state_path.clone(),
+            configured_identity_id: configured_signer_identity.id.to_string(),
+            persisted_identity_id: existing_signer_identity.id.to_string(),
+        });
     }
 
     let runtime_audit_record_count = load_existing_runtime_audit_record_count(config, &audit_dir)?;
@@ -565,14 +565,14 @@ fn import_signer_state_json_to_sqlite(
         Duration::from_secs(config.custody.external_command_timeout_secs),
     )?;
     let configured_signer_identity = signer_identity_provider.load_identity()?.to_public();
-    if let Some(imported_signer_identity) = source_state.signer_identity.as_ref() {
-        if imported_signer_identity.id != configured_signer_identity.id {
-            return Err(MycError::SignerIdentityImportMismatch {
-                state_path: source_path.clone(),
-                configured_identity_id: configured_signer_identity.id.to_string(),
-                imported_identity_id: imported_signer_identity.id.to_string(),
-            });
-        }
+    if let Some(imported_signer_identity) = source_state.signer_identity.as_ref()
+        && imported_signer_identity.id != configured_signer_identity.id
+    {
+        return Err(MycError::SignerIdentityImportMismatch {
+            state_path: source_path.clone(),
+            configured_identity_id: configured_signer_identity.id.to_string(),
+            imported_identity_id: imported_signer_identity.id.to_string(),
+        });
     }
 
     let destination_store = RadrootsNostrSqliteSignerStore::open(&destination_path)?;
@@ -727,7 +727,7 @@ fn restore_identity_reference(
             MycPersistenceIdentityReferenceField::EncryptedKeyPath => current_source
                 .path
                 .as_ref()
-                .map(|path| encrypted_identity_wrapping_key_path(path)),
+                .map(encrypted_identity_wrapping_key_path),
             MycPersistenceIdentityReferenceField::ProfilePath => {
                 current_source.profile_path.clone()
             }

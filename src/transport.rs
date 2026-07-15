@@ -544,18 +544,19 @@ mod tests {
 
     #[test]
     fn bootstrap_builds_transport_snapshot_when_enabled() {
-        let mut config = MycTransportConfig::default();
-        config.enabled = true;
-        config.connect_timeout_secs = 15;
-        config.relays = vec![
-            "wss://relay.example.com".to_owned(),
-            "wss://relay2.example.com".to_owned(),
-        ];
-        config.delivery_policy = MycTransportDeliveryPolicy::Quorum;
-        config.delivery_quorum = Some(2);
-        config.publish_max_attempts = 3;
-        config.publish_initial_backoff_millis = 125;
-        config.publish_max_backoff_millis = 500;
+        let config = MycTransportConfig {
+            enabled: true,
+            connect_timeout_secs: 15,
+            relays: vec![
+                "wss://relay.example.com".to_owned(),
+                "wss://relay2.example.com".to_owned(),
+            ],
+            delivery_policy: MycTransportDeliveryPolicy::Quorum,
+            delivery_quorum: Some(2),
+            publish_max_attempts: 3,
+            publish_initial_backoff_millis: 125,
+            publish_max_backoff_millis: 500,
+        };
 
         let transport = MycNostrTransport::bootstrap(&config, &signer_identity())
             .expect("transport")
@@ -695,13 +696,13 @@ mod tests {
     ) -> RadrootsNostrOutput<RadrootsNostrEventId> {
         let success = succeeded_relays
             .iter()
-            .map(|relay| RadrootsNostrRelayUrl::parse(*relay).expect("success relay"))
+            .map(|relay| RadrootsNostrRelayUrl::parse(relay).expect("success relay"))
             .collect::<HashSet<_>>();
         let failed = failed_relays
             .iter()
             .map(|(relay, error)| {
                 (
-                    RadrootsNostrRelayUrl::parse(*relay).expect("failed relay"),
+                    RadrootsNostrRelayUrl::parse(relay).expect("failed relay"),
                     (*error).to_owned(),
                 )
             })

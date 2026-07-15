@@ -90,7 +90,7 @@ pub struct MycDiscoveryConfig {
     pub metadata: MycDiscoveryMetadataConfig,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct MycDiscoveryMetadataConfig {
     pub name: Option<String>,
@@ -121,9 +121,10 @@ pub enum MycConnectionApproval {
     Deny,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MycIdentityBackend {
+    #[default]
     EncryptedFile,
     HostVault,
     ManagedAccount,
@@ -301,18 +302,6 @@ impl Default for MycDiscoveryConfig {
     }
 }
 
-impl Default for MycDiscoveryMetadataConfig {
-    fn default() -> Self {
-        Self {
-            name: None,
-            display_name: None,
-            about: None,
-            website: None,
-            picture: None,
-        }
-    }
-}
-
 impl Default for MycPolicyConfig {
     fn default() -> Self {
         Self {
@@ -330,12 +319,6 @@ impl Default for MycPolicyConfig {
             auth_challenge_rate_limit_window_secs: None,
             auth_challenge_rate_limit_max_attempts: None,
         }
-    }
-}
-
-impl Default for MycIdentityBackend {
-    fn default() -> Self {
-        Self::EncryptedFile
     }
 }
 
@@ -873,12 +856,12 @@ impl MycConfig {
             }
         })?;
 
-        if let Some(output_dir) = self.logging.output_dir.as_ref() {
-            if output_dir.as_os_str().is_empty() {
-                return Err(MycError::InvalidConfig(
-                    "logging.output_dir must not be empty when set".to_owned(),
-                ));
-            }
+        if let Some(output_dir) = self.logging.output_dir.as_ref()
+            && output_dir.as_os_str().is_empty()
+        {
+            return Err(MycError::InvalidConfig(
+                "logging.output_dir must not be empty when set".to_owned(),
+            ));
         }
 
         if self.paths.state_dir.as_os_str().is_empty() {
@@ -1911,12 +1894,12 @@ impl MycDiscoveryConfig {
             validate_nostrconnect_url_template(template)?;
         }
 
-        if let Some(path) = self.nip05_output_path.as_ref() {
-            if path.as_os_str().is_empty() {
-                return Err(MycError::InvalidConfig(
-                    "discovery.nip05_output_path must not be empty".to_owned(),
-                ));
-            }
+        if let Some(path) = self.nip05_output_path.as_ref()
+            && path.as_os_str().is_empty()
+        {
+            return Err(MycError::InvalidConfig(
+                "discovery.nip05_output_path must not be empty".to_owned(),
+            ));
         }
 
         if self.resolved_public_relays(transport)?.is_empty() {

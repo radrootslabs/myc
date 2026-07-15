@@ -47,9 +47,10 @@ pub struct MycPathsConfig {
     pub user_identity_profile_path: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MycPathProfile {
+    #[default]
     InteractiveUser,
     ServiceHost,
     RepoLocal,
@@ -88,12 +89,6 @@ impl Default for MycPathsConfig {
             None,
         )
         .expect("current process should resolve myc runtime paths")
-    }
-}
-
-impl Default for MycPathProfile {
-    fn default() -> Self {
-        Self::InteractiveUser
     }
 }
 

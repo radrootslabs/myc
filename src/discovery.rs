@@ -381,13 +381,13 @@ impl MycDiscoveryContext {
         output_path: impl AsRef<Path>,
     ) -> Result<MycRenderedNip05Output, MycError> {
         let output_path = output_path.as_ref().to_path_buf();
-        if let Some(parent) = output_path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent).map_err(|source| MycError::DiscoveryIo {
-                    path: parent.to_path_buf(),
-                    source,
-                })?;
-            }
+        if let Some(parent) = output_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent).map_err(|source| MycError::DiscoveryIo {
+                path: parent.to_path_buf(),
+                source,
+            })?;
         }
         let json = self.render_nip05_json_pretty()?;
         fs::write(&output_path, json).map_err(|source| MycError::DiscoveryIo {
@@ -835,7 +835,7 @@ pub async fn refresh_nip89(
                 .with_attempt_id(attempt_id.clone())
                 .with_planned_repair_relays(refresh_relay_urls.clone()),
             );
-            return Ok(MycRefreshedNip89Output {
+            Ok(MycRefreshedNip89Output {
                 attempt_id,
                 status,
                 force,
@@ -847,7 +847,7 @@ pub async fn refresh_nip89(
                 repair_results,
                 remaining_repair_relays,
                 published: Some(published),
-            });
+            })
         }
         Err(error) => {
             let repair_results =
@@ -878,7 +878,7 @@ pub async fn refresh_nip89(
                 .with_attempt_id(attempt_id.clone())
                 .with_planned_repair_relays(refresh_relay_urls.clone()),
             );
-            return Err(error.with_discovery_refresh_attempt_id(attempt_id));
+            Err(error.with_discovery_refresh_attempt_id(attempt_id))
         }
     }
 }
@@ -1366,7 +1366,7 @@ async fn fetch_live_nip89_state(
         let fetched_relay = fetched_relay.ok_or_else(|| {
             MycError::InvalidOperation("missing discovery relay fetch result".to_owned())
         })?;
-        all_events.extend(fetched_relay.relay_events.into_iter());
+        all_events.extend(fetched_relay.relay_events);
         relay_states.push(fetched_relay.relay_state);
     }
 
@@ -1809,12 +1809,14 @@ fn latest_live_event_id(live_groups: &[MycLiveNip89Group]) -> Option<&str> {
 }
 
 fn build_metadata(config: &MycDiscoveryMetadataConfig) -> Option<RadrootsNostrMetadata> {
-    let mut metadata = RadrootsNostrMetadata::default();
-    metadata.name = sanitize_optional_string(config.name.as_deref());
-    metadata.display_name = sanitize_optional_string(config.display_name.as_deref());
-    metadata.about = sanitize_optional_string(config.about.as_deref());
-    metadata.website = sanitize_optional_string(config.website.as_deref());
-    metadata.picture = sanitize_optional_string(config.picture.as_deref());
+    let metadata = RadrootsNostrMetadata {
+        name: sanitize_optional_string(config.name.as_deref()),
+        display_name: sanitize_optional_string(config.display_name.as_deref()),
+        about: sanitize_optional_string(config.about.as_deref()),
+        website: sanitize_optional_string(config.website.as_deref()),
+        picture: sanitize_optional_string(config.picture.as_deref()),
+        ..RadrootsNostrMetadata::default()
+    };
     if metadata.name.is_none()
         && metadata.display_name.is_none()
         && metadata.about.is_none()
@@ -1866,13 +1868,13 @@ fn write_pretty_json<T>(path: &Path, value: &T) -> Result<(), MycError>
 where
     T: Serialize,
 {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).map_err(|source| MycError::DiscoveryIo {
-                path: parent.to_path_buf(),
-                source,
-            })?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).map_err(|source| MycError::DiscoveryIo {
+            path: parent.to_path_buf(),
+            source,
+        })?;
     }
     let encoded = serde_json::to_string_pretty(value)?;
     fs::write(path, encoded).map_err(|source| MycError::DiscoveryIo {
@@ -2163,9 +2165,11 @@ mod tests {
 
     #[test]
     fn build_metadata_ignores_blank_fields() {
-        let mut metadata = crate::config::MycDiscoveryMetadataConfig::default();
-        metadata.name = Some("   ".to_owned());
-        metadata.about = Some(" ready ".to_owned());
+        let metadata = crate::config::MycDiscoveryMetadataConfig {
+            name: Some("   ".to_owned()),
+            about: Some(" ready ".to_owned()),
+            ..crate::config::MycDiscoveryMetadataConfig::default()
+        };
 
         let built = build_metadata(&metadata).expect("metadata");
 

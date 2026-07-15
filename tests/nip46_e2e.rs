@@ -375,15 +375,12 @@ async fn accept_published_event(
                     .filters
                     .iter()
                     .any(|filter| filter.match_event(&event, MatchEventOptions::new()))
+                    && let Some(sender) = state.senders.get(&subscription.connection_id).cloned()
                 {
-                    if let Some(sender) = state.senders.get(&subscription.connection_id).cloned() {
-                        let message = RelayMessage::event(
-                            subscription.subscription_id.clone(),
-                            event.clone(),
-                        )
-                        .as_json();
-                        subscriber_messages.push((sender, Message::Text(message.into())));
-                    }
+                    let message =
+                        RelayMessage::event(subscription.subscription_id.clone(), event.clone())
+                            .as_json();
+                    subscriber_messages.push((sender, Message::Text(message.into())));
                 }
             }
             notify.notify_waiters();
@@ -1060,7 +1057,7 @@ async fn external_nostr_client_compatibility_covers_signed_and_crypto_methods() 
     let nip04_reply_ciphertext = nostr::nips::nip04::encrypt(
         peer_identity.keys().secret_key(),
         &user_public_key,
-        "reply via nip04".to_owned(),
+        "reply via nip04",
     )?;
     let (_, nip04_decrypt_response) = publish_external_request_and_wait_for_response(
         &relay,
@@ -1108,7 +1105,7 @@ async fn external_nostr_client_compatibility_covers_signed_and_crypto_methods() 
     let nip44_reply_ciphertext = nip44::encrypt(
         peer_identity.keys().secret_key(),
         &user_public_key,
-        "reply via nip44".to_owned(),
+        "reply via nip44",
         Version::V2,
     )?;
     let (_, nip44_decrypt_response) = publish_external_request_and_wait_for_response(
@@ -1276,7 +1273,7 @@ async fn external_nostr_client_ignores_unrelated_signer_events_before_response()
 
     relay.wait_for_subscription_count(1).await?;
 
-    let noise_event = build_signer_noise_event(&signer_identity, base_created_at);
+    let noise_event = build_signer_noise_event(signer_identity, base_created_at);
     publish_event(relay.url(), &noise_event).await?;
 
     let (_, ping_response) = publish_external_request_and_wait_for_response(
@@ -1368,7 +1365,7 @@ async fn live_listener_consumes_connect_secret_only_after_successful_publish() -
             .contains("blocked by test relay")
     );
     let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
-        records.len() >= 1 && records[0].status == MycDeliveryOutboxStatus::Failed
+        !records.is_empty() && records[0].status == MycDeliveryOutboxStatus::Failed
     })
     .await?;
     assert_eq!(
@@ -2337,7 +2334,7 @@ async fn connect_accept_retries_without_consuming_secret_until_publish_succeeds(
             .contains("blocked by test relay")
     );
     let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
-        records.len() >= 1 && records[0].status == MycDeliveryOutboxStatus::Failed
+        !records.is_empty() && records[0].status == MycDeliveryOutboxStatus::Failed
     })
     .await?;
     assert_eq!(
@@ -2589,7 +2586,7 @@ async fn connect_accept_rejects_when_quorum_delivery_policy_is_not_met() -> Test
     );
     assert_eq!(operation_audit[0].publish_attempt_count, Some(1));
     let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
-        records.len() >= 1 && records[0].status == MycDeliveryOutboxStatus::Failed
+        !records.is_empty() && records[0].status == MycDeliveryOutboxStatus::Failed
     })
     .await?;
     assert_eq!(
@@ -2790,7 +2787,7 @@ async fn auth_replay_restores_pending_request_until_publish_succeeds() -> TestRe
             .contains("preserved pending auth challenge")
     );
     let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
-        records.len() >= 1 && records[0].status == MycDeliveryOutboxStatus::Failed
+        !records.is_empty() && records[0].status == MycDeliveryOutboxStatus::Failed
     })
     .await?;
     assert_eq!(
@@ -2938,7 +2935,7 @@ async fn explicit_nip89_publish_uses_app_identity_and_records_audit() -> TestRes
             .contains("1/1 relays acknowledged publish")
     );
     let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
-        records.len() >= 1 && records[0].status == MycDeliveryOutboxStatus::Finalized
+        !records.is_empty() && records[0].status == MycDeliveryOutboxStatus::Finalized
     })
     .await?;
     assert_eq!(
@@ -3147,7 +3144,7 @@ async fn explicit_nip89_publish_retries_cleanly_after_rejection() -> TestResult<
             .contains("blocked by test relay")
     );
     let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
-        records.len() >= 1 && records[0].status == MycDeliveryOutboxStatus::Failed
+        !records.is_empty() && records[0].status == MycDeliveryOutboxStatus::Failed
     })
     .await?;
     assert_eq!(
@@ -3274,7 +3271,7 @@ async fn fetch_live_nip89_parallelizes_relay_fetch_and_preserves_configured_orde
         slow_c.url(),
         slow_d.url(),
     ];
-    let mut expected_relay_states = vec![
+    let mut expected_relay_states = [
         (
             slow_a.url().to_owned(),
             MycDiscoveryRelayFetchStatus::Unavailable,
@@ -3447,7 +3444,7 @@ async fn refresh_nip89_publishes_when_live_handler_is_missing() -> TestResult<()
         .as_ref()
         .expect("published discovery output");
     let outbox_records = wait_for_delivery_outbox_records(&runtime, |records| {
-        records.len() >= 1 && records[0].status == MycDeliveryOutboxStatus::Finalized
+        !records.is_empty() && records[0].status == MycDeliveryOutboxStatus::Finalized
     })
     .await?;
     assert_eq!(
@@ -3637,8 +3634,10 @@ async fn refresh_nip89_republishes_when_live_handler_drifted() -> TestResult<()>
     drifted_spec.relays = vec!["wss://wrong.example.com".to_owned()];
     drifted_spec.nostrconnect_url =
         Some("https://wrong.example.com/connect?uri=nostrconnect%3A%2F%2Fstale".to_owned());
-    let mut metadata = RadrootsNostrMetadata::default();
-    metadata.name = Some("stale".to_owned());
+    let metadata = RadrootsNostrMetadata {
+        name: Some("stale".to_owned()),
+        ..RadrootsNostrMetadata::default()
+    };
     drifted_spec.metadata = Some(metadata);
     publish_handler_event(relay.url(), &app_identity, &drifted_spec).await?;
     relay
@@ -3962,8 +3961,10 @@ async fn diff_live_nip89_surfaces_relay_divergence_with_provenance() -> TestResu
     let mut drifted_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133]);
     drifted_spec.identifier = Some("myc".to_owned());
     drifted_spec.relays = vec!["wss://stale.example.com".to_owned()];
-    let mut drifted_metadata = RadrootsNostrMetadata::default();
-    drifted_metadata.name = Some("stale".to_owned());
+    let drifted_metadata = RadrootsNostrMetadata {
+        name: Some("stale".to_owned()),
+        ..RadrootsNostrMetadata::default()
+    };
     drifted_spec.metadata = Some(drifted_metadata);
     publish_handler_event(relay_b.url(), &app_identity, &drifted_spec).await?;
 

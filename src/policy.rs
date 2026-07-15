@@ -205,12 +205,11 @@ impl MycPolicyContext {
                     "auth challenge expired; require a new auth challenge".to_owned(),
                 ));
             }
-        } else if self.should_require_fresh_auth(connection, &request_message.request) {
-            if let Some(reason) =
+        } else if self.should_require_fresh_auth(connection, &request_message.request)
+            && let Some(reason) =
                 self.require_auth_challenge_with_guardrails(backend, connection)?
-            {
-                return Ok(Some(reason));
-            }
+        {
+            return Ok(Some(reason));
         }
 
         Ok(None)
@@ -756,12 +755,16 @@ mod tests {
 
     #[test]
     fn connect_decision_prefers_deny_then_trust_then_default() {
-        let mut config = MycPolicyConfig::default();
-        config.connection_approval = MycConnectionApproval::ExplicitUser;
-        config.trusted_client_pubkeys =
-            vec!["2222222222222222222222222222222222222222222222222222222222222222".to_owned()];
-        config.denied_client_pubkeys =
-            vec!["3333333333333333333333333333333333333333333333333333333333333333".to_owned()];
+        let config = MycPolicyConfig {
+            connection_approval: MycConnectionApproval::ExplicitUser,
+            trusted_client_pubkeys: vec![
+                "2222222222222222222222222222222222222222222222222222222222222222".to_owned(),
+            ],
+            denied_client_pubkeys: vec![
+                "3333333333333333333333333333333333333333333333333333333333333333".to_owned(),
+            ],
+            ..MycPolicyConfig::default()
+        };
         let policy = MycPolicyContext::from_config(&config).expect("policy");
 
         assert_eq!(
@@ -786,16 +789,18 @@ mod tests {
 
     #[test]
     fn auto_granted_permissions_apply_policy_ceiling_and_kind_limits() {
-        let mut config = MycPolicyConfig::default();
-        config.permission_ceiling = vec![
-            RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip04Encrypt),
-            RadrootsNostrConnectPermission::with_parameter(
-                RadrootsNostrConnectMethod::SignEvent,
-                "kind:1",
-            ),
-        ]
-        .into();
-        config.allowed_sign_event_kinds = vec![1];
+        let config = MycPolicyConfig {
+            permission_ceiling: vec![
+                RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip04Encrypt),
+                RadrootsNostrConnectPermission::with_parameter(
+                    RadrootsNostrConnectMethod::SignEvent,
+                    "kind:1",
+                ),
+            ]
+            .into(),
+            allowed_sign_event_kinds: vec![1],
+            ..MycPolicyConfig::default()
+        };
         let policy = MycPolicyContext::from_config(&config).expect("policy");
 
         let requested_permissions: RadrootsNostrConnectPermissions = vec![
@@ -814,8 +819,10 @@ mod tests {
 
     #[test]
     fn request_denied_reason_applies_sign_event_kind_limits() {
-        let mut config = MycPolicyConfig::default();
-        config.allowed_sign_event_kinds = vec![1];
+        let config = MycPolicyConfig {
+            allowed_sign_event_kinds: vec![1],
+            ..MycPolicyConfig::default()
+        };
         let policy = MycPolicyContext::from_config(&config).expect("policy");
         let manager = in_memory_manager();
         let backend = backend_for(&manager);
@@ -843,11 +850,12 @@ mod tests {
 
     #[test]
     fn validate_operator_grants_rejects_out_of_policy_permissions() {
-        let mut config = MycPolicyConfig::default();
-        config.permission_ceiling =
-            RadrootsNostrConnectPermissions::from(vec![RadrootsNostrConnectPermission::new(
-                RadrootsNostrConnectMethod::Nip04Encrypt,
-            )]);
+        let config = MycPolicyConfig {
+            permission_ceiling: RadrootsNostrConnectPermissions::from(vec![
+                RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip04Encrypt),
+            ]),
+            ..MycPolicyConfig::default()
+        };
         let policy = MycPolicyContext::from_config(&config).expect("policy");
 
         let error = policy
@@ -869,10 +877,12 @@ mod tests {
     fn prepare_request_requires_fresh_auth_after_authorized_ttl() {
         let client_public_key =
             public_key("2222222222222222222222222222222222222222222222222222222222222222");
-        let mut config = MycPolicyConfig::default();
-        config.trusted_client_pubkeys = vec![client_public_key.to_hex()];
-        config.auth_url = Some("https://auth.example".to_owned());
-        config.auth_authorized_ttl_secs = Some(1);
+        let config = MycPolicyConfig {
+            trusted_client_pubkeys: vec![client_public_key.to_hex()],
+            auth_url: Some("https://auth.example".to_owned()),
+            auth_authorized_ttl_secs: Some(1),
+            ..MycPolicyConfig::default()
+        };
         let policy = MycPolicyContext::from_config(&config).expect("policy");
         let manager = in_memory_manager();
         let backend = backend_for(&manager);
@@ -923,10 +933,12 @@ mod tests {
     fn prepare_request_requires_fresh_auth_after_inactivity() {
         let client_public_key =
             public_key("2323232323232323232323232323232323232323232323232323232323232323");
-        let mut config = MycPolicyConfig::default();
-        config.trusted_client_pubkeys = vec![client_public_key.to_hex()];
-        config.auth_url = Some("https://auth.example".to_owned());
-        config.reauth_after_inactivity_secs = Some(1);
+        let config = MycPolicyConfig {
+            trusted_client_pubkeys: vec![client_public_key.to_hex()],
+            auth_url: Some("https://auth.example".to_owned()),
+            reauth_after_inactivity_secs: Some(1),
+            ..MycPolicyConfig::default()
+        };
         let policy = MycPolicyContext::from_config(&config).expect("policy");
         let manager = in_memory_manager();
         let backend = backend_for(&manager);

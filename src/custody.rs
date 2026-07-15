@@ -250,7 +250,7 @@ enum MycExternalCommandExecuteError {
 trait MycExternalCommandExecutor: Send + Sync {
     fn execute(
         &self,
-        command_path: &PathBuf,
+        command_path: &Path,
         request_json: &[u8],
         timeout: Duration,
     ) -> Result<MycExternalCommandOutput, MycExternalCommandExecuteError>;
@@ -262,7 +262,7 @@ struct MycProcessCommandExecutor;
 impl MycExternalCommandExecutor for MycProcessCommandExecutor {
     fn execute(
         &self,
-        command_path: &PathBuf,
+        command_path: &Path,
         request_json: &[u8],
         timeout: Duration,
     ) -> Result<MycExternalCommandOutput, MycExternalCommandExecuteError> {
@@ -1137,7 +1137,7 @@ impl MycIdentityProvider {
 
     fn load_external_command_identity(
         &self,
-        command_path: &PathBuf,
+        command_path: &Path,
         timeout: Duration,
         executor: &dyn MycExternalCommandExecutor,
     ) -> Result<(RadrootsIdentityPublic, RadrootsNostrPublicKey), MycError> {
@@ -1153,13 +1153,13 @@ impl MycIdentityProvider {
             .map_err(|error| match error {
                 MycExternalCommandExecuteError::Io(source) => MycError::CustodyExternalCommandIo {
                     role: self.role.clone(),
-                    path: command_path.clone(),
+                    path: command_path.to_path_buf(),
                     source,
                 },
                 MycExternalCommandExecuteError::TimedOut => {
                     MycError::CustodyExternalCommandTimedOut {
                         role: self.role.clone(),
-                        path: command_path.clone(),
+                        path: command_path.to_path_buf(),
                         timeout_secs: timeout.as_secs(),
                     }
                 }
@@ -1168,7 +1168,7 @@ impl MycIdentityProvider {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
             return Err(MycError::CustodyExternalCommandFailed {
                 role: self.role.clone(),
-                path: command_path.clone(),
+                path: command_path.to_path_buf(),
                 status: output
                     .status
                     .map(|status| status.to_string())
@@ -1184,14 +1184,14 @@ impl MycIdentityProvider {
             serde_json::from_slice(&output.stdout).map_err(|source| {
                 MycError::CustodyExternalCommandParse {
                     role: self.role.clone(),
-                    path: command_path.clone(),
+                    path: command_path.to_path_buf(),
                     source,
                 }
             })?;
         if let Some(error) = response.error {
             return Err(MycError::CustodyExternalCommandFailed {
                 role: self.role.clone(),
-                path: command_path.clone(),
+                path: command_path.to_path_buf(),
                 status: "0".to_owned(),
                 stderr: error,
             });
@@ -1201,7 +1201,7 @@ impl MycIdentityProvider {
                 .identity
                 .ok_or_else(|| MycError::CustodyExternalCommandInvalidIdentity {
                     role: self.role.clone(),
-                    path: command_path.clone(),
+                    path: command_path.to_path_buf(),
                     message: "missing `identity` in describe response".to_owned(),
                 })?;
         validate_external_command_public_identity(&self.role, command_path, identity)
@@ -1623,14 +1623,14 @@ fn load_identity_from_nip49_file(
 
 fn validate_external_command_public_identity(
     role: &str,
-    command_path: &PathBuf,
+    command_path: &Path,
     identity: RadrootsIdentityPublic,
 ) -> Result<(RadrootsIdentityPublic, RadrootsNostrPublicKey), MycError> {
     let public_key =
         RadrootsNostrPublicKey::parse(identity.public_key_hex.as_str()).map_err(|error| {
             MycError::CustodyExternalCommandInvalidIdentity {
                 role: role.to_owned(),
-                path: command_path.clone(),
+                path: command_path.to_path_buf(),
                 message: format!(
                     "invalid public_key_hex `{}`: {error}",
                     identity.public_key_hex
@@ -1641,7 +1641,7 @@ fn validate_external_command_public_identity(
     if identity.id != expected_id {
         return Err(MycError::CustodyExternalCommandInvalidIdentity {
             role: role.to_owned(),
-            path: command_path.clone(),
+            path: command_path.to_path_buf(),
             message: format!(
                 "identity id `{}` does not match public_key_hex `{}`",
                 identity.id, identity.public_key_hex
@@ -1739,7 +1739,7 @@ mod tests {
     impl MycExternalCommandExecutor for FakeExternalCommandExecutor {
         fn execute(
             &self,
-            _command_path: &PathBuf,
+            _command_path: &Path,
             request_json: &[u8],
             _timeout: Duration,
         ) -> Result<MycExternalCommandOutput, MycExternalCommandExecuteError> {
@@ -2206,7 +2206,7 @@ mod tests {
     impl MycExternalCommandExecutor for TimeoutExternalCommandExecutor {
         fn execute(
             &self,
-            _command_path: &PathBuf,
+            _command_path: &Path,
             _request_json: &[u8],
             _timeout: Duration,
         ) -> Result<MycExternalCommandOutput, MycExternalCommandExecuteError> {

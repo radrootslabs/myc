@@ -368,16 +368,16 @@ pub struct MycDiscoveryRepairAttemptSummaryOutput {
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum MycDiscoveryRepairAttemptOutput {
-    Summary(MycDiscoveryRepairAttemptSummaryOutput),
+    Summary(Box<MycDiscoveryRepairAttemptSummaryOutput>),
     Records(MycDiscoveryRepairAttemptRecordsOutput),
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum MycStatusOutput {
-    Signer(MycStatusSignerOutput),
-    Summary(MycStatusSummaryOutput),
-    Full(MycStatusFullOutput),
+    Signer(Box<MycStatusSignerOutput>),
+    Summary(Box<MycStatusSummaryOutput>),
+    Full(Box<MycStatusFullOutput>),
 }
 
 pub async fn run_from_env() -> Result<(), MycError> {
@@ -392,11 +392,15 @@ pub async fn run_from_env() -> Result<(), MycError> {
         MycCommand::Status { view } => {
             let runtime = MycRuntime::bootstrap(config)?;
             let output = match view {
-                MycStatusView::Signer => MycStatusOutput::Signer(collect_status_signer(&runtime)?),
-                MycStatusView::Summary => {
-                    MycStatusOutput::Summary(collect_status_summary(&runtime).await?)
+                MycStatusView::Signer => {
+                    MycStatusOutput::Signer(Box::new(collect_status_signer(&runtime)?))
                 }
-                MycStatusView::Full => MycStatusOutput::Full(collect_status_full(&runtime).await?),
+                MycStatusView::Summary => {
+                    MycStatusOutput::Summary(Box::new(collect_status_summary(&runtime).await?))
+                }
+                MycStatusView::Full => {
+                    MycStatusOutput::Full(Box::new(collect_status_full(&runtime).await?))
+                }
             };
             print_json(&output)
         }
@@ -896,9 +900,11 @@ fn load_discovery_repair_attempt_output(
     }
 
     match view {
-        MycDiscoveryRepairAttemptView::Summary => Ok(MycDiscoveryRepairAttemptOutput::Summary(
-            MycDiscoveryRepairAttemptSummaryOutput::from_records(attempt_id, &records)?,
-        )),
+        MycDiscoveryRepairAttemptView::Summary => {
+            Ok(MycDiscoveryRepairAttemptOutput::Summary(Box::new(
+                MycDiscoveryRepairAttemptSummaryOutput::from_records(attempt_id, &records)?,
+            )))
+        }
         MycDiscoveryRepairAttemptView::Records => Ok(MycDiscoveryRepairAttemptOutput::Records(
             MycDiscoveryRepairAttemptRecordsOutput {
                 attempt_id: attempt_id.to_owned(),
