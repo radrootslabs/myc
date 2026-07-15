@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionId;
 use radroots_sql_core::migrations::{Migration, migrations_run_all_up};
-use radroots_sql_core::{SqlExecutor, SqliteExecutor};
+use radroots_sql_core::{SqlExecutor, SqlxSqliteExecutor};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -32,7 +32,7 @@ pub struct MycSqliteOperationAuditStore {
 
 struct MycOperationAuditSqliteDb {
     path: PathBuf,
-    executor: SqliteExecutor,
+    executor: SqlxSqliteExecutor,
     file_backed: bool,
 }
 
@@ -271,7 +271,7 @@ impl MycOperationAuditSqliteDb {
                 source,
             })?;
         }
-        let executor = SqliteExecutor::open(&path).map_err(|source| MycError::AuditSql {
+        let executor = SqlxSqliteExecutor::open(&path).map_err(|source| MycError::AuditSql {
             path: path.clone(),
             source,
         })?;
@@ -288,7 +288,7 @@ impl MycOperationAuditSqliteDb {
     #[cfg(test)]
     fn open_memory() -> Result<Self, MycError> {
         let path = PathBuf::from(MYC_OPERATION_AUDIT_MEMORY_PATH);
-        let executor = SqliteExecutor::open_memory().map_err(|source| MycError::AuditSql {
+        let executor = SqlxSqliteExecutor::open_memory().map_err(|source| MycError::AuditSql {
             path: path.clone(),
             source,
         })?;
@@ -306,7 +306,7 @@ impl MycOperationAuditSqliteDb {
         &self.path
     }
 
-    fn executor(&self) -> &SqliteExecutor {
+    fn executor(&self) -> &SqlxSqliteExecutor {
         &self.executor
     }
 

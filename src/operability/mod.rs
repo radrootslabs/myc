@@ -12,7 +12,7 @@ use radroots_nostr_signer::prelude::{
     RadrootsNostrSignerPublishWorkflowState, RadrootsNostrSignerRequestAuditRecord,
     RadrootsNostrSignerRequestDecision,
 };
-use radroots_sql_core::{SqlExecutor, SqliteExecutor};
+use radroots_sql_core::{SqlExecutor, SqlxSqliteExecutor};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
@@ -1436,7 +1436,7 @@ fn inspect_sqlite_schema(
         if !path.exists() {
             return Err("sqlite persistence file is missing".to_owned());
         }
-        let executor = SqliteExecutor::open(path).map_err(|error| error.to_string())?;
+        let executor = SqlxSqliteExecutor::open(path).map_err(|error| error.to_string())?;
         let applied_count = query_sqlite_rows::<MycSqliteAppliedCountRow>(
             &executor,
             "SELECT COUNT(*) AS applied_count FROM __migrations",
@@ -1494,7 +1494,7 @@ fn inspect_sqlite_schema(
     }
 }
 
-fn query_sqlite_rows<T>(executor: &SqliteExecutor, sql: &str) -> Result<Vec<T>, String>
+fn query_sqlite_rows<T>(executor: &SqlxSqliteExecutor, sql: &str) -> Result<Vec<T>, String>
 where
     T: for<'de> Deserialize<'de>,
 {

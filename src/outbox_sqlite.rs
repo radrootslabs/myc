@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use radroots_sql_core::migrations::{Migration, migrations_run_all_up};
-use radroots_sql_core::{SqlExecutor, SqliteExecutor};
+use radroots_sql_core::{SqlExecutor, SqlxSqliteExecutor};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -29,7 +29,7 @@ pub struct MycSqliteDeliveryOutboxStore {
 
 struct MycDeliveryOutboxSqliteDb {
     path: PathBuf,
-    executor: SqliteExecutor,
+    executor: SqlxSqliteExecutor,
     file_backed: bool,
 }
 
@@ -212,11 +212,12 @@ impl MycDeliveryOutboxSqliteDb {
                 source,
             })?;
         }
-        let executor =
-            SqliteExecutor::open(path.as_path()).map_err(|source| MycError::DeliveryOutboxSql {
+        let executor = SqlxSqliteExecutor::open(path.as_path()).map_err(|source| {
+            MycError::DeliveryOutboxSql {
                 path: path.clone(),
                 source,
-            })?;
+            }
+        })?;
         let db = Self {
             path,
             executor,
@@ -230,7 +231,7 @@ impl MycDeliveryOutboxSqliteDb {
     #[cfg(test)]
     fn open_memory() -> Result<Self, MycError> {
         let executor =
-            SqliteExecutor::open_memory().map_err(|source| MycError::DeliveryOutboxSql {
+            SqlxSqliteExecutor::open_memory().map_err(|source| MycError::DeliveryOutboxSql {
                 path: PathBuf::from(MYC_DELIVERY_OUTBOX_MEMORY_PATH),
                 source,
             })?;
@@ -248,7 +249,7 @@ impl MycDeliveryOutboxSqliteDb {
         self.path.as_path()
     }
 
-    fn executor(&self) -> &SqliteExecutor {
+    fn executor(&self) -> &SqlxSqliteExecutor {
         &self.executor
     }
 
