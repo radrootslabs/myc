@@ -550,13 +550,22 @@ fn connect_request_message(
     signer_public_key: PublicKey,
     secret: &str,
 ) -> RadrootsNostrConnectRequestMessage {
+    connect_request_message_with_metadata(request_id, signer_public_key, secret, None)
+}
+
+fn connect_request_message_with_metadata(
+    request_id: &str,
+    signer_public_key: PublicKey,
+    secret: &str,
+    client_metadata: Option<RadrootsNostrConnectClientMetadata>,
+) -> RadrootsNostrConnectRequestMessage {
     RadrootsNostrConnectRequestMessage::new(
         request_id,
         RadrootsNostrConnectRequest::Connect {
             remote_signer_public_key: signer_public_key,
             secret: Some(secret.to_owned()),
             requested_permissions: Default::default(),
-            client_metadata: None,
+            client_metadata,
         },
     )
 }
@@ -1520,10 +1529,21 @@ async fn live_listener_works_with_sqlite_signer_state_and_runtime_audit() -> Tes
 
     relay.wait_for_subscription_count(1).await?;
 
+    let client_metadata = RadrootsNostrConnectClientMetadata {
+        requested_permissions: "sign_event:1".parse()?,
+        name: Some("  SQLite Client  ".to_owned()),
+        url: Some("https://client.example/".to_owned()),
+        image: Some("https://client.example/icon.png".to_owned()),
+    };
     let request_one = build_request_event(
         &client_identity,
         signer_public_key,
-        connect_request_message("sqlite-connect-1", signer_public_key, "sqlite-secret"),
+        connect_request_message_with_metadata(
+            "sqlite-connect-1",
+            signer_public_key,
+            "sqlite-secret",
+            Some(client_metadata),
+        ),
         base_created_at,
     );
     publish_event(relay.url(), &request_one).await?;
@@ -1543,6 +1563,21 @@ async fn live_listener_works_with_sqlite_signer_state_and_runtime_audit() -> Tes
         .next()
         .expect("stored connection");
     assert!(!initial_connection.connect_secret_is_consumed());
+    let stored_metadata = initial_connection
+        .client_metadata
+        .as_ref()
+        .expect("stored client metadata");
+    assert_eq!(stored_metadata.name.as_deref(), Some("SQLite Client"));
+    assert_eq!(
+        stored_metadata.url.as_deref(),
+        Some("https://client.example/")
+    );
+    assert_eq!(
+        stored_metadata.image.as_deref(),
+        Some("https://client.example/icon.png")
+    );
+    assert!(stored_metadata.requested_permissions.is_empty());
+    assert!(initial_connection.requested_permissions.is_empty());
 
     let request_two = build_request_event(
         &client_identity,
@@ -1627,14 +1662,19 @@ async fn live_listener_works_with_sqlite_signer_state_and_runtime_audit() -> Tes
             .list_publish_workflows()?
             .is_empty()
     );
-    assert!(
-        restarted_runtime
-            .signer_manager()?
-            .list_connections()?
-            .into_iter()
-            .next()
-            .expect("persisted connection")
-            .connect_secret_is_consumed()
+    let persisted_connection = restarted_runtime
+        .signer_manager()?
+        .list_connections()?
+        .into_iter()
+        .next()
+        .expect("persisted connection");
+    assert!(persisted_connection.connect_secret_is_consumed());
+    assert_eq!(
+        persisted_connection
+            .client_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.name.as_deref()),
+        Some("SQLite Client")
     );
 
     let _ = shutdown_tx.send(());
@@ -2300,7 +2340,12 @@ async fn connect_accept_retries_without_consuming_secret_until_publish_succeeds(
         client_public_key: client_identity.public_key(),
         relays: vec![nostr::RelayUrl::parse(relay.url())?],
         secret: "client-secret".to_owned(),
-        metadata: RadrootsNostrConnectClientMetadata::default(),
+        metadata: RadrootsNostrConnectClientMetadata {
+            requested_permissions: Default::default(),
+            name: Some("  Connect Accept Client  ".to_owned()),
+            url: Some("https://connect.example/".to_owned()),
+            image: Some("https://connect.example/icon.png".to_owned()),
+        },
     })
     .to_string();
 
@@ -2316,6 +2361,13 @@ async fn connect_accept_retries_without_consuming_secret_until_publish_succeeds(
         .next()
         .expect("stored connection");
     assert!(!stored_after_failure.connect_secret_is_consumed());
+    assert_eq!(
+        stored_after_failure
+            .client_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.name.as_deref()),
+        Some("Connect Accept Client")
+    );
     let operation_audit = wait_for_operation_audit_count(&runtime, 1).await?;
     assert_eq!(
         operation_audit[0].operation,
