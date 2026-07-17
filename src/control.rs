@@ -91,6 +91,7 @@ pub async fn accept_client_uri(
         remote_signer_public_key: runtime.signer_identity().public_key(),
         secret: Some(client_uri.secret.clone()),
         requested_permissions: client_uri.metadata.requested_permissions.clone(),
+        client_metadata: None,
     };
     let backend = runtime.signer_backend();
     let Some(approval_requirement) = runtime

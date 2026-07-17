@@ -557,7 +557,8 @@ fn required_permission_for_request(
         RadrootsNostrConnectRequest::Connect { .. }
         | RadrootsNostrConnectRequest::GetPublicKey
         | RadrootsNostrConnectRequest::GetSessionCapability
-        | RadrootsNostrConnectRequest::Ping => None,
+        | RadrootsNostrConnectRequest::Ping
+        | RadrootsNostrConnectRequest::Logout => None,
         RadrootsNostrConnectRequest::SignEvent(unsigned_event) => {
             Some(RadrootsNostrConnectPermission::with_parameter(
                 RadrootsNostrConnectMethod::SignEvent,

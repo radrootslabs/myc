@@ -556,6 +556,7 @@ fn connect_request_message(
             remote_signer_public_key: signer_public_key,
             secret: Some(secret.to_owned()),
             requested_permissions: Default::default(),
+            client_metadata: None,
         },
     )
 }
@@ -884,6 +885,7 @@ async fn live_listener_rejects_denied_clients_without_registering_connection() -
             remote_signer_public_key: signer_public_key,
             secret: Some("denied-secret".to_owned()),
             requested_permissions: Default::default(),
+            client_metadata: None,
         }
         .method(),
         response,
@@ -2128,6 +2130,7 @@ async fn trusted_client_reauths_after_authorized_ttl() -> TestResult<()> {
                 remote_signer_public_key: signer_public_key,
                 secret: None,
                 requested_permissions: "sign_event:1".parse().expect("requested permissions"),
+                client_metadata: None,
             },
         ),
         Timestamp::now().as_secs(),
@@ -2144,6 +2147,7 @@ async fn trusted_client_reauths_after_authorized_ttl() -> TestResult<()> {
                 remote_signer_public_key: signer_public_key,
                 secret: None,
                 requested_permissions: "sign_event:1".parse().expect("requested permissions"),
+                client_metadata: None,
             }
             .method(),
             connect_response,

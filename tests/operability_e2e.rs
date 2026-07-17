@@ -360,7 +360,7 @@ async fn status_reports_sqlite_persistence_schema_state() -> TestResult<()> {
             .as_ref()
             .expect("signer sqlite schema")
             .applied_migration_count,
-        Some(2)
+        Some(3)
     );
     assert_eq!(
         status

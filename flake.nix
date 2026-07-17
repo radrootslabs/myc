@@ -42,7 +42,16 @@
               ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
                 pkgs.darwin.libiconv
               ];
-            libraryPath = pkgs.lib.makeLibraryPath basePackages;
+            libraryPackages =
+              [
+                pkgs.libsodium
+                pkgs.openssl
+                pkgs.sqlite
+              ]
+              ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+                pkgs.darwin.libiconv
+              ];
+            libraryPath = pkgs.lib.makeLibraryPath libraryPackages;
             includePath = pkgs.lib.makeSearchPathOutput "dev" "include" basePackages;
             darwinLdFlags = pkgs.lib.optionalString pkgs.stdenv.isDarwin "-L${pkgs.darwin.libiconv}/lib";
             darwinRustFlags = pkgs.lib.optionalString pkgs.stdenv.isDarwin "-L native=${pkgs.darwin.libiconv}/lib";

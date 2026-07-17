@@ -817,6 +817,7 @@ mod tests {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: None,
                         requested_permissions: requested_permissions.into(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -884,6 +885,7 @@ mod tests {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: Some("s3cr3t".to_owned()),
                         requested_permissions: Default::default(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -925,6 +927,7 @@ mod tests {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: None,
                         requested_permissions: Default::default(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -961,6 +964,7 @@ mod tests {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: Some("s3cr3t".to_owned()),
                         requested_permissions: Default::default(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -974,6 +978,7 @@ mod tests {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: Some("s3cr3t".to_owned()),
                         requested_permissions: Default::default(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -999,6 +1004,7 @@ mod tests {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: Some("s3cr3t".to_owned()),
                         requested_permissions: Default::default(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -1031,6 +1037,7 @@ mod tests {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: Some("s3cr3t".to_owned()),
                         requested_permissions: Default::default(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -1066,6 +1073,7 @@ mod tests {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: None,
                         requested_permissions: Default::default(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -1081,6 +1089,7 @@ mod tests {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: None,
                         requested_permissions: Default::default(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -1109,6 +1118,7 @@ mod tests {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: None,
                         requested_permissions: Default::default(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -1130,6 +1140,7 @@ mod tests {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: None,
                         requested_permissions: vec![sign_event_permission(1)].into(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -1189,6 +1200,7 @@ mod tests {
                             sign_event_permission(7),
                         ]
                         .into(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -1229,6 +1241,7 @@ mod tests {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: None,
                         requested_permissions: vec![sign_event_permission(1)].into(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -1321,6 +1334,7 @@ mod tests {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: None,
                         requested_permissions: vec![sign_event_permission(1)].into(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -1397,6 +1411,7 @@ mod tests {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: None,
                         requested_permissions: vec![sign_event_permission(1)].into(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -1458,6 +1473,7 @@ mod tests {
                             RadrootsNostrConnectMethod::SwitchRelays,
                         )]
                         .into(),
+                        client_metadata: None,
                     },
                 ),
             )
@@ -1541,6 +1557,7 @@ mod tests {
                         remote_signer_public_key: runtime.signer_identity().public_key(),
                         secret: None,
                         requested_permissions: vec![sign_event_permission(1)].into(),
+                        client_metadata: None,
                     },
                 ),
             )
