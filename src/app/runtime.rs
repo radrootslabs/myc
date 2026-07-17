@@ -328,7 +328,16 @@ impl MycRuntime {
         let published_records = self
             .delivery_outbox_store
             .list_by_status(MycDeliveryOutboxStatus::PublishedPendingFinalize)?;
-        if queued_records.is_empty() && published_records.is_empty() {
+        let failed_logout_records = self
+            .delivery_outbox_store
+            .list_by_status(MycDeliveryOutboxStatus::Failed)?
+            .into_iter()
+            .filter(|record| record.kind == MycDeliveryOutboxKind::LogoutAcknowledgementPublish)
+            .collect::<Vec<_>>();
+        if queued_records.is_empty()
+            && published_records.is_empty()
+            && failed_logout_records.is_empty()
+        {
             if let Err(error) = self.ensure_no_orphaned_publish_workflows() {
                 self.record_delivery_recovery_summary(
                     MycOperationAuditOutcome::Rejected,
@@ -343,6 +352,7 @@ impl MycRuntime {
         }
 
         queued_records.extend(published_records);
+        queued_records.extend(failed_logout_records);
         queued_records.sort_by(|left, right| {
             left.created_at_unix
                 .cmp(&right.created_at_unix)
@@ -445,7 +455,12 @@ impl MycRuntime {
         );
 
         match record.status {
-            MycDeliveryOutboxStatus::Queued => {
+            MycDeliveryOutboxStatus::Queued | MycDeliveryOutboxStatus::Failed => {
+                if record.status == MycDeliveryOutboxStatus::Failed
+                    && record.kind != MycDeliveryOutboxKind::LogoutAcknowledgementPublish
+                {
+                    return Ok(false);
+                }
                 if record.signer_publish_workflow_id.is_some() && workflow.is_none() {
                     return Err(self.wrap_recovery_error(
                         &record,
@@ -520,7 +535,7 @@ impl MycRuntime {
                 self.finalize_recovered_delivery_job(manager, record, workflow.as_ref(), None)?;
                 Ok(false)
             }
-            MycDeliveryOutboxStatus::Finalized | MycDeliveryOutboxStatus::Failed => Ok(false),
+            MycDeliveryOutboxStatus::Finalized => Ok(false),
         }
     }
 
@@ -548,6 +563,21 @@ impl MycRuntime {
                         &record,
                         MycError::InvalidOperation(format!(
                             "failed to finalize signer publish workflow during startup recovery: {error}"
+                        )),
+                    )
+                })?;
+        } else if record.kind == MycDeliveryOutboxKind::LogoutAcknowledgementPublish {
+            let connection = self.recovery_connection_record(manager, &record)?;
+            manager
+                .revoke_connection(
+                    &connection.connection_id,
+                    Some("NIP-46 logout acknowledged".to_owned()),
+                )
+                .map_err(|error| {
+                    self.wrap_recovery_error(
+                        &record,
+                        MycError::InvalidOperation(format!(
+                            "failed to finalize NIP-46 logout during startup recovery: {error}"
                         )),
                     )
                 })?;
@@ -609,6 +639,15 @@ impl MycRuntime {
                     )),
                 ));
             }
+            MycDeliveryOutboxKind::LogoutAcknowledgementPublish => {
+                return Err(self.wrap_recovery_error(
+                    record,
+                    MycError::InvalidOperation(format!(
+                        "logout acknowledgement delivery outbox job `{}` unexpectedly references signer workflow `{workflow_id}`",
+                        record.job_id
+                    )),
+                ));
+            }
         }
 
         Ok(())
@@ -643,12 +682,24 @@ impl MycRuntime {
         record: &MycDeliveryOutboxRecord,
     ) -> Result<(), MycError> {
         match record.kind {
-            MycDeliveryOutboxKind::DiscoveryHandlerPublish => {
+            MycDeliveryOutboxKind::DiscoveryHandlerPublish
+            | MycDeliveryOutboxKind::LogoutAcknowledgementPublish => {
                 if record.signer_publish_workflow_id.is_some() {
                     return Err(self.wrap_recovery_error(
                         record,
+                        MycError::InvalidOperation(format!(
+                            "{:?} delivery outbox jobs must not reference signer publish workflows",
+                            record.kind
+                        )),
+                    ));
+                }
+                if record.kind == MycDeliveryOutboxKind::LogoutAcknowledgementPublish
+                    && record.connection_id.is_none()
+                {
+                    return Err(self.wrap_recovery_error(
+                        record,
                         MycError::InvalidOperation(
-                            "discovery delivery outbox jobs must not reference signer publish workflows"
+                            "logout acknowledgement delivery outbox jobs require a connection id"
                                 .to_owned(),
                         ),
                     ));
@@ -688,7 +739,8 @@ impl MycRuntime {
                 MycDeliveryOutboxKind::AuthReplayPublish => {
                     RadrootsNostrSignerPublishWorkflowKind::AuthReplayFinalization
                 }
-                MycDeliveryOutboxKind::DiscoveryHandlerPublish => unreachable!(),
+                MycDeliveryOutboxKind::DiscoveryHandlerPublish
+                | MycDeliveryOutboxKind::LogoutAcknowledgementPublish => unreachable!(),
             };
             if workflow.kind != kind_label {
                     return Err(self.wrap_recovery_error(
@@ -892,6 +944,9 @@ impl MycRuntime {
 fn recovery_operation_label(kind: MycDeliveryOutboxKind) -> &'static str {
     match kind {
         MycDeliveryOutboxKind::ListenerResponsePublish => "listener response recovery publish",
+        MycDeliveryOutboxKind::LogoutAcknowledgementPublish => {
+            "logout acknowledgement recovery publish"
+        }
         MycDeliveryOutboxKind::ConnectAcceptPublish => "connect accept recovery publish",
         MycDeliveryOutboxKind::AuthReplayPublish => "auth replay recovery publish",
         MycDeliveryOutboxKind::DiscoveryHandlerPublish => "discovery handler recovery publish",
@@ -901,6 +956,9 @@ fn recovery_operation_label(kind: MycDeliveryOutboxKind) -> &'static str {
 fn recovery_operation_audit_kind(kind: MycDeliveryOutboxKind) -> MycOperationAuditKind {
     match kind {
         MycDeliveryOutboxKind::ListenerResponsePublish => {
+            MycOperationAuditKind::ListenerResponsePublish
+        }
+        MycDeliveryOutboxKind::LogoutAcknowledgementPublish => {
             MycOperationAuditKind::ListenerResponsePublish
         }
         MycDeliveryOutboxKind::ConnectAcceptPublish => MycOperationAuditKind::ConnectAcceptPublish,

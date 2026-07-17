@@ -18,6 +18,7 @@ pub struct MycDeliveryOutboxJobId(String);
 #[serde(rename_all = "snake_case")]
 pub enum MycDeliveryOutboxKind {
     ListenerResponsePublish,
+    LogoutAcknowledgementPublish,
     ConnectAcceptPublish,
     AuthReplayPublish,
     DiscoveryHandlerPublish,

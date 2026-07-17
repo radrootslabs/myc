@@ -1204,7 +1204,8 @@ fn is_delivery_outbox_unfinished(record: &MycDeliveryOutboxRecord) -> bool {
     matches!(
         record.status,
         MycDeliveryOutboxStatus::Queued | MycDeliveryOutboxStatus::PublishedPendingFinalize
-    )
+    ) || (record.status == MycDeliveryOutboxStatus::Failed
+        && record.kind == crate::outbox::MycDeliveryOutboxKind::LogoutAcknowledgementPublish)
 }
 
 fn is_critical_delivery_outbox_job(record: &MycDeliveryOutboxRecord) -> bool {
@@ -1239,6 +1240,11 @@ fn classify_blocked_delivery_outbox_record(
             }
         }
         crate::outbox::MycDeliveryOutboxKind::ListenerResponsePublish => {}
+        crate::outbox::MycDeliveryOutboxKind::LogoutAcknowledgementPublish => {
+            if record.signer_publish_workflow_id.is_some() || record.connection_id.is_none() {
+                return Some(true);
+            }
+        }
     }
 
     if let Some(workflow_id) = record.signer_publish_workflow_id.as_ref() {

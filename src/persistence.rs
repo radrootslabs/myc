@@ -1218,10 +1218,13 @@ fn verify_restored_delivery_state(
     for record in outbox_records {
         verify_discovery_restore_author(record, signer_public_key, discovery_app_public_key)?;
 
+        let recoverable_logout_failure = record.status == MycDeliveryOutboxStatus::Failed
+            && record.kind == MycDeliveryOutboxKind::LogoutAcknowledgementPublish;
         if !matches!(
             record.status,
             MycDeliveryOutboxStatus::Queued | MycDeliveryOutboxStatus::PublishedPendingFinalize
-        ) {
+        ) && !recoverable_logout_failure
+        {
             continue;
         }
 
@@ -1293,6 +1296,26 @@ fn verify_restore_outbox_record<'a>(
                 )));
             }
         }
+        MycDeliveryOutboxKind::LogoutAcknowledgementPublish => {
+            if record.signer_publish_workflow_id.is_some() {
+                return Err(MycError::InvalidOperation(format!(
+                    "persistence verify-restore found logout acknowledgement delivery outbox job `{}` that incorrectly references a signer publish workflow",
+                    record.job_id
+                )));
+            }
+            let connection_id = record.connection_id.as_ref().ok_or_else(|| {
+                MycError::InvalidOperation(format!(
+                    "persistence verify-restore found logout acknowledgement delivery outbox job `{}` without a connection id",
+                    record.job_id
+                ))
+            })?;
+            if !connections_by_id.contains_key(connection_id.as_str()) {
+                return Err(MycError::InvalidOperation(format!(
+                    "persistence verify-restore found logout acknowledgement delivery outbox job `{}` referencing missing connection `{connection_id}`",
+                    record.job_id
+                )));
+            }
+        }
         MycDeliveryOutboxKind::ConnectAcceptPublish | MycDeliveryOutboxKind::AuthReplayPublish => {
             if record.signer_publish_workflow_id.is_none() {
                 return Err(MycError::InvalidOperation(format!(
@@ -1314,7 +1337,8 @@ fn verify_restore_outbox_record<'a>(
                 MycDeliveryOutboxKind::AuthReplayPublish => {
                     RadrootsNostrSignerPublishWorkflowKind::AuthReplayFinalization
                 }
-                MycDeliveryOutboxKind::DiscoveryHandlerPublish => unreachable!(),
+                MycDeliveryOutboxKind::DiscoveryHandlerPublish
+                | MycDeliveryOutboxKind::LogoutAcknowledgementPublish => unreachable!(),
             };
             if workflow.kind != expected_kind {
                 return Err(MycError::InvalidOperation(format!(
@@ -1411,6 +1435,12 @@ fn verify_already_finalized_without_workflow(
         MycDeliveryOutboxKind::DiscoveryHandlerPublish => {
             return Err(MycError::InvalidOperation(format!(
                 "persistence verify-restore found discovery delivery outbox job `{}` unexpectedly referencing signer workflow `{workflow_id}`",
+                record.job_id
+            )));
+        }
+        MycDeliveryOutboxKind::LogoutAcknowledgementPublish => {
+            return Err(MycError::InvalidOperation(format!(
+                "persistence verify-restore found logout acknowledgement delivery outbox job `{}` unexpectedly referencing signer workflow `{workflow_id}`",
                 record.job_id
             )));
         }

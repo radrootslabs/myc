@@ -1566,6 +1566,19 @@ async fn live_listener_acknowledges_logout_before_revoking_session() -> TestResu
         RadrootsNostrSignerConnectionStatus::Revoked,
     )
     .await?;
+    let logout_outbox = wait_for_delivery_outbox_records(&runtime, |records| {
+        records.iter().any(|record| {
+            record.kind == MycDeliveryOutboxKind::LogoutAcknowledgementPublish
+                && record.status == MycDeliveryOutboxStatus::Finalized
+        })
+    })
+    .await?;
+    let logout_outbox = logout_outbox
+        .iter()
+        .find(|record| record.kind == MycDeliveryOutboxKind::LogoutAcknowledgementPublish)
+        .expect("logout acknowledgement outbox record");
+    assert_eq!(logout_outbox.request_id.as_deref(), Some("logout-request"));
+    assert!(logout_outbox.signer_publish_workflow_id.is_none());
 
     let repeated_logout = build_request_event(
         &client_identity,
@@ -1650,6 +1663,200 @@ async fn live_listener_acknowledges_logout_before_revoking_session() -> TestResu
 
     let _ = shutdown_tx.send(());
     listener_task.await??;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn failed_logout_publish_is_retried_and_revoked_during_startup_recovery() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
+    let MycTestRuntime {
+        _temp: _tempdir,
+        runtime,
+    } = test_runtime;
+    let config = runtime.config().clone();
+    let signer_public_key = runtime.signer_identity().public_key();
+    let client_identity =
+        identity("3737373737373737373737373737373737373737373737373737373737373737");
+    let base_created_at = Timestamp::now().as_secs();
+    relay
+        .queue_publish_outcomes(signer_public_key, &[true, false, true])
+        .await;
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let service_runtime = runtime.clone();
+    let listener_task = tokio::spawn(async move {
+        service_runtime
+            .run_until(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
+    relay.wait_for_subscription_count(1).await?;
+
+    let connect = build_request_event(
+        &client_identity,
+        signer_public_key,
+        connect_request_message("recovery-connect", signer_public_key, "recovery-secret"),
+        base_created_at,
+    );
+    publish_event(relay.url(), &connect).await?;
+    relay
+        .wait_for_published_events_by_author(signer_public_key, 1)
+        .await?;
+
+    let logout = build_request_event(
+        &client_identity,
+        signer_public_key,
+        RadrootsNostrConnectRequestMessage::new(
+            "recovery-logout",
+            RadrootsNostrConnectRequest::Logout,
+        ),
+        base_created_at + 1,
+    );
+    publish_event(relay.url(), &logout).await?;
+    let failed_outbox = wait_for_delivery_outbox_records(&runtime, |records| {
+        records.iter().any(|record| {
+            record.kind == MycDeliveryOutboxKind::LogoutAcknowledgementPublish
+                && record.status == MycDeliveryOutboxStatus::Failed
+        })
+    })
+    .await?;
+    assert_eq!(
+        failed_outbox
+            .iter()
+            .find(|record| record.kind == MycDeliveryOutboxKind::LogoutAcknowledgementPublish)
+            .and_then(|record| record.request_id.as_deref()),
+        Some("recovery-logout")
+    );
+    assert_eq!(
+        runtime
+            .signer_manager()?
+            .find_connections_by_client_public_key(&client_identity.public_key())?[0]
+            .status,
+        RadrootsNostrSignerConnectionStatus::Active
+    );
+    assert_eq!(
+        relay
+            .published_events_by_author(signer_public_key)
+            .await
+            .len(),
+        1
+    );
+
+    let _ = shutdown_tx.send(());
+    listener_task.await??;
+
+    let restarted_runtime = MycRuntime::bootstrap(config)?;
+    restarted_runtime.clone().run_until(async {}).await?;
+    let responses = relay
+        .wait_for_published_events_by_author(signer_public_key, 2)
+        .await?;
+    let recovered_response = decrypt_response(&client_identity, signer_public_key, &responses[1]);
+    let recovered_response = RadrootsNostrConnectResponse::from_envelope(
+        &RadrootsNostrConnectRequest::Logout.method(),
+        recovered_response,
+    )?;
+    assert_eq!(
+        recovered_response,
+        RadrootsNostrConnectResponse::LogoutAcknowledged
+    );
+    let recovered_connection = restarted_runtime
+        .signer_manager()?
+        .find_connections_by_client_public_key(&client_identity.public_key())?
+        .into_iter()
+        .next()
+        .expect("recovered connection");
+    assert_eq!(
+        recovered_connection.status,
+        RadrootsNostrSignerConnectionStatus::Revoked
+    );
+    let recovered_outbox = restarted_runtime.delivery_outbox_store().list_all()?;
+    assert!(recovered_outbox.iter().any(|record| {
+        record.kind == MycDeliveryOutboxKind::LogoutAcknowledgementPublish
+            && record.status == MycDeliveryOutboxStatus::Finalized
+    }));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn published_logout_acknowledgement_is_finalized_without_republish_on_restart()
+-> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
+    let MycTestRuntime {
+        _temp: _tempdir,
+        runtime,
+    } = test_runtime;
+    let config = runtime.config().clone();
+    let signer_public_key = runtime.signer_identity().public_key();
+    let client_identity =
+        identity("3838383838383838383838383838383838383838383838383838383838383838");
+    let relay_url: RadrootsNostrRelayUrl = relay.url().parse()?;
+    let connection = runtime.signer_manager()?.register_connection(
+        RadrootsNostrSignerConnectionDraft::new(
+            client_identity.public_key(),
+            runtime.user_public_identity(),
+        )
+        .with_relays(vec![relay_url.clone()])
+        .with_approval_requirement(RadrootsNostrSignerApprovalRequirement::NotRequired),
+    )?;
+    let acknowledgement_event = runtime
+        .signer_identity()
+        .sign_event_builder(
+            RadrootsNostrEventBuilder::new(
+                RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+                "published logout acknowledgement fixture",
+            ),
+            "published logout acknowledgement fixture",
+        )
+        .map_err(|error| format!("failed to sign logout acknowledgement fixture: {error}"))?;
+    publish_event(relay.url(), &acknowledgement_event).await?;
+    let outbox_record = MycDeliveryOutboxRecord::new(
+        MycDeliveryOutboxKind::LogoutAcknowledgementPublish,
+        acknowledgement_event,
+        vec![relay_url],
+    )?
+    .with_connection_id(&connection.connection_id)
+    .with_request_id("published-logout-ack");
+    runtime.delivery_outbox_store().enqueue(&outbox_record)?;
+    runtime
+        .delivery_outbox_store()
+        .mark_published_pending_finalize(&outbox_record.job_id, 1)?;
+    assert_eq!(
+        runtime
+            .signer_manager()?
+            .get_connection(&connection.connection_id)?
+            .expect("active connection")
+            .status,
+        RadrootsNostrSignerConnectionStatus::Active
+    );
+
+    let restarted_runtime = MycRuntime::bootstrap(config)?;
+    restarted_runtime.clone().run_until(async {}).await?;
+    let recovered_connection = restarted_runtime
+        .signer_manager()?
+        .get_connection(&connection.connection_id)?
+        .expect("recovered connection");
+    assert_eq!(
+        recovered_connection.status,
+        RadrootsNostrSignerConnectionStatus::Revoked
+    );
+    assert_eq!(
+        restarted_runtime
+            .delivery_outbox_store()
+            .get(&outbox_record.job_id)?
+            .expect("recovered outbox")
+            .status,
+        MycDeliveryOutboxStatus::Finalized
+    );
+    assert_eq!(
+        relay
+            .published_events_by_author(signer_public_key)
+            .await
+            .len(),
+        1
+    );
     Ok(())
 }
 

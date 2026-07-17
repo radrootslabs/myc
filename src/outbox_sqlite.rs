@@ -442,6 +442,7 @@ fn parse_json_field<T: DeserializeOwned>(
 fn kind_label(kind: MycDeliveryOutboxKind) -> &'static str {
     match kind {
         MycDeliveryOutboxKind::ListenerResponsePublish => "listener_response_publish",
+        MycDeliveryOutboxKind::LogoutAcknowledgementPublish => "logout_acknowledgement_publish",
         MycDeliveryOutboxKind::ConnectAcceptPublish => "connect_accept_publish",
         MycDeliveryOutboxKind::AuthReplayPublish => "auth_replay_publish",
         MycDeliveryOutboxKind::DiscoveryHandlerPublish => "discovery_handler_publish",
@@ -451,6 +452,7 @@ fn kind_label(kind: MycDeliveryOutboxKind) -> &'static str {
 fn parse_kind(value: &str) -> Result<MycDeliveryOutboxKind, MycError> {
     match value {
         "listener_response_publish" => Ok(MycDeliveryOutboxKind::ListenerResponsePublish),
+        "logout_acknowledgement_publish" => Ok(MycDeliveryOutboxKind::LogoutAcknowledgementPublish),
         "connect_accept_publish" => Ok(MycDeliveryOutboxKind::ConnectAcceptPublish),
         "auth_replay_publish" => Ok(MycDeliveryOutboxKind::AuthReplayPublish),
         "discovery_handler_publish" => Ok(MycDeliveryOutboxKind::DiscoveryHandlerPublish),

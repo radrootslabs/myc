@@ -435,6 +435,11 @@ impl MycNip46Service {
             }
 
             let outbox_record = match self.build_listener_outbox_record(
+                if revoke_logout_connection.is_some() {
+                    MycDeliveryOutboxKind::LogoutAcknowledgementPublish
+                } else {
+                    MycDeliveryOutboxKind::ListenerResponsePublish
+                },
                 response_event.clone(),
                 connection_id.as_ref(),
                 request_id.as_str(),
@@ -590,17 +595,15 @@ impl MycNip46Service {
 
     fn build_listener_outbox_record(
         &self,
+        kind: MycDeliveryOutboxKind,
         response_event: RadrootsNostrEvent,
         connection_id: Option<&RadrootsNostrSignerConnectionId>,
         request_id: &str,
         workflow_id: Option<&RadrootsNostrSignerWorkflowId>,
     ) -> Result<MycDeliveryOutboxRecord, MycError> {
-        let mut record = MycDeliveryOutboxRecord::new(
-            MycDeliveryOutboxKind::ListenerResponsePublish,
-            response_event,
-            self.transport.relays().to_vec(),
-        )?
-        .with_request_id(request_id.to_owned());
+        let mut record =
+            MycDeliveryOutboxRecord::new(kind, response_event, self.transport.relays().to_vec())?
+                .with_request_id(request_id.to_owned());
         if let Some(connection_id) = connection_id {
             record = record.with_connection_id(connection_id);
         }
