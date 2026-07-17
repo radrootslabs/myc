@@ -44,7 +44,7 @@ fn kill_child(child: &mut Child) {
 }
 
 #[test]
-fn myc_run_writes_non_empty_dated_log_file() {
+fn myc_run_writes_non_empty_bounded_log_file() {
     let temp = tempfile::tempdir().expect("tempdir");
     let state_dir = temp.path().join("state");
     let logs_dir = temp.path().join("logs");
@@ -84,10 +84,11 @@ MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=10\n",
 
     let expected_log_path = LoggingOptions {
         dir: Some(logs_dir.clone()),
-        file_name: "log".to_owned(),
+        file_name: "myc.log".to_owned(),
         stdout: false,
         default_level: Some("info,myc=info".to_owned()),
-        file_layout: LogFileLayout::DatedFileName,
+        file_layout: LogFileLayout::StableFileName,
+        ..LoggingOptions::default()
     }
     .resolved_current_log_file_path()
     .expect("resolved current log path");

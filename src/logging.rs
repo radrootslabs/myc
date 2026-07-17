@@ -5,10 +5,11 @@ use radroots_log::{LogFileLayout, LoggingOptions};
 pub fn init_logging(config: &MycLoggingConfig) -> Result<(), MycError> {
     radroots_log::init_logging(LoggingOptions {
         dir: config.output_dir.clone(),
-        file_name: "log".to_owned(),
+        file_name: "myc.log".to_owned(),
         stdout: config.stdout,
         default_level: Some(config.filter.clone()),
-        file_layout: LogFileLayout::DatedFileName,
+        file_layout: LogFileLayout::StableFileName,
+        ..LoggingOptions::default()
     })
     .map_err(|source| MycError::InvalidOperation(format!("failed to initialize logging: {source}")))
 }
@@ -45,7 +46,7 @@ MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=10
     }
 
     #[test]
-    fn logging_options_resolve_real_dated_file_path() {
+    fn logging_options_resolve_bounded_stable_file_path() {
         let config = MycConfig::from_env_str(
             r#"
 MYC_LOGGING_FILTER=info,myc=debug
@@ -63,10 +64,11 @@ MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=10
 
         let path = LoggingOptions {
             dir: config.logging.output_dir.clone(),
-            file_name: "log".to_owned(),
+            file_name: "myc.log".to_owned(),
             stdout: config.logging.stdout,
             default_level: Some(config.logging.filter.clone()),
-            file_layout: LogFileLayout::DatedFileName,
+            file_layout: LogFileLayout::StableFileName,
+            ..LoggingOptions::default()
         }
         .resolved_current_log_file_path()
         .expect("resolved log path");
@@ -75,10 +77,9 @@ MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=10
             path.parent(),
             Some(PathBuf::from("/tmp/myc-logs").as_path())
         );
-        assert!(
-            path.file_name()
-                .and_then(|value| value.to_str())
-                .is_some_and(|value| value.ends_with(".log"))
+        assert_eq!(
+            path.file_name().and_then(|value| value.to_str()),
+            Some("myc.log")
         );
     }
 }
