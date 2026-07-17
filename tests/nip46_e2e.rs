@@ -39,7 +39,7 @@ use radroots_nostr_connect::prelude::{
 };
 use radroots_nostr_signer::prelude::{
     RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerAuthState,
-    RadrootsNostrSignerConnectionDraft,
+    RadrootsNostrSignerConnectionDraft, RadrootsNostrSignerConnectionStatus,
 };
 use tempfile::TempDir;
 use tokio::net::{TcpListener, TcpStream};
@@ -786,6 +786,31 @@ async fn wait_for_connection_count(runtime: &MycRuntime, expected: usize) -> Tes
     Ok(())
 }
 
+async fn wait_for_client_connection_status(
+    runtime: &MycRuntime,
+    client_public_key: PublicKey,
+    expected: RadrootsNostrSignerConnectionStatus,
+) -> TestResult<()> {
+    timeout(RUNTIME_STATE_TIMEOUT, async {
+        loop {
+            let matches = runtime
+                .signer_manager()
+                .expect("manager")
+                .find_connections_by_client_public_key(&client_public_key)
+                .expect("connections");
+            if matches
+                .iter()
+                .any(|connection| connection.status == expected)
+            {
+                return;
+            }
+            sleep(POLL_INTERVAL).await;
+        }
+    })
+    .await?;
+    Ok(())
+}
+
 async fn wait_for_connect_secret_consumed(runtime: &MycRuntime) -> TestResult<()> {
     timeout(RUNTIME_STATE_TIMEOUT, async {
         loop {
@@ -1473,6 +1498,155 @@ async fn live_listener_consumes_connect_secret_only_after_successful_publish() -
         MycOperationAuditOutcome::Succeeded
     );
     assert_eq!(operation_audit[1].request_id.as_deref(), Some("connect-2"));
+
+    let _ = shutdown_tx.send(());
+    listener_task.await??;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_listener_acknowledges_logout_before_revoking_session() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
+    let runtime = test_runtime.runtime.clone();
+    let signer_public_key = runtime.signer_identity().public_key();
+    let client_identity =
+        identity("3636363636363636363636363636363636363636363636363636363636363636");
+    let base_created_at = Timestamp::now().as_secs();
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let service_runtime = runtime.clone();
+    let listener_task = tokio::spawn(async move {
+        service_runtime
+            .run_until(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
+    relay.wait_for_subscription_count(1).await?;
+
+    let connect = build_request_event(
+        &client_identity,
+        signer_public_key,
+        connect_request_message("logout-connect", signer_public_key, "logout-secret"),
+        base_created_at,
+    );
+    publish_event(relay.url(), &connect).await?;
+    let responses = relay
+        .wait_for_published_events_by_author(signer_public_key, 1)
+        .await?;
+    let connect_response = decrypt_response(&client_identity, signer_public_key, &responses[0]);
+    assert_eq!(connect_response.id, "logout-connect");
+
+    let logout = build_request_event(
+        &client_identity,
+        signer_public_key,
+        RadrootsNostrConnectRequestMessage::new(
+            "logout-request",
+            RadrootsNostrConnectRequest::Logout,
+        ),
+        base_created_at + 1,
+    );
+    publish_event(relay.url(), &logout).await?;
+    let responses = relay
+        .wait_for_published_events_by_author(signer_public_key, 2)
+        .await?;
+    let logout_response = decrypt_response(&client_identity, signer_public_key, &responses[1]);
+    let logout_response = RadrootsNostrConnectResponse::from_envelope(
+        &RadrootsNostrConnectRequest::Logout.method(),
+        logout_response,
+    )?;
+    assert_eq!(
+        logout_response,
+        RadrootsNostrConnectResponse::LogoutAcknowledged
+    );
+    wait_for_client_connection_status(
+        &runtime,
+        client_identity.public_key(),
+        RadrootsNostrSignerConnectionStatus::Revoked,
+    )
+    .await?;
+
+    let repeated_logout = build_request_event(
+        &client_identity,
+        signer_public_key,
+        RadrootsNostrConnectRequestMessage::new(
+            "repeated-logout",
+            RadrootsNostrConnectRequest::Logout,
+        ),
+        base_created_at + 2,
+    );
+    publish_event(relay.url(), &repeated_logout).await?;
+    let responses = relay
+        .wait_for_published_events_by_author(signer_public_key, 3)
+        .await?;
+    let repeated_logout_response =
+        decrypt_response(&client_identity, signer_public_key, &responses[2]);
+    let repeated_logout_response = RadrootsNostrConnectResponse::from_envelope(
+        &RadrootsNostrConnectRequest::Logout.method(),
+        repeated_logout_response,
+    )?;
+    assert_eq!(
+        repeated_logout_response,
+        RadrootsNostrConnectResponse::Error {
+            result: None,
+            error: "unauthorized".to_owned(),
+        }
+    );
+
+    let ping = build_request_event(
+        &client_identity,
+        signer_public_key,
+        ping_request_message("post-logout-ping"),
+        base_created_at + 3,
+    );
+    publish_event(relay.url(), &ping).await?;
+    let responses = relay
+        .wait_for_published_events_by_author(signer_public_key, 4)
+        .await?;
+    let ping_response = decrypt_response(&client_identity, signer_public_key, &responses[3]);
+    let ping_response = RadrootsNostrConnectResponse::from_envelope(
+        &RadrootsNostrConnectRequest::Ping.method(),
+        ping_response,
+    )?;
+    assert_eq!(
+        ping_response,
+        RadrootsNostrConnectResponse::Error {
+            result: None,
+            error: "unauthorized".to_owned(),
+        }
+    );
+
+    let reconnect = build_request_event(
+        &client_identity,
+        signer_public_key,
+        connect_request_message("logout-reconnect", signer_public_key, "new-logout-secret"),
+        base_created_at + 4,
+    );
+    publish_event(relay.url(), &reconnect).await?;
+    let responses = relay
+        .wait_for_published_events_by_author(signer_public_key, 5)
+        .await?;
+    let reconnect_response = decrypt_response(&client_identity, signer_public_key, &responses[4]);
+    assert_eq!(reconnect_response.id, "logout-reconnect");
+    let connections = runtime
+        .signer_manager()?
+        .find_connections_by_client_public_key(&client_identity.public_key())?;
+    assert_eq!(connections.len(), 2);
+    assert_eq!(
+        connections
+            .iter()
+            .filter(|connection| connection.status == RadrootsNostrSignerConnectionStatus::Revoked)
+            .count(),
+        1
+    );
+    assert_eq!(
+        connections
+            .iter()
+            .filter(|connection| connection.status == RadrootsNostrSignerConnectionStatus::Active)
+            .count(),
+        1
+    );
 
     let _ = shutdown_tx.send(());
     listener_task.await??;

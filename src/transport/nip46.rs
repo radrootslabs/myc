@@ -10,14 +10,13 @@ use radroots_nostr_connect::prelude::{
     RadrootsNostrConnectResponse,
 };
 use radroots_nostr_signer::prelude::{
-    RadrootsNostrSignerConnectionId, RadrootsNostrSignerHandledRequestOutcome,
+    RadrootsNostrSignerConnectionId, RadrootsNostrSignerConnectionStatus,
+    RadrootsNostrSignerHandledRequest, RadrootsNostrSignerHandledRequestOutcome,
     RadrootsNostrSignerNip46Handler, RadrootsNostrSignerNip46Signer,
-    RadrootsNostrSignerRequestEvaluation, RadrootsNostrSignerWorkflowId,
+    RadrootsNostrSignerRequestDecision, RadrootsNostrSignerRequestEvaluation,
+    RadrootsNostrSignerSessionLookup, RadrootsNostrSignerWorkflowId,
 };
 use tokio::sync::broadcast;
-
-#[cfg(test)]
-use radroots_nostr_signer::prelude::RadrootsNostrSignerHandledRequest;
 
 use crate::app::MycSignerContext;
 use crate::app::backend::MycSignerBackend;
@@ -191,9 +190,77 @@ impl MycNip46Handler {
         client_public_key: RadrootsNostrPublicKey,
         request_message: RadrootsNostrConnectRequestMessage,
     ) -> Result<MycNip46HandledOutcome, MycError> {
+        if matches!(
+            &request_message.request,
+            radroots_nostr_connect::prelude::RadrootsNostrConnectRequest::Logout
+        ) {
+            return self.handle_logout_request(client_public_key, request_message);
+        }
         self.handler
             .handle_request(client_public_key, request_message)
             .map_err(Into::into)
+    }
+
+    fn handle_logout_request(
+        &self,
+        client_public_key: RadrootsNostrPublicKey,
+        request_message: RadrootsNostrConnectRequestMessage,
+    ) -> Result<MycNip46HandledOutcome, MycError> {
+        let manager = self.signer.load_signer_manager()?;
+        let connection = match manager.lookup_session(&client_public_key, None)? {
+            RadrootsNostrSignerSessionLookup::Connection(connection) => *connection,
+            RadrootsNostrSignerSessionLookup::None => {
+                return Ok(MycNip46HandledOutcome::respond(
+                    RadrootsNostrConnectResponse::Error {
+                        result: None,
+                        error: "unauthorized".to_owned(),
+                    },
+                ));
+            }
+            RadrootsNostrSignerSessionLookup::Ambiguous(_) => {
+                return Ok(MycNip46HandledOutcome::respond(
+                    RadrootsNostrConnectResponse::Error {
+                        result: None,
+                        error: "ambiguous client sessions".to_owned(),
+                    },
+                ));
+            }
+        };
+        if connection.status != RadrootsNostrSignerConnectionStatus::Active {
+            let reason = format!("connection is {:?}", connection.status).to_lowercase();
+            let audit = manager.record_request(
+                &connection.connection_id,
+                &request_message.id,
+                request_message.request.method(),
+                RadrootsNostrSignerRequestDecision::Denied,
+                Some(reason.clone()),
+            )?;
+            return Ok(MycNip46HandledOutcome::new(
+                RadrootsNostrSignerHandledRequest::respond_for_connection(
+                    Some(connection.connection_id),
+                    RadrootsNostrConnectResponse::Error {
+                        result: None,
+                        error: reason,
+                    },
+                ),
+                Some(audit),
+            ));
+        }
+
+        let audit = manager.record_request(
+            &connection.connection_id,
+            &request_message.id,
+            request_message.request.method(),
+            RadrootsNostrSignerRequestDecision::Allowed,
+            None,
+        )?;
+        Ok(MycNip46HandledOutcome::new(
+            RadrootsNostrSignerHandledRequest::respond_for_connection(
+                Some(connection.connection_id),
+                RadrootsNostrConnectResponse::LogoutAcknowledged,
+            ),
+            Some(audit),
+        ))
     }
 
     #[cfg(test)]
@@ -314,6 +381,10 @@ impl MycNip46Service {
                 );
                 continue;
             };
+            let revoke_logout_connection =
+                matches!(&response, RadrootsNostrConnectResponse::LogoutAcknowledged)
+                    .then(|| connection_id.clone())
+                    .flatten();
 
             let response_event =
                 self.handler
@@ -465,6 +536,34 @@ impl MycNip46Service {
                         request_id.as_str(),
                         &publish_outcome,
                         format!("failed to finalize signer publish workflow: {error}"),
+                    );
+                    continue;
+                }
+            }
+            if let Some(logout_connection_id) = revoke_logout_connection.as_ref() {
+                let manager = match self.handler.signer.load_signer_manager() {
+                    Ok(manager) => manager,
+                    Err(error) => {
+                        self.record_listener_publish_post_publish_failure(
+                            connection_id.as_ref(),
+                            request_id.as_str(),
+                            &publish_outcome,
+                            format!(
+                                "failed to load signer manager for logout finalization: {error}"
+                            ),
+                        );
+                        continue;
+                    }
+                };
+                if let Err(error) = manager.revoke_connection(
+                    logout_connection_id,
+                    Some("NIP-46 logout acknowledged".to_owned()),
+                ) {
+                    self.record_listener_publish_post_publish_failure(
+                        connection_id.as_ref(),
+                        request_id.as_str(),
+                        &publish_outcome,
+                        format!("failed to finalize NIP-46 logout: {error}"),
                     );
                     continue;
                 }
@@ -683,7 +782,8 @@ mod tests {
         RadrootsNostrConnectResponseEnvelope,
     };
     use radroots_nostr_signer::prelude::{
-        RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerHandledRequest,
+        RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerConnectionStatus,
+        RadrootsNostrSignerHandledRequest,
     };
     use serde_json::json;
 
@@ -1164,6 +1264,50 @@ mod tests {
             radroots_nostr_signer::prelude::RadrootsNostrSignerApprovalState::Pending
         );
         assert!(connection.granted_permissions().as_slice().is_empty());
+    }
+
+    #[test]
+    fn logout_requires_active_session_and_defers_revocation_until_publish() {
+        let pending_runtime = runtime_with_explicit_approval();
+        let pending_handler = handler(&pending_runtime);
+        connect_with_permissions(&pending_handler, &pending_runtime, Vec::new());
+        let pending_response = pending_handler
+            .handle_request_response(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-pending-logout",
+                    RadrootsNostrConnectRequest::Logout,
+                ),
+            )
+            .expect("pending logout response");
+        assert_eq!(
+            pending_response,
+            RadrootsNostrConnectResponse::Error {
+                result: None,
+                error: "connection is pending".to_owned(),
+            }
+        );
+
+        let active_runtime = runtime();
+        let active_handler = handler(&active_runtime);
+        connect_with_permissions(&active_handler, &active_runtime, Vec::new());
+        let active_response = active_handler
+            .handle_request_response(
+                client_keys().public_key(),
+                RadrootsNostrConnectRequestMessage::new(
+                    "req-active-logout",
+                    RadrootsNostrConnectRequest::Logout,
+                ),
+            )
+            .expect("active logout response");
+        assert_eq!(
+            active_response,
+            RadrootsNostrConnectResponse::LogoutAcknowledged
+        );
+        assert_eq!(
+            connection_for(&active_runtime, client_keys().public_key()).status,
+            RadrootsNostrSignerConnectionStatus::Active
+        );
     }
 
     #[test]

@@ -629,6 +629,7 @@ fn request_requires_auth(request: &RadrootsNostrConnectRequest) -> bool {
             | RadrootsNostrConnectRequest::GetPublicKey
             | RadrootsNostrConnectRequest::GetSessionCapability
             | RadrootsNostrConnectRequest::Ping
+            | RadrootsNostrConnectRequest::Logout
     )
 }
 
