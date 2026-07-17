@@ -1,3 +1,4 @@
+use std::collections::{HashSet, VecDeque};
 use std::future::Future;
 use std::sync::Arc;
 
@@ -14,7 +15,7 @@ use radroots_nostr_signer::prelude::{
     RadrootsNostrSignerHandledRequest, RadrootsNostrSignerHandledRequestOutcome,
     RadrootsNostrSignerNip46Handler, RadrootsNostrSignerNip46Signer,
     RadrootsNostrSignerRequestDecision, RadrootsNostrSignerRequestEvaluation,
-    RadrootsNostrSignerSessionLookup, RadrootsNostrSignerWorkflowId,
+    RadrootsNostrSignerRequestId, RadrootsNostrSignerSessionLookup, RadrootsNostrSignerWorkflowId,
 };
 use tokio::sync::broadcast;
 
@@ -44,6 +45,37 @@ pub struct MycNip46Service {
 }
 
 type MycNip46HandledOutcome = RadrootsNostrSignerHandledRequestOutcome;
+
+const NIP46_REPLAY_CACHE_CAPACITY: usize = 4_096;
+
+struct MycNip46ReplayGuard {
+    capacity: usize,
+    event_ids: HashSet<String>,
+    insertion_order: VecDeque<String>,
+}
+
+impl MycNip46ReplayGuard {
+    fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            event_ids: HashSet::with_capacity(capacity),
+            insertion_order: VecDeque::with_capacity(capacity),
+        }
+    }
+
+    fn accept(&mut self, event_id: String) -> bool {
+        if self.capacity == 0 || !self.event_ids.insert(event_id.clone()) {
+            return false;
+        }
+        self.insertion_order.push_back(event_id);
+        while self.insertion_order.len() > self.capacity {
+            if let Some(expired) = self.insertion_order.pop_front() {
+                self.event_ids.remove(expired.as_str());
+            }
+        }
+        true
+    }
+}
 
 #[derive(Clone)]
 struct MycNip46Signer {
@@ -171,7 +203,29 @@ impl MycNip46Handler {
         &self,
         event: &RadrootsNostrEvent,
     ) -> Result<RadrootsNostrConnectRequestMessage, MycError> {
-        self.handler.parse_request_event(event).map_err(Into::into)
+        if event.kind != RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND) {
+            return Err(MycError::InvalidOperation(
+                "NIP-46 request event has the wrong kind".to_owned(),
+            ));
+        }
+        event.verify().map_err(|_| {
+            MycError::InvalidOperation(
+                "NIP-46 request event has an invalid id or signature".to_owned(),
+            )
+        })?;
+
+        let signer_public_key = self.signer.signer_identity().public_key();
+        let mut recipients = event.tags.public_keys();
+        if recipients.next() != Some(&signer_public_key) || recipients.next().is_some() {
+            return Err(MycError::InvalidOperation(
+                "NIP-46 request event must have exactly one signer recipient".to_owned(),
+            ));
+        }
+
+        let mut request_message = self.handler.parse_request_event(event)?;
+        request_message.id =
+            RadrootsNostrSignerRequestId::parse(request_message.id.as_str())?.into_string();
+        Ok(request_message)
     }
 
     pub fn build_response_event(
@@ -322,6 +376,7 @@ impl MycNip46Service {
         let filter = self.handler.filter()?;
         let mut notifications = self.transport.client().notifications();
         let subscription = self.transport.client().subscribe(filter, None).await?;
+        let mut replay_guard = MycNip46ReplayGuard::new(NIP46_REPLAY_CACHE_CAPACITY);
         tracing::info!(
             subscription_id = %subscription.val,
             relay_count = self.transport.relays().len(),
@@ -356,6 +411,10 @@ impl MycNip46Service {
                     continue;
                 }
             };
+            if !replay_guard.accept(event.id.to_hex()) {
+                tracing::warn!(event_id = %event.id, "discarding replayed NIP-46 request event");
+                continue;
+            }
 
             let request_id = request_message.id.clone();
             let handled_outcome = match self.handler.handle_request(event.pubkey, request_message) {
@@ -973,6 +1032,16 @@ mod tests {
         )
         .expect("parse response");
         assert_eq!(parsed, RadrootsNostrConnectResponse::Pong);
+    }
+
+    #[test]
+    fn replay_guard_rejects_duplicates_and_bounds_retention() {
+        let mut guard = super::MycNip46ReplayGuard::new(2);
+        assert!(guard.accept("event-1".to_owned()));
+        assert!(!guard.accept("event-1".to_owned()));
+        assert!(guard.accept("event-2".to_owned()));
+        assert!(guard.accept("event-3".to_owned()));
+        assert!(guard.accept("event-1".to_owned()));
     }
 
     #[test]

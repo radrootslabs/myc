@@ -580,6 +580,22 @@ fn build_request_event(
     request_message: RadrootsNostrConnectRequestMessage,
     created_at_unix: u64,
 ) -> Event {
+    build_request_event_with_recipient(
+        client_identity,
+        signer_public_key,
+        signer_public_key,
+        request_message,
+        created_at_unix,
+    )
+}
+
+fn build_request_event_with_recipient(
+    client_identity: &RadrootsIdentity,
+    signer_public_key: PublicKey,
+    recipient_public_key: PublicKey,
+    request_message: RadrootsNostrConnectRequestMessage,
+    created_at_unix: u64,
+) -> Event {
     let payload = serde_json::to_string(&request_message).expect("request payload");
     let ciphertext = nip44::encrypt(
         client_identity.keys().secret_key(),
@@ -589,7 +605,7 @@ fn build_request_event(
     )
     .expect("encrypt request");
     EventBuilder::new(Kind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND), ciphertext)
-        .tags([Tag::public_key(signer_public_key)])
+        .tags([Tag::public_key(recipient_public_key)])
         .custom_created_at(Timestamp::from(created_at_unix))
         .sign_with_keys(client_identity.keys())
         .expect("sign request event")
@@ -932,6 +948,296 @@ async fn live_listener_rejects_denied_clients_without_registering_connection() -
         }
     );
     assert!(runtime.signer_manager()?.list_connections()?.is_empty());
+
+    let _ = shutdown_tx.send(());
+    listener_task.await??;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_listener_discards_malformed_and_replayed_request_events() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
+    let runtime = test_runtime.runtime.clone();
+    let signer_public_key = runtime.signer_identity().public_key();
+    let client_identity =
+        identity("3434343434343434343434343434343434343434343434343434343434343434");
+    let other_identity =
+        identity("3535353535353535353535353535353535353535353535353535353535353535");
+    let base_created_at = Timestamp::now().as_secs();
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let service_runtime = runtime.clone();
+    let listener_task = tokio::spawn(async move {
+        service_runtime
+            .run_until(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
+    relay.wait_for_subscription_count(1).await?;
+
+    let mut invalid_author = build_request_event(
+        &client_identity,
+        signer_public_key,
+        connect_request_message("invalid-author", signer_public_key, "invalid-author-secret"),
+        base_created_at,
+    );
+    invalid_author.pubkey = other_identity.public_key();
+    publish_event(relay.url(), &invalid_author).await?;
+
+    let wrong_recipient = build_request_event_with_recipient(
+        &client_identity,
+        signer_public_key,
+        other_identity.public_key(),
+        connect_request_message(
+            "wrong-recipient",
+            signer_public_key,
+            "wrong-recipient-secret",
+        ),
+        base_created_at + 1,
+    );
+    publish_event(relay.url(), &wrong_recipient).await?;
+
+    let invalid_request_id = build_request_event(
+        &client_identity,
+        signer_public_key,
+        connect_request_message("", signer_public_key, "invalid-request-id-secret"),
+        base_created_at + 2,
+    );
+    publish_event(relay.url(), &invalid_request_id).await?;
+
+    let malformed_ciphertext = EventBuilder::new(
+        Kind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+        "not-nip44-ciphertext",
+    )
+    .tags([Tag::public_key(signer_public_key)])
+    .custom_created_at(Timestamp::from(base_created_at + 3))
+    .sign_with_keys(client_identity.keys())?;
+    publish_event(relay.url(), &malformed_ciphertext).await?;
+
+    sleep(Duration::from_millis(200)).await;
+    assert!(runtime.signer_manager()?.list_connections()?.is_empty());
+    assert!(
+        relay
+            .published_events_by_author(signer_public_key)
+            .await
+            .is_empty()
+    );
+
+    let valid_request = build_request_event(
+        &client_identity,
+        signer_public_key,
+        connect_request_message("valid-after-invalid", signer_public_key, "valid-secret"),
+        base_created_at + 4,
+    );
+    publish_event(relay.url(), &valid_request).await?;
+    let responses = relay
+        .wait_for_published_events_by_author(signer_public_key, 1)
+        .await?;
+    assert_eq!(responses.len(), 1);
+    assert_eq!(
+        decrypt_response(&client_identity, signer_public_key, &responses[0]).id,
+        "valid-after-invalid"
+    );
+    wait_for_connection_count(&runtime, 1).await?;
+
+    publish_event(relay.url(), &valid_request).await?;
+    sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        relay
+            .published_events_by_author(signer_public_key)
+            .await
+            .len(),
+        1
+    );
+    assert_eq!(runtime.delivery_outbox_store().list_all()?.len(), 1);
+
+    let _ = shutdown_tx.send(());
+    listener_task.await??;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_listener_enforces_signing_ceiling_and_switch_relay_permission() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new_with_transport_config(
+        &[relay.url()],
+        MycConnectionApproval::NotRequired,
+        |config| {
+            config.policy.permission_ceiling = "get_public_key,sign_event:1,switch_relays"
+                .parse()
+                .expect("permission ceiling");
+            config.policy.allowed_sign_event_kinds = vec![1];
+        },
+    );
+    let runtime = test_runtime.runtime.clone();
+    let signer_public_key = runtime.signer_identity().public_key();
+    let user_public_key = runtime.user_identity().public_key();
+    assert_ne!(signer_public_key, user_public_key);
+    let client_identity =
+        identity("3636363636363636363636363636363636363636363636363636363636363636");
+    let base_created_at = Timestamp::now().as_secs();
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let service_runtime = runtime.clone();
+    let listener_task = tokio::spawn(async move {
+        service_runtime
+            .run_until(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
+    relay.wait_for_subscription_count(1).await?;
+
+    let connect_request = RadrootsNostrConnectRequest::Connect {
+        remote_signer_public_key: signer_public_key,
+        secret: None,
+        requested_permissions: "get_public_key,sign_event:1,sign_event:7,switch_relays".parse()?,
+        client_metadata: None,
+    };
+    publish_event(
+        relay.url(),
+        &build_request_event(
+            &client_identity,
+            signer_public_key,
+            RadrootsNostrConnectRequestMessage::new("policy-connect", connect_request.clone()),
+            base_created_at,
+        ),
+    )
+    .await?;
+    let responses = relay
+        .wait_for_published_events_by_author(signer_public_key, 1)
+        .await?;
+    let connect_response = RadrootsNostrConnectResponse::from_envelope(
+        &connect_request.method(),
+        decrypt_response(&client_identity, signer_public_key, &responses[0]),
+    )?;
+    assert_eq!(
+        connect_response,
+        RadrootsNostrConnectResponse::ConnectAcknowledged
+    );
+    let connection = runtime
+        .signer_manager()?
+        .list_connections()?
+        .into_iter()
+        .next()
+        .expect("connection");
+    assert_eq!(
+        connection.granted_permissions().to_string(),
+        "get_public_key,sign_event:1,switch_relays"
+    );
+
+    let get_public_key_request = RadrootsNostrConnectRequest::GetPublicKey;
+    publish_event(
+        relay.url(),
+        &build_request_event(
+            &client_identity,
+            signer_public_key,
+            RadrootsNostrConnectRequestMessage::new(
+                "policy-get-public-key",
+                get_public_key_request.clone(),
+            ),
+            base_created_at + 1,
+        ),
+    )
+    .await?;
+    let responses = relay
+        .wait_for_published_events_by_author(signer_public_key, 2)
+        .await?;
+    assert_eq!(responses[1].pubkey, signer_public_key);
+    assert_eq!(
+        RadrootsNostrConnectResponse::from_envelope(
+            &get_public_key_request.method(),
+            decrypt_response(&client_identity, signer_public_key, &responses[1]),
+        )?,
+        RadrootsNostrConnectResponse::UserPublicKey(user_public_key)
+    );
+
+    let unsigned_event = |kind: u16, content: &str| -> TestResult<UnsignedEvent> {
+        Ok(serde_json::from_value(serde_json::json!({
+            "pubkey": user_public_key.to_hex(),
+            "created_at": base_created_at,
+            "kind": kind,
+            "tags": [],
+            "content": content
+        }))?)
+    };
+    let allowed_sign_request =
+        RadrootsNostrConnectRequest::SignEvent(unsigned_event(1, "allowed")?);
+    publish_event(
+        relay.url(),
+        &build_request_event(
+            &client_identity,
+            signer_public_key,
+            RadrootsNostrConnectRequestMessage::new(
+                "policy-sign-allowed",
+                allowed_sign_request.clone(),
+            ),
+            base_created_at + 2,
+        ),
+    )
+    .await?;
+    let responses = relay
+        .wait_for_published_events_by_author(signer_public_key, 3)
+        .await?;
+    let allowed_response = RadrootsNostrConnectResponse::from_envelope(
+        &allowed_sign_request.method(),
+        decrypt_response(&client_identity, signer_public_key, &responses[2]),
+    )?;
+    let RadrootsNostrConnectResponse::SignedEvent(signed_event) = allowed_response else {
+        panic!("expected signed event response");
+    };
+    assert_eq!(signed_event.pubkey, user_public_key);
+    signed_event.verify()?;
+
+    let denied_sign_request = RadrootsNostrConnectRequest::SignEvent(unsigned_event(7, "denied")?);
+    publish_event(
+        relay.url(),
+        &build_request_event(
+            &client_identity,
+            signer_public_key,
+            RadrootsNostrConnectRequestMessage::new(
+                "policy-sign-denied",
+                denied_sign_request.clone(),
+            ),
+            base_created_at + 3,
+        ),
+    )
+    .await?;
+    let responses = relay
+        .wait_for_published_events_by_author(signer_public_key, 4)
+        .await?;
+    assert!(matches!(
+        RadrootsNostrConnectResponse::from_envelope(
+            &denied_sign_request.method(),
+            decrypt_response(&client_identity, signer_public_key, &responses[3]),
+        )?,
+        RadrootsNostrConnectResponse::Error { error, .. }
+            if error.contains("outside the configured policy ceiling")
+    ));
+
+    let switch_request = RadrootsNostrConnectRequest::SwitchRelays;
+    publish_event(
+        relay.url(),
+        &build_request_event(
+            &client_identity,
+            signer_public_key,
+            RadrootsNostrConnectRequestMessage::new("policy-switch", switch_request.clone()),
+            base_created_at + 4,
+        ),
+    )
+    .await?;
+    let responses = relay
+        .wait_for_published_events_by_author(signer_public_key, 5)
+        .await?;
+    assert_eq!(
+        RadrootsNostrConnectResponse::from_envelope(
+            &switch_request.method(),
+            decrypt_response(&client_identity, signer_public_key, &responses[4]),
+        )?,
+        RadrootsNostrConnectResponse::RelayList(vec![relay.url().parse()?])
+    );
 
     let _ = shutdown_tx.send(());
     listener_task.await??;

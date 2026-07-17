@@ -3,6 +3,36 @@
 This is the README for `myc` which provides a Nostr remote signer for
 standalone and application-embedded clients.
 
+## NIP-46 runtime contract
+
+Myc listens for encrypted kind-24133 requests on the ordered relay set in
+`MYC_TRANSPORT_RELAY_URLS`. The signer transport identity authors and encrypts
+protocol responses; the separate user identity is returned by
+`get_public_key` and signs user events. Client-supplied connect metadata is a
+bounded, display-only hint and never changes approval, authentication, or
+permissions.
+
+The public approval default is `explicit_user`. Trusted and denied clients,
+permission ceilings, allowed signing kinds, auth challenges, relay switching,
+and delivery policy are configured explicitly through the variables documented
+in `.env.example`. A successful `logout` publishes its acknowledgement before
+revoking the session. Failed acknowledgement delivery remains recoverable on
+restart, while requests from a revoked session remain unauthorized until a new
+connect is approved.
+
+Myc rejects invalid signatures, wrong recipient tags, empty request IDs,
+malformed ciphertext, and duplicate event delivery before dispatch. Runtime
+state and audit output do not log client private keys or raw connection URIs.
+
+Use the repository-owned Nix lanes for validation:
+
+```text
+nix run .#fmt
+nix run .#check
+nix run .#test
+nix run .#release-acceptance
+```
+
 ## Copyright
 
 Except as otherwise noted, all files in the `myc` distribution are
