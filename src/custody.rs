@@ -2308,7 +2308,13 @@ mod tests {
         let pid_deadline = Instant::now() + timeout + Duration::from_secs(5);
         let pid = loop {
             match fs::read_to_string(&pid_path) {
-                Ok(value) => break value.trim().parse::<u32>().expect("pid"),
+                Ok(value) => match value.trim().parse::<u32>() {
+                    Ok(pid) => break pid,
+                    Err(_) if Instant::now() < pid_deadline => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("helper pid: {error}"),
+                },
                 Err(error)
                     if error.kind() == std::io::ErrorKind::NotFound
                         && Instant::now() < pid_deadline =>
