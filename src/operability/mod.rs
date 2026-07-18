@@ -1382,6 +1382,8 @@ async fn probe_relay(
         .map_err(MycError::from)?;
 
     match client
+        .clone()
+        .into_inner()
         .try_connect_relay(relay.as_str(), Duration::from_secs(connect_timeout_secs))
         .await
     {

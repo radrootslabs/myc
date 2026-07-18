@@ -1436,6 +1436,8 @@ async fn fetch_live_nip89_events_for_relay(
     let client = context.app_identity().nostr_client();
     let _ = client.add_relay(relay.as_str()).await?;
     client
+        .clone()
+        .into_inner()
         .try_connect_relay(
             relay.as_str(),
             Duration::from_secs(context.connect_timeout_secs()),

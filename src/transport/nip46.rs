@@ -374,7 +374,8 @@ impl MycNip46Service {
         self.transport.connect().await?;
 
         let filter = self.handler.filter()?;
-        let mut notifications = self.transport.client().notifications();
+        let sdk_client = self.transport.client().clone().into_inner();
+        let mut notifications = sdk_client.notifications();
         let subscription = self.transport.client().subscribe(filter, None).await?;
         let mut replay_guard = MycNip46ReplayGuard::new(NIP46_REPLAY_CACHE_CAPACITY);
         tracing::info!(
