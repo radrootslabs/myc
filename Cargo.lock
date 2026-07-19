@@ -1919,6 +1919,8 @@ dependencies = [
  "radroots_blossom",
  "radroots_core",
  "radroots_event",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
