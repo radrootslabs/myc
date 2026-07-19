@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use nostr::nips::nip44::Version;
 use nostr::nips::{nip04, nip44};
@@ -17,6 +17,9 @@ use radroots_nostr_accounts::prelude::{
 };
 use radroots_secret_vault::{RadrootsSecretVault, RadrootsSecretVaultOsKeyring};
 use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::runtime::RuntimeFlavor;
+use tokio::time::Instant as TokioInstant;
 use zeroize::Zeroizing;
 
 use crate::config::{MycConfig, MycIdentityBackend, MycIdentitySourceSpec};
@@ -266,6 +269,10 @@ struct MycExternalCommandOutput {
 enum MycExternalCommandExecuteError {
     Io(std::io::Error),
     TimedOut,
+    OutputLimitExceeded {
+        stream: &'static str,
+        limit_bytes: usize,
+    },
 }
 
 trait MycExternalCommandExecutor: Send + Sync {
@@ -280,6 +287,136 @@ trait MycExternalCommandExecutor: Send + Sync {
 #[derive(Debug, Default)]
 struct MycProcessCommandExecutor;
 
+const MYC_EXTERNAL_COMMAND_STDOUT_LIMIT_BYTES: usize = 1024 * 1024;
+const MYC_EXTERNAL_COMMAND_STDERR_LIMIT_BYTES: usize = 64 * 1024;
+
+impl MycProcessCommandExecutor {
+    fn execute_on_runtime(
+        command_path: &Path,
+        request_json: &[u8],
+        timeout: Duration,
+    ) -> Result<MycExternalCommandOutput, MycExternalCommandExecuteError> {
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) if handle.runtime_flavor() == RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(|| {
+                    handle.block_on(Self::execute_async(command_path, request_json, timeout))
+                })
+            }
+            Ok(_) => std::thread::scope(|scope| {
+                scope
+                    .spawn(|| Self::execute_on_new_runtime(command_path, request_json, timeout))
+                    .join()
+                    .map_err(|_| {
+                        MycExternalCommandExecuteError::Io(std::io::Error::other(
+                            "external custody command worker panicked",
+                        ))
+                    })?
+            }),
+            Err(_) => Self::execute_on_new_runtime(command_path, request_json, timeout),
+        }
+    }
+
+    fn execute_on_new_runtime(
+        command_path: &Path,
+        request_json: &[u8],
+        timeout: Duration,
+    ) -> Result<MycExternalCommandOutput, MycExternalCommandExecuteError> {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(MycExternalCommandExecuteError::Io)?
+            .block_on(Self::execute_async(command_path, request_json, timeout))
+    }
+
+    async fn execute_async(
+        command_path: &Path,
+        request_json: &[u8],
+        timeout: Duration,
+    ) -> Result<MycExternalCommandOutput, MycExternalCommandExecuteError> {
+        let mut child = tokio::process::Command::new(command_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(MycExternalCommandExecuteError::Io)?;
+        let mut stdin = child.stdin.take().ok_or_else(|| {
+            MycExternalCommandExecuteError::Io(std::io::Error::other(
+                "external custody command stdin was unavailable",
+            ))
+        })?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            MycExternalCommandExecuteError::Io(std::io::Error::other(
+                "external custody command stdout was unavailable",
+            ))
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            MycExternalCommandExecuteError::Io(std::io::Error::other(
+                "external custody command stderr was unavailable",
+            ))
+        })?;
+        let request_json = Zeroizing::new(request_json.to_vec());
+        let mut stdin_task = tokio::spawn(async move {
+            stdin
+                .write_all(&request_json)
+                .await
+                .map_err(MycExternalCommandExecuteError::Io)?;
+            stdin
+                .shutdown()
+                .await
+                .map_err(MycExternalCommandExecuteError::Io)
+        });
+        let mut stdout_task = tokio::spawn(read_limited_external_command_output(
+            stdout,
+            "stdout",
+            MYC_EXTERNAL_COMMAND_STDOUT_LIMIT_BYTES,
+        ));
+        let mut stderr_task = tokio::spawn(read_limited_external_command_output(
+            stderr,
+            "stderr",
+            MYC_EXTERNAL_COMMAND_STDERR_LIMIT_BYTES,
+        ));
+        let deadline = TokioInstant::now() + timeout;
+
+        let status = match tokio::time::timeout_at(deadline, child.wait()).await {
+            Ok(Ok(status)) => status,
+            Ok(Err(source)) => {
+                abort_external_command_io_tasks(&stdin_task, &stdout_task, &stderr_task);
+                return Err(MycExternalCommandExecuteError::Io(source));
+            }
+            Err(_) => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                abort_external_command_io_tasks(&stdin_task, &stdout_task, &stderr_task);
+                return Err(MycExternalCommandExecuteError::TimedOut);
+            }
+        };
+
+        let collect_output = async {
+            let (stdin_result, stdout_result, stderr_result) =
+                tokio::join!(&mut stdin_task, &mut stdout_task, &mut stderr_task);
+            flatten_external_command_task(stdin_result)?;
+            let stdout = flatten_external_command_task(stdout_result)?;
+            let stderr = flatten_external_command_task(stderr_result)?;
+            Ok((stdout, stderr))
+        };
+        let (stdout, stderr) = match tokio::time::timeout_at(deadline, collect_output).await {
+            Ok(result) => result?,
+            Err(_) => {
+                abort_external_command_io_tasks(&stdin_task, &stdout_task, &stderr_task);
+                return Err(MycExternalCommandExecuteError::TimedOut);
+            }
+        };
+
+        Ok(MycExternalCommandOutput {
+            success: status.success(),
+            status: status.code(),
+            stdout,
+            stderr,
+        })
+    }
+}
+
 impl MycExternalCommandExecutor for MycProcessCommandExecutor {
     fn execute(
         &self,
@@ -287,43 +424,60 @@ impl MycExternalCommandExecutor for MycProcessCommandExecutor {
         request_json: &[u8],
         timeout: Duration,
     ) -> Result<MycExternalCommandOutput, MycExternalCommandExecuteError> {
-        let mut child = Command::new(command_path)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(MycExternalCommandExecuteError::Io)?;
-        if let Some(mut stdin) = child.stdin.take() {
-            use std::io::Write;
-            stdin
-                .write_all(request_json)
-                .map_err(MycExternalCommandExecuteError::Io)?;
-        }
-        let deadline = Instant::now() + timeout;
-        loop {
-            match child
-                .try_wait()
-                .map_err(MycExternalCommandExecuteError::Io)?
-            {
-                Some(_) => break,
-                None if Instant::now() >= deadline => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(MycExternalCommandExecuteError::TimedOut);
-                }
-                None => std::thread::sleep(Duration::from_millis(10)),
-            }
-        }
-        let output = child
-            .wait_with_output()
-            .map_err(MycExternalCommandExecuteError::Io)?;
-        Ok(MycExternalCommandOutput {
-            success: output.status.success(),
-            status: output.status.code(),
-            stdout: output.stdout,
-            stderr: output.stderr,
-        })
+        Self::execute_on_runtime(command_path, request_json, timeout)
     }
+}
+
+async fn read_limited_external_command_output<R>(
+    mut reader: R,
+    stream: &'static str,
+    limit_bytes: usize,
+) -> Result<Vec<u8>, MycExternalCommandExecuteError>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut output = Vec::with_capacity(limit_bytes.min(8 * 1024));
+    let mut buffer = [0_u8; 8 * 1024];
+    let mut exceeded_limit = false;
+    loop {
+        let count = reader
+            .read(&mut buffer)
+            .await
+            .map_err(MycExternalCommandExecuteError::Io)?;
+        if count == 0 {
+            break;
+        }
+        let remaining = limit_bytes.saturating_sub(output.len());
+        output.extend_from_slice(&buffer[..count.min(remaining)]);
+        exceeded_limit |= count > remaining;
+    }
+    if exceeded_limit {
+        return Err(MycExternalCommandExecuteError::OutputLimitExceeded {
+            stream,
+            limit_bytes,
+        });
+    }
+    Ok(output)
+}
+
+fn flatten_external_command_task<T>(
+    result: Result<Result<T, MycExternalCommandExecuteError>, tokio::task::JoinError>,
+) -> Result<T, MycExternalCommandExecuteError> {
+    result.map_err(|_| {
+        MycExternalCommandExecuteError::Io(std::io::Error::other(
+            "external custody command I/O task failed",
+        ))
+    })?
+}
+
+fn abort_external_command_io_tasks<T, U, V>(
+    stdin_task: &tokio::task::JoinHandle<T>,
+    stdout_task: &tokio::task::JoinHandle<U>,
+    stderr_task: &tokio::task::JoinHandle<V>,
+) {
+    stdin_task.abort();
+    stdout_task.abort();
+    stderr_task.abort();
 }
 
 trait MycIdentityOperations: Send + Sync {
@@ -494,9 +648,17 @@ impl MycExternalCommandIdentityOperations {
                         timeout_secs: self.timeout.as_secs(),
                     }
                 }
+                MycExternalCommandExecuteError::OutputLimitExceeded {
+                    stream,
+                    limit_bytes,
+                } => MycError::CustodyExternalCommandOutputLimit {
+                    role: self.role.clone(),
+                    path: self.command_path.clone(),
+                    stream,
+                    limit_bytes,
+                },
             })?;
         if !output.success {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
             return Err(MycError::CustodyExternalCommandFailed {
                 role: self.role.clone(),
                 path: self.command_path.clone(),
@@ -504,10 +666,10 @@ impl MycExternalCommandIdentityOperations {
                     .status
                     .map(|status| status.to_string())
                     .unwrap_or_else(|| "terminated by signal".to_owned()),
-                stderr: if stderr.is_empty() {
-                    "external signer command failed without stderr".to_owned()
+                diagnostic: if output.stderr.is_empty() {
+                    "helper returned no diagnostic output"
                 } else {
-                    stderr
+                    "helper diagnostic output was redacted"
                 },
             });
         }
@@ -519,12 +681,12 @@ impl MycExternalCommandIdentityOperations {
                     source,
                 }
             })?;
-        if let Some(error) = response.error.as_deref() {
+        if response.error.is_some() {
             return Err(MycError::CustodyExternalCommandFailed {
                 role: self.role.clone(),
                 path: self.command_path.clone(),
                 status: "0".to_owned(),
-                stderr: error.to_owned(),
+                diagnostic: "helper reported a protocol error",
             });
         }
         Ok(response)
@@ -1209,9 +1371,17 @@ impl MycIdentityProvider {
                         timeout_secs: timeout.as_secs(),
                     }
                 }
+                MycExternalCommandExecuteError::OutputLimitExceeded {
+                    stream,
+                    limit_bytes,
+                } => MycError::CustodyExternalCommandOutputLimit {
+                    role: self.role.clone(),
+                    path: command_path.to_path_buf(),
+                    stream,
+                    limit_bytes,
+                },
             })?;
         if !output.success {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
             return Err(MycError::CustodyExternalCommandFailed {
                 role: self.role.clone(),
                 path: command_path.to_path_buf(),
@@ -1219,10 +1389,10 @@ impl MycIdentityProvider {
                     .status
                     .map(|status| status.to_string())
                     .unwrap_or_else(|| "terminated by signal".to_owned()),
-                stderr: if stderr.is_empty() {
-                    "external signer command failed without stderr".to_owned()
+                diagnostic: if output.stderr.is_empty() {
+                    "helper returned no diagnostic output"
                 } else {
-                    stderr
+                    "helper diagnostic output was redacted"
                 },
             });
         }
@@ -1234,12 +1404,12 @@ impl MycIdentityProvider {
                     source,
                 }
             })?;
-        if let Some(error) = response.error {
+        if response.error.is_some() {
             return Err(MycError::CustodyExternalCommandFailed {
                 role: self.role.clone(),
                 path: command_path.to_path_buf(),
                 status: "0".to_owned(),
-                stderr: error,
+                diagnostic: "helper reported a protocol error",
             });
         }
         let identity =
@@ -1750,6 +1920,33 @@ mod tests {
             "#!/bin/sh\nprintf '%s\\n' \"$$\" > {}\nwhile :; do\n  :\ndone\n",
             shell_single_quote(&pid_path.display().to_string())
         );
+        fs::write(path, script).expect("write helper");
+        let mut permissions = fs::metadata(path).expect("helper metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).expect("helper permissions");
+    }
+
+    #[cfg(unix)]
+    fn write_output_helper(path: &Path) {
+        let script = "#!/bin/sh\ni=0\nwhile [ \"$i\" -lt 5000 ]; do\n  printf '0123456789abcdef\\n'\n  printf 'err\\n' >&2\n  i=$((i + 1))\ndone\n";
+        fs::write(path, script).expect("write helper");
+        let mut permissions = fs::metadata(path).expect("helper metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).expect("helper permissions");
+    }
+
+    #[cfg(unix)]
+    fn write_delayed_helper(path: &Path) {
+        let script = "#!/bin/sh\nsleep 1\nprintf '{}'\n";
+        fs::write(path, script).expect("write helper");
+        let mut permissions = fs::metadata(path).expect("helper metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).expect("helper permissions");
+    }
+
+    #[cfg(unix)]
+    fn write_excess_output_helper(path: &Path) {
+        let script = "#!/bin/sh\ni=0\nwhile [ \"$i\" -lt 17000 ]; do\n  printf 'err\\n' >&2\n  i=$((i + 1))\ndone\n";
         fs::write(path, script).expect("write helper");
         let mut permissions = fs::metadata(path).expect("helper metadata").permissions();
         permissions.set_mode(0o755);
@@ -2512,6 +2709,90 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn external_command_output_reader_enforces_its_byte_limit() {
+        let (mut writer, reader) = tokio::io::duplex(128);
+        let writer_task = tokio::spawn(async move {
+            let _ = writer.write_all(&[b'x'; 65]).await;
+        });
+
+        let error = read_limited_external_command_output(reader, "stdout", 64)
+            .await
+            .expect_err("output limit");
+        writer_task.await.expect("writer task");
+
+        assert!(matches!(
+            error,
+            MycExternalCommandExecuteError::OutputLimitExceeded {
+                stream: "stdout",
+                limit_bytes: 64,
+            }
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_executor_drains_stdout_and_stderr_while_the_helper_runs() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let helper_path = temp.path().join("output-helper.sh");
+        write_output_helper(&helper_path);
+
+        let output = MycProcessCommandExecutor
+            .execute(&helper_path, b"{}", Duration::from_secs(5))
+            .expect("helper output");
+
+        assert!(output.success);
+        assert_eq!(output.stdout.len(), 85_000);
+        assert_eq!(output.stderr.len(), 20_000);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_executor_reports_output_limits_without_pipe_deadlock() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let helper_path = temp.path().join("excess-output-helper.sh");
+        write_excess_output_helper(&helper_path);
+
+        let error = MycProcessCommandExecutor
+            .execute(&helper_path, b"{}", Duration::from_secs(5))
+            .expect_err("stderr output limit");
+
+        assert!(matches!(
+            error,
+            MycExternalCommandExecuteError::OutputLimitExceeded {
+                stream: "stderr",
+                limit_bytes: MYC_EXTERNAL_COMMAND_STDERR_LIMIT_BYTES,
+            }
+        ));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn process_executor_releases_the_tokio_worker_while_waiting() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let helper_path = temp.path().join("delayed-helper.sh");
+        write_delayed_helper(&helper_path);
+        let made_progress = Arc::new(AtomicBool::new(false));
+        let task_progress = made_progress.clone();
+        let progress_task = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            task_progress.store(true, Ordering::SeqCst);
+        });
+
+        let output = MycProcessCommandExecutor
+            .execute(&helper_path, b"{}", Duration::from_secs(5))
+            .expect("helper output");
+        progress_task.await.expect("progress task");
+
+        assert!(output.success);
+        assert!(
+            made_progress.load(Ordering::SeqCst),
+            "the Tokio worker must continue scheduling while custody waits"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn process_executor_times_out_and_kills_real_helper() {
@@ -2537,7 +2818,7 @@ mod tests {
 
         // Give the real helper a little slack to create its pid file under a busy full-test run
         // before we conclude the timeout path never launched it.
-        let pid_deadline = Instant::now() + timeout + Duration::from_secs(5);
+        let pid_deadline = Instant::now() + timeout + Duration::from_secs(20);
         let pid = loop {
             match fs::read_to_string(&pid_path) {
                 Ok(value) => match value.trim().parse::<u32>() {

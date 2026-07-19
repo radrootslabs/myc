@@ -217,13 +217,22 @@ pub enum MycError {
         timeout_secs: u64,
     },
     #[error(
-        "external custody command for {role} identity at {path} failed with status {status}: {stderr}"
+        "external custody command for {role} identity at {path} exceeded the {stream} output limit of {limit_bytes} bytes"
+    )]
+    CustodyExternalCommandOutputLimit {
+        role: String,
+        path: PathBuf,
+        stream: &'static str,
+        limit_bytes: usize,
+    },
+    #[error(
+        "external custody command for {role} identity at {path} failed with status {status}: {diagnostic}"
     )]
     CustodyExternalCommandFailed {
         role: String,
         path: PathBuf,
         status: String,
-        stderr: String,
+        diagnostic: &'static str,
     },
     #[error(
         "external custody command response parse error for {role} identity at {path}: {source}"

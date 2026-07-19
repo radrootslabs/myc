@@ -30,6 +30,11 @@ only when the author and event id match the exact request and the complete
 NIP-01 event verifies. Caller-supplied NIP-46 `sign_event` payloads remain a
 separate low-level interoperability boundary and receive the same exact-result
 integrity checks without acquiring a typed product-authoring claim.
+The production external-command executor drains stdout and stderr concurrently,
+enforces bounded output, applies one end-to-end timeout, kills and reaps timed
+out helpers, and releases Myc's multi-thread Tokio worker while waiting.
+Helper-provided stderr and protocol error text are never copied into operator
+errors.
 
 Use the repository-owned Nix lanes for validation:
 
