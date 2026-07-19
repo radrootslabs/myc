@@ -1455,7 +1455,7 @@ mod tests {
     use nostr::PublicKey;
     use radroots_identity::RadrootsIdentity;
     use radroots_nostr::prelude::{
-        RadrootsNostrEvent, RadrootsNostrEventBuilder, RadrootsNostrKind,
+        RadrootsNostrEvent, RadrootsNostrGenericEventBuilder, RadrootsNostrKind,
     };
     use radroots_nostr_signer::prelude::{
         RADROOTS_NOSTR_SIGNER_STORE_VERSION, RadrootsNostrFileSignerStore,
@@ -1500,7 +1500,7 @@ mod tests {
     }
 
     fn signed_event(secret_key: &str) -> RadrootsNostrEvent {
-        RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), "hello")
+        RadrootsNostrGenericEventBuilder::new(RadrootsNostrKind::Custom(24133), "hello")
             .sign_with_keys(identity(secret_key).keys())
             .expect("sign event")
     }

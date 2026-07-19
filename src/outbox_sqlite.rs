@@ -495,7 +495,7 @@ fn usize_from_i64(path: &Path, value: i64, field: &str) -> Result<usize, MycErro
 #[cfg(test)]
 mod tests {
     use radroots_identity::RadrootsIdentity;
-    use radroots_nostr::prelude::{RadrootsNostrEventBuilder, RadrootsNostrKind};
+    use radroots_nostr::prelude::{RadrootsNostrGenericEventBuilder, RadrootsNostrKind};
     use radroots_nostr_signer::prelude::{
         RadrootsNostrSignerConnectionId, RadrootsNostrSignerWorkflowId,
     };
@@ -512,9 +512,10 @@ mod tests {
             "1111111111111111111111111111111111111111111111111111111111111111",
         )
         .expect("identity");
-        let event = RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), "hello")
-            .sign_with_keys(identity.keys())
-            .expect("sign event");
+        let event =
+            RadrootsNostrGenericEventBuilder::new(RadrootsNostrKind::Custom(24133), "hello")
+                .sign_with_keys(identity.keys())
+                .expect("sign event");
         MycDeliveryOutboxRecord::new(
             MycDeliveryOutboxKind::AuthReplayPublish,
             event,

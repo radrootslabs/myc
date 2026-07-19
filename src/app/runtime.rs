@@ -1311,7 +1311,7 @@ mod tests {
 
     use nostr::PublicKey;
     use radroots_identity::RadrootsIdentity;
-    use radroots_nostr::prelude::{RadrootsNostrEventBuilder, RadrootsNostrKind};
+    use radroots_nostr::prelude::{RadrootsNostrGenericEventBuilder, RadrootsNostrKind};
     use radroots_nostr_signer::prelude::{
         RadrootsNostrFileSignerStore, RadrootsNostrSignerApprovalRequirement,
         RadrootsNostrSignerAuthState, RadrootsNostrSignerConnectionDraft,
@@ -1885,8 +1885,8 @@ mod tests {
 
         let event = runtime
             .signer_identity()
-            .sign_event_builder(
-                RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), "recovery"),
+            .sign_protocol_event_builder(
+                RadrootsNostrGenericEventBuilder::new(RadrootsNostrKind::Custom(24133), "recovery"),
                 "recovery test",
             )
             .expect("sign event");
@@ -1997,8 +1997,11 @@ mod tests {
             .expect("begin workflow");
         let event = runtime
             .signer_identity()
-            .sign_event_builder(
-                RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), "queued-recovery"),
+            .sign_protocol_event_builder(
+                RadrootsNostrGenericEventBuilder::new(
+                    RadrootsNostrKind::Custom(24133),
+                    "queued-recovery",
+                ),
                 "queued recovery test",
             )
             .expect("sign event");

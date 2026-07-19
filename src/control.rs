@@ -169,7 +169,7 @@ pub async fn accept_client_uri(
     )?;
     let event = match runtime
         .signer_identity()
-        .sign_event_builder(event, "connect accept response")
+        .sign_protocol_event_builder(event, "connect accept response")
     {
         Ok(event) => event,
         Err(error) => {
@@ -428,7 +428,7 @@ async fn replay_authorized_request(
     })?;
     let event = match runtime
         .signer_identity()
-        .sign_event_builder(event, "authorized auth replay response")
+        .sign_protocol_event_builder(event, "authorized auth replay response")
     {
         Ok(event) => event,
         Err(error) => {

@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use radroots_nostr::prelude::{
-    RadrootsNostrClient, RadrootsNostrEvent, RadrootsNostrEventBuilder, RadrootsNostrOutput,
+    RadrootsNostrClient, RadrootsNostrEvent, RadrootsNostrGenericEventBuilder, RadrootsNostrOutput,
     RadrootsNostrRelayUrl,
 };
 use serde::Serialize;
@@ -122,7 +122,7 @@ impl MycNostrTransport {
         relays: &[RadrootsNostrRelayUrl],
         config: &MycTransportConfig,
         operation: &str,
-        event: RadrootsNostrEventBuilder,
+        event: RadrootsNostrGenericEventBuilder,
     ) -> Result<MycPublishOutcome, MycError> {
         if relays.is_empty() {
             return Err(MycError::InvalidOperation(
@@ -130,7 +130,7 @@ impl MycNostrTransport {
             ));
         }
 
-        let event = signer_identity.sign_event_builder(event, "publish")?;
+        let event = signer_identity.sign_protocol_event_builder(event, "publish")?;
         Self::publish_event_once(signer_identity, relays, config, operation, &event).await
     }
 

@@ -233,7 +233,7 @@ impl MycNip46Handler {
         client_public_key: RadrootsNostrPublicKey,
         request_id: impl Into<String>,
         response: RadrootsNostrConnectResponse,
-    ) -> Result<radroots_nostr::prelude::RadrootsNostrEventBuilder, MycError> {
+    ) -> Result<radroots_nostr::prelude::RadrootsNostrGenericEventBuilder, MycError> {
         self.handler
             .build_response_event(client_public_key, request_id, response)
             .map_err(Into::into)
@@ -453,7 +453,7 @@ impl MycNip46Service {
                 .handler
                 .signer
                 .signer_identity()
-                .sign_event_builder(response_event, "NIP-46 response")
+                .sign_protocol_event_builder(response_event, "NIP-46 response")
             {
                 Ok(event) => event,
                 Err(error) => {
@@ -1017,7 +1017,7 @@ mod tests {
             .expect("response builder");
         let response_event = runtime
             .signer_identity()
-            .sign_event_builder(response_builder, "test response")
+            .sign_protocol_event_builder(response_builder, "test response")
             .expect("sign response");
         let decrypted = nip44::decrypt(
             client_keys().secret_key(),

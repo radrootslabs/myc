@@ -242,6 +242,30 @@ pub enum MycError {
         path: PathBuf,
         message: String,
     },
+    #[error(
+        "external custody command rejected invalid unsigned event for {role} identity at {path} while signing {operation}"
+    )]
+    CustodyExternalCommandUnsignedEventInvalid {
+        role: String,
+        path: PathBuf,
+        operation: String,
+    },
+    #[error(
+        "external custody command returned a different signed event for {role} identity at {path} while signing {operation}"
+    )]
+    CustodyExternalCommandSignedEventMismatch {
+        role: String,
+        path: PathBuf,
+        operation: String,
+    },
+    #[error(
+        "external custody command returned an invalid signed event for {role} identity at {path} while signing {operation}"
+    )]
+    CustodyExternalCommandSignedEventInvalid {
+        role: String,
+        path: PathBuf,
+        operation: String,
+    },
     #[error(transparent)]
     Identity(#[from] IdentityError),
     #[error(transparent)]

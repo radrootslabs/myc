@@ -10,7 +10,7 @@ use myc::{
 };
 use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{
-    RadrootsNostrEventBuilder, RadrootsNostrKind, RadrootsNostrRelayUrl,
+    RadrootsNostrGenericEventBuilder, RadrootsNostrKind, RadrootsNostrRelayUrl,
 };
 use radroots_nostr_signer::prelude::{
     RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerConnectionDraft,
@@ -123,8 +123,8 @@ fn write_test_identity(path: &Path, secret_key: &str) {
 
 fn signed_delivery_event(identity: &MycActiveIdentity, content: &str) -> nostr::Event {
     identity
-        .sign_event_builder(
-            RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), content),
+        .sign_protocol_event_builder(
+            RadrootsNostrGenericEventBuilder::new(RadrootsNostrKind::Custom(24133), content),
             "operability delivery test event",
         )
         .expect("sign event")

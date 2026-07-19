@@ -8,7 +8,7 @@ use myc::{
     MycOperationAuditRecord, MycRuntime,
 };
 use radroots_identity::RadrootsIdentity;
-use radroots_nostr::prelude::{RadrootsNostrEventBuilder, RadrootsNostrKind};
+use radroots_nostr::prelude::{RadrootsNostrGenericEventBuilder, RadrootsNostrKind};
 use serde_json::{Value, json};
 
 fn write_test_identity(path: &Path, secret_key: &str) {
@@ -55,8 +55,8 @@ MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=1\n",
 
 fn signed_event(identity: &MycActiveIdentity) -> nostr::Event {
     identity
-        .sign_event_builder(
-            RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), "operability"),
+        .sign_protocol_event_builder(
+            RadrootsNostrGenericEventBuilder::new(RadrootsNostrKind::Custom(24133), "operability"),
             "operability test event",
         )
         .expect("sign event")

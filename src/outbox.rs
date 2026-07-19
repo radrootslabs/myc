@@ -249,7 +249,7 @@ pub(crate) fn now_unix_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use radroots_identity::RadrootsIdentity;
-    use radroots_nostr::prelude::{RadrootsNostrEventBuilder, RadrootsNostrKind};
+    use radroots_nostr::prelude::{RadrootsNostrGenericEventBuilder, RadrootsNostrKind};
     use radroots_nostr_signer::prelude::{
         RadrootsNostrSignerConnectionId, RadrootsNostrSignerWorkflowId,
     };
@@ -264,7 +264,7 @@ mod tests {
             "1111111111111111111111111111111111111111111111111111111111111111",
         )
         .expect("identity");
-        RadrootsNostrEventBuilder::new(RadrootsNostrKind::Custom(24133), "hello")
+        RadrootsNostrGenericEventBuilder::new(RadrootsNostrKind::Custom(24133), "hello")
             .sign_with_keys(identity.keys())
             .expect("sign event")
     }

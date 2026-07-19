@@ -23,6 +23,13 @@ connect is approved.
 Myc rejects invalid signatures, wrong recipient tags, empty request IDs,
 malformed ciphertext, and duplicate event delivery before dispatch. Runtime
 state and audit output do not log client private keys or raw connection URIs.
+Signer-authored protocol responses use the checked generic-event boundary from
+`radroots_nostr`. External custody commands receive canonical unsigned-event
+JSON only after typed-authoring policy succeeds, and Myc accepts their result
+only when the author and event id match the exact request and the complete
+NIP-01 event verifies. Caller-supplied NIP-46 `sign_event` payloads remain a
+separate low-level interoperability boundary and receive the same exact-result
+integrity checks without acquiring a typed product-authoring claim.
 
 Use the repository-owned Nix lanes for validation:
 

@@ -9,7 +9,8 @@ use nostr::nips::nip44::Version;
 use nostr::nips::{nip04, nip44};
 use radroots_identity::{RadrootsIdentity, RadrootsIdentityId, RadrootsIdentityPublic};
 use radroots_nostr::prelude::{
-    RadrootsNostrClient, RadrootsNostrEvent, RadrootsNostrEventBuilder, RadrootsNostrPublicKey,
+    RadrootsNostrClient, RadrootsNostrEvent, RadrootsNostrExternalSigningRequest,
+    RadrootsNostrGenericEventBuilder, RadrootsNostrPublicKey,
 };
 use radroots_nostr_accounts::prelude::{
     RadrootsNostrAccountRecord, RadrootsNostrAccountStatus, RadrootsNostrAccountsManager,
@@ -209,15 +210,35 @@ enum MycExternalCommandOperation {
     Nip44Decrypt,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct MycExternalCommandRequest {
+#[derive(Serialize)]
+#[serde(untagged)]
+enum MycExternalCommandUnsignedEvent<'a> {
+    CallerSupplied(&'a nostr::UnsignedEvent),
+    CheckedProtocol(&'a RadrootsNostrExternalSigningRequest),
+}
+
+#[derive(Serialize)]
+struct MycExternalCommandRequest<'a> {
     version: u8,
     operation: MycExternalCommandOperation,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    unsigned_event: Option<nostr::UnsignedEvent>,
+    unsigned_event: Option<MycExternalCommandUnsignedEvent<'a>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     public_key_hex: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    content: Option<String>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Deserialize)]
+struct MycExternalCommandRequestWire {
+    version: u8,
+    operation: MycExternalCommandOperation,
+    #[serde(default)]
+    unsigned_event: Option<nostr::UnsignedEvent>,
+    #[serde(default)]
+    public_key_hex: Option<String>,
+    #[serde(default)]
     content: Option<String>,
 }
 
@@ -308,9 +329,9 @@ impl MycExternalCommandExecutor for MycProcessCommandExecutor {
 trait MycIdentityOperations: Send + Sync {
     fn nostr_client(&self) -> RadrootsNostrClient;
     fn nostr_client_owned(&self) -> RadrootsNostrClient;
-    fn sign_event_builder(
+    fn sign_protocol_event_builder(
         &self,
-        builder: RadrootsNostrEventBuilder,
+        builder: RadrootsNostrGenericEventBuilder,
         operation: &str,
     ) -> Result<RadrootsNostrEvent, MycError>;
     fn sign_unsigned_event(
@@ -361,9 +382,9 @@ impl MycIdentityOperations for MycLoadedIdentityOperations {
         RadrootsNostrClient::from_identity_owned((*self.identity).clone())
     }
 
-    fn sign_event_builder(
+    fn sign_protocol_event_builder(
         &self,
-        builder: RadrootsNostrEventBuilder,
+        builder: RadrootsNostrGenericEventBuilder,
         operation: &str,
     ) -> Result<RadrootsNostrEvent, MycError> {
         builder
@@ -431,7 +452,6 @@ struct MycExternalCommandIdentityOperations {
     role: String,
     command_path: PathBuf,
     timeout: Duration,
-    public_identity: RadrootsIdentityPublic,
     public_key: RadrootsNostrPublicKey,
     executor: Arc<dyn MycExternalCommandExecutor>,
 }
@@ -441,7 +461,6 @@ impl MycExternalCommandIdentityOperations {
         role: String,
         command_path: PathBuf,
         timeout: Duration,
-        public_identity: RadrootsIdentityPublic,
         public_key: RadrootsNostrPublicKey,
         executor: Arc<dyn MycExternalCommandExecutor>,
     ) -> Self {
@@ -449,7 +468,6 @@ impl MycExternalCommandIdentityOperations {
             role,
             command_path,
             timeout,
-            public_identity,
             public_key,
             executor,
         }
@@ -457,7 +475,7 @@ impl MycExternalCommandIdentityOperations {
 
     fn execute(
         &self,
-        request: &MycExternalCommandRequest,
+        request: &MycExternalCommandRequest<'_>,
     ) -> Result<MycExternalCommandResponse, MycError> {
         let request_json = serde_json::to_vec(request)?;
         let output = self
@@ -522,24 +540,16 @@ impl MycIdentityOperations for MycExternalCommandIdentityOperations {
         self.nostr_client()
     }
 
-    fn sign_event_builder(
+    fn sign_protocol_event_builder(
         &self,
-        builder: RadrootsNostrEventBuilder,
+        builder: RadrootsNostrGenericEventBuilder,
         operation: &str,
     ) -> Result<RadrootsNostrEvent, MycError> {
-        let unsigned_event = builder.build(self.public_key);
-        self.sign_unsigned_event(unsigned_event, operation)
-    }
-
-    fn sign_unsigned_event(
-        &self,
-        unsigned_event: nostr::UnsignedEvent,
-        operation: &str,
-    ) -> Result<nostr::Event, MycError> {
+        let request = builder.into_external_signing_request(self.public_key)?;
         let response = self.execute(&MycExternalCommandRequest {
             version: 1,
             operation: MycExternalCommandOperation::SignEvent,
-            unsigned_event: Some(unsigned_event),
+            unsigned_event: Some(MycExternalCommandUnsignedEvent::CheckedProtocol(&request)),
             public_key_hex: None,
             content: None,
         })?;
@@ -548,13 +558,50 @@ impl MycIdentityOperations for MycExternalCommandIdentityOperations {
                 "external signer command did not return a signed event for {operation}"
             ))
         })?;
-        if event.pubkey != self.public_key {
-            return Err(MycError::InvalidOperation(format!(
-                "external signer command returned a signed {operation} event for `{}` instead of `{}`",
-                event.pubkey.to_hex(),
-                self.public_identity.public_key_hex
-            )));
+        request.complete(event).map_err(Into::into)
+    }
+
+    fn sign_unsigned_event(
+        &self,
+        mut unsigned_event: nostr::UnsignedEvent,
+        operation: &str,
+    ) -> Result<nostr::Event, MycError> {
+        if unsigned_event.pubkey != self.public_key || unsigned_event.verify_id().is_err() {
+            return Err(MycError::CustodyExternalCommandUnsignedEventInvalid {
+                role: self.role.clone(),
+                path: self.command_path.clone(),
+                operation: operation.to_owned(),
+            });
         }
+        let expected_event_id = unsigned_event.id();
+        let response = self.execute(&MycExternalCommandRequest {
+            version: 1,
+            operation: MycExternalCommandOperation::SignEvent,
+            unsigned_event: Some(MycExternalCommandUnsignedEvent::CallerSupplied(
+                &unsigned_event,
+            )),
+            public_key_hex: None,
+            content: None,
+        })?;
+        let event = response.event.ok_or_else(|| {
+            MycError::InvalidOperation(format!(
+                "external signer command did not return a signed event for {operation}"
+            ))
+        })?;
+        if event.pubkey != self.public_key || event.id != expected_event_id {
+            return Err(MycError::CustodyExternalCommandSignedEventMismatch {
+                role: self.role.clone(),
+                path: self.command_path.clone(),
+                operation: operation.to_owned(),
+            });
+        }
+        event
+            .verify()
+            .map_err(|_| MycError::CustodyExternalCommandSignedEventInvalid {
+                role: self.role.clone(),
+                path: self.command_path.clone(),
+                operation: operation.to_owned(),
+            })?;
         Ok(event)
     }
 
@@ -824,7 +871,6 @@ impl MycIdentityProvider {
                         self.role.clone(),
                         command_path.clone(),
                         *timeout,
-                        public_identity,
                         public_key,
                         executor.clone(),
                     )),
@@ -1551,12 +1597,13 @@ impl MycActiveIdentity {
         self.operations.nostr_client_owned()
     }
 
-    pub fn sign_event_builder(
+    pub fn sign_protocol_event_builder(
         &self,
-        builder: RadrootsNostrEventBuilder,
+        builder: RadrootsNostrGenericEventBuilder,
         operation: &str,
     ) -> Result<RadrootsNostrEvent, MycError> {
-        self.operations.sign_event_builder(builder, operation)
+        self.operations
+            .sign_protocol_event_builder(builder, operation)
     }
 
     pub fn sign_unsigned_event(
@@ -1724,7 +1771,7 @@ mod tests {
     #[derive(Debug)]
     struct FakeExternalCommandExecutor {
         identity: RadrootsIdentity,
-        requests: Mutex<Vec<MycExternalCommandRequest>>,
+        requests: Mutex<Vec<MycExternalCommandRequestWire>>,
     }
 
     impl FakeExternalCommandExecutor {
@@ -1743,8 +1790,9 @@ mod tests {
             request_json: &[u8],
             _timeout: Duration,
         ) -> Result<MycExternalCommandOutput, MycExternalCommandExecuteError> {
-            let request: MycExternalCommandRequest =
+            let request: MycExternalCommandRequestWire =
                 serde_json::from_slice(request_json).expect("request");
+            assert_eq!(request.version, 1);
             self.requests
                 .lock()
                 .expect("requests lock")
@@ -2134,8 +2182,11 @@ mod tests {
         )
         .expect("peer identity");
         let signed_event = active
-            .sign_event_builder(
-                RadrootsNostrEventBuilder::text_note("hello from external command"),
+            .sign_protocol_event_builder(
+                RadrootsNostrGenericEventBuilder::new(
+                    nostr::Kind::Custom(24_133),
+                    "hello from external command",
+                ),
                 "test event",
             )
             .expect("signed event");
@@ -2186,6 +2237,188 @@ mod tests {
         assert!(operations.contains(&MycExternalCommandOperation::SignEvent));
         assert!(operations.contains(&MycExternalCommandOperation::Nip04Encrypt));
         assert!(operations.contains(&MycExternalCommandOperation::Nip44Encrypt));
+
+        let requests = executor.requests.lock().expect("requests lock");
+        let signing_request = requests
+            .iter()
+            .find(|request| request.operation == MycExternalCommandOperation::SignEvent)
+            .and_then(|request| request.unsigned_event.as_ref())
+            .expect("serialized unsigned event");
+        assert!(signing_request.id.is_some());
+        signing_request.verify_id().expect("canonical event id");
+        assert_eq!(signing_request.kind, nostr::Kind::Custom(24_133));
+    }
+
+    #[derive(Debug)]
+    struct StaticSigningResponseExecutor {
+        event: RadrootsNostrEvent,
+    }
+
+    impl MycExternalCommandExecutor for StaticSigningResponseExecutor {
+        fn execute(
+            &self,
+            _command_path: &Path,
+            request_json: &[u8],
+            _timeout: Duration,
+        ) -> Result<MycExternalCommandOutput, MycExternalCommandExecuteError> {
+            let request: MycExternalCommandRequestWire =
+                serde_json::from_slice(request_json).expect("request");
+            assert_eq!(request.version, 1);
+            assert_eq!(request.operation, MycExternalCommandOperation::SignEvent);
+            assert!(request.unsigned_event.is_some());
+            Ok(MycExternalCommandOutput {
+                success: true,
+                status: Some(0),
+                stdout: serde_json::to_vec(&MycExternalCommandResponse {
+                    identity: None,
+                    event: Some(self.event.clone()),
+                    content: None,
+                    error: None,
+                })
+                .expect("response"),
+                stderr: Vec::new(),
+            })
+        }
+    }
+
+    fn external_operations_with_event(
+        identity: &RadrootsIdentity,
+        event: RadrootsNostrEvent,
+    ) -> MycExternalCommandIdentityOperations {
+        MycExternalCommandIdentityOperations::new(
+            "user".to_owned(),
+            PathBuf::from("/tmp/user-helper"),
+            Duration::from_secs(10),
+            identity.public_key(),
+            Arc::new(StaticSigningResponseExecutor { event }),
+        )
+    }
+
+    fn caller_unsigned_event(identity: &RadrootsIdentity, content: &str) -> nostr::UnsignedEvent {
+        nostr::UnsignedEvent::new(
+            identity.public_key(),
+            nostr::Timestamp::from_secs(1_234),
+            nostr::Kind::Custom(30_001),
+            [],
+            content,
+        )
+    }
+
+    #[test]
+    fn external_command_rejects_invalid_caller_unsigned_events_before_execution() {
+        let identity = RadrootsIdentity::from_secret_key_str(
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        )
+        .expect("identity");
+        let valid_event = caller_unsigned_event(&identity, "valid")
+            .sign_with_keys(identity.keys())
+            .expect("event");
+        let operations = external_operations_with_event(&identity, valid_event);
+
+        let other_identity = RadrootsIdentity::from_secret_key_str(
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        )
+        .expect("other identity");
+        let wrong_author = caller_unsigned_event(&other_identity, "wrong author");
+        assert!(matches!(
+            operations.sign_unsigned_event(wrong_author, "caller event"),
+            Err(MycError::CustodyExternalCommandUnsignedEventInvalid { .. })
+        ));
+
+        let mut invalid_id = caller_unsigned_event(&identity, "invalid id");
+        invalid_id.id = Some(nostr::EventId::all_zeros());
+        assert!(matches!(
+            operations.sign_unsigned_event(invalid_id, "caller event"),
+            Err(MycError::CustodyExternalCommandUnsignedEventInvalid { .. })
+        ));
+    }
+
+    #[test]
+    fn external_command_accepts_only_the_exact_valid_caller_event() {
+        let identity = RadrootsIdentity::from_secret_key_str(
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        )
+        .expect("identity");
+        let unsigned_event = caller_unsigned_event(&identity, "expected");
+        let valid_event = unsigned_event
+            .clone()
+            .sign_with_keys(identity.keys())
+            .expect("event");
+        let accepted = external_operations_with_event(&identity, valid_event.clone())
+            .sign_unsigned_event(unsigned_event.clone(), "caller event")
+            .expect("accepted event");
+        assert_eq!(accepted, valid_event);
+
+        let wrong_event = caller_unsigned_event(&identity, "different")
+            .sign_with_keys(identity.keys())
+            .expect("different event");
+        assert!(matches!(
+            external_operations_with_event(&identity, wrong_event)
+                .sign_unsigned_event(unsigned_event.clone(), "caller event"),
+            Err(MycError::CustodyExternalCommandSignedEventMismatch { .. })
+        ));
+
+        let other_identity = RadrootsIdentity::from_secret_key_str(
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        )
+        .expect("other identity");
+        let wrong_author = caller_unsigned_event(&other_identity, "expected")
+            .sign_with_keys(other_identity.keys())
+            .expect("wrong author event");
+        assert!(matches!(
+            external_operations_with_event(&identity, wrong_author)
+                .sign_unsigned_event(unsigned_event.clone(), "caller event"),
+            Err(MycError::CustodyExternalCommandSignedEventMismatch { .. })
+        ));
+
+        let mut tampered_content = valid_event.clone();
+        tampered_content.content.push_str(" tampered");
+        assert!(matches!(
+            external_operations_with_event(&identity, tampered_content)
+                .sign_unsigned_event(unsigned_event.clone(), "caller event"),
+            Err(MycError::CustodyExternalCommandSignedEventInvalid { .. })
+        ));
+
+        let mut invalid_signature = valid_event;
+        invalid_signature.sig = caller_unsigned_event(&identity, "signature source")
+            .sign_with_keys(identity.keys())
+            .expect("signature source")
+            .sig;
+        assert!(matches!(
+            external_operations_with_event(&identity, invalid_signature)
+                .sign_unsigned_event(unsigned_event, "caller event"),
+            Err(MycError::CustodyExternalCommandSignedEventInvalid { .. })
+        ));
+    }
+
+    #[test]
+    fn external_command_protocol_signing_uses_checked_library_completion() {
+        let identity = RadrootsIdentity::from_secret_key_str(
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        )
+        .expect("identity");
+        let wrong_event = RadrootsNostrGenericEventBuilder::new(
+            nostr::Kind::Custom(24_133),
+            "different response",
+        )
+        .sign_with_keys(identity.keys())
+        .expect("different event");
+        let error = external_operations_with_event(&identity, wrong_event)
+            .sign_protocol_event_builder(
+                RadrootsNostrGenericEventBuilder::new(
+                    nostr::Kind::Custom(24_133),
+                    "expected response",
+                ),
+                "protocol response",
+            )
+            .expect_err("different event");
+
+        assert!(matches!(
+            error,
+            MycError::Nostr(
+                radroots_nostr::prelude::RadrootsNostrError::ExternalSigningEventIdMismatch { .. }
+            )
+        ));
     }
 
     #[tokio::test]
@@ -2258,15 +2491,14 @@ mod tests {
                 "signer".to_owned(),
                 PathBuf::from("/tmp/signer-helper"),
                 Duration::from_secs(11),
-                public_identity,
                 public_key,
                 Arc::new(TimeoutExternalCommandExecutor),
             )),
         );
 
         let err = active
-            .sign_event_builder(
-                RadrootsNostrEventBuilder::text_note("timeout"),
+            .sign_protocol_event_builder(
+                RadrootsNostrGenericEventBuilder::new(nostr::Kind::Custom(24_133), "timeout"),
                 "timeout event",
             )
             .expect_err("timeout");

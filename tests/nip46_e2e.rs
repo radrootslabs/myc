@@ -28,7 +28,7 @@ use nostr::{
 };
 use radroots_identity::RadrootsIdentity;
 use radroots_nostr::prelude::{
-    RadrootsNostrApplicationHandlerSpec, RadrootsNostrClient, RadrootsNostrEventBuilder,
+    RadrootsNostrApplicationHandlerSpec, RadrootsNostrClient, RadrootsNostrGenericEventBuilder,
     RadrootsNostrKind, RadrootsNostrMetadata, RadrootsNostrRelayUrl, RadrootsNostrTag,
     radroots_nostr_build_application_handler_event,
 };
@@ -645,8 +645,8 @@ fn build_external_request_event(
 
 fn build_signer_noise_event(signer_identity: &MycActiveIdentity, created_at_unix: u64) -> Event {
     signer_identity
-        .sign_event_builder(
-            RadrootsNostrEventBuilder::new(
+        .sign_protocol_event_builder(
+            RadrootsNostrGenericEventBuilder::new(
                 RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
                 "non-nip44-signer-noise",
             )
@@ -2109,8 +2109,8 @@ async fn published_logout_acknowledgement_is_finalized_without_republish_on_rest
     )?;
     let acknowledgement_event = runtime
         .signer_identity()
-        .sign_event_builder(
-            RadrootsNostrEventBuilder::new(
+        .sign_protocol_event_builder(
+            RadrootsNostrGenericEventBuilder::new(
                 RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
                 "published logout acknowledgement fixture",
             ),
@@ -2418,8 +2418,8 @@ async fn external_nostr_client_recovers_connect_response_after_restart() -> Test
         response_payload,
         Version::V2,
     )?;
-    let response_event = runtime.signer_identity().sign_event_builder(
-        RadrootsNostrEventBuilder::new(
+    let response_event = runtime.signer_identity().sign_protocol_event_builder(
+        RadrootsNostrGenericEventBuilder::new(
             RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
             response_ciphertext,
         )
@@ -2536,8 +2536,8 @@ async fn startup_recovery_republishes_queued_listener_connect_secret_job() -> Te
     let workflow = manager.begin_connect_secret_publish_finalization(&connection.connection_id)?;
     let event = runtime
         .signer_identity()
-        .sign_event_builder(
-            RadrootsNostrEventBuilder::new(
+        .sign_protocol_event_builder(
+            RadrootsNostrGenericEventBuilder::new(
                 RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
                 "startup-recovery",
             ),
@@ -2635,8 +2635,8 @@ async fn startup_recovery_republishes_queued_connect_accept_job() -> TestResult<
     let workflow = manager.begin_connect_secret_publish_finalization(&connection.connection_id)?;
     let event = runtime
         .signer_identity()
-        .sign_event_builder(
-            RadrootsNostrEventBuilder::new(
+        .sign_protocol_event_builder(
+            RadrootsNostrGenericEventBuilder::new(
                 RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
                 "startup-recovery-connect-accept",
             ),
@@ -2740,8 +2740,8 @@ async fn startup_recovery_republishes_queued_auth_replay_job() -> TestResult<()>
     let workflow = manager.begin_auth_replay_publish_finalization(&connection.connection_id)?;
     let event = runtime
         .signer_identity()
-        .sign_event_builder(
-            RadrootsNostrEventBuilder::new(
+        .sign_protocol_event_builder(
+            RadrootsNostrGenericEventBuilder::new(
                 RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
                 "startup-recovery-auth-replay",
             ),

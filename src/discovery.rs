@@ -455,7 +455,7 @@ impl MycDiscoveryContext {
     pub fn build_signed_handler_event(&self) -> Result<RadrootsNostrEvent, MycError> {
         let builder = radroots_nostr_build_application_handler_event(&self.build_handler_spec())?;
         self.app_identity
-            .sign_event_builder(builder, "NIP-89 application handler")
+            .sign_protocol_event_builder(builder, "NIP-89 application handler")
     }
 
     pub fn write_bundle(
