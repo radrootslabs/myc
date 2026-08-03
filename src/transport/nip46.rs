@@ -2,20 +2,20 @@ use std::collections::{HashSet, VecDeque};
 use std::future::Future;
 use std::sync::Arc;
 
-use radroots_nostr::prelude::{
+use crate::nostr_contract::{
     RadrootsNostrEvent, RadrootsNostrFilter, RadrootsNostrKind, RadrootsNostrPublicKey,
     RadrootsNostrRelayPoolNotification, RadrootsNostrRelayUrl,
 };
-use radroots_nostr_connect::prelude::{
-    RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectRequestMessage,
-    RadrootsNostrConnectResponse,
-};
-use radroots_nostr_signer::prelude::{
+use crate::signer::prelude::{
     RadrootsNostrSignerConnectionId, RadrootsNostrSignerConnectionStatus,
     RadrootsNostrSignerHandledRequest, RadrootsNostrSignerHandledRequestOutcome,
     RadrootsNostrSignerNip46Handler, RadrootsNostrSignerNip46Signer,
     RadrootsNostrSignerRequestDecision, RadrootsNostrSignerRequestEvaluation,
     RadrootsNostrSignerRequestId, RadrootsNostrSignerSessionLookup, RadrootsNostrSignerWorkflowId,
+};
+use radroots_nostr_connect::prelude::{
+    RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectRequestMessage,
+    RadrootsNostrConnectResponse,
 };
 use tokio::sync::broadcast;
 
@@ -91,12 +91,12 @@ impl RadrootsNostrSignerNip46Signer for MycNip46Signer {
         &self,
         client_public_key: &RadrootsNostrPublicKey,
         ciphertext: &str,
-    ) -> Result<String, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+    ) -> Result<String, crate::signer::prelude::RadrootsNostrSignerError> {
         self.signer
             .signer_identity()
             .nip44_decrypt(client_public_key, ciphertext)
             .map_err(|error| {
-                radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
+                crate::signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
             })
     }
 
@@ -104,28 +104,28 @@ impl RadrootsNostrSignerNip46Signer for MycNip46Signer {
         &self,
         client_public_key: &RadrootsNostrPublicKey,
         payload: &str,
-    ) -> Result<String, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+    ) -> Result<String, crate::signer::prelude::RadrootsNostrSignerError> {
         self.signer
             .signer_identity()
             .nip44_encrypt(client_public_key, payload.to_owned())
             .map_err(|error| {
-                radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
+                crate::signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
             })
     }
 
-    fn user_identity(&self) -> radroots_identity::RadrootsIdentityPublic {
+    fn user_identity(&self) -> crate::host_identity::RadrootsIdentityPublic {
         self.signer.user_public_identity()
     }
 
     fn sign_user_event(
         &self,
         unsigned_event: nostr::UnsignedEvent,
-    ) -> Result<RadrootsNostrEvent, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+    ) -> Result<RadrootsNostrEvent, crate::signer::prelude::RadrootsNostrSignerError> {
         self.signer
             .user_identity()
             .sign_unsigned_event(unsigned_event, "managed user sign_event")
             .map_err(|error| {
-                radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
+                crate::signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
             })
     }
 
@@ -133,12 +133,12 @@ impl RadrootsNostrSignerNip46Signer for MycNip46Signer {
         &self,
         public_key: &RadrootsNostrPublicKey,
         plaintext: &str,
-    ) -> Result<String, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+    ) -> Result<String, crate::signer::prelude::RadrootsNostrSignerError> {
         self.signer
             .user_identity()
             .nip04_encrypt(public_key, plaintext.to_owned())
             .map_err(|error| {
-                radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
+                crate::signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
             })
     }
 
@@ -146,12 +146,12 @@ impl RadrootsNostrSignerNip46Signer for MycNip46Signer {
         &self,
         public_key: &RadrootsNostrPublicKey,
         ciphertext: &str,
-    ) -> Result<String, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+    ) -> Result<String, crate::signer::prelude::RadrootsNostrSignerError> {
         self.signer
             .user_identity()
             .nip04_decrypt(public_key, ciphertext)
             .map_err(|error| {
-                radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
+                crate::signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
             })
     }
 
@@ -159,12 +159,12 @@ impl RadrootsNostrSignerNip46Signer for MycNip46Signer {
         &self,
         public_key: &RadrootsNostrPublicKey,
         plaintext: &str,
-    ) -> Result<String, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+    ) -> Result<String, crate::signer::prelude::RadrootsNostrSignerError> {
         self.signer
             .user_identity()
             .nip44_encrypt(public_key, plaintext.to_owned())
             .map_err(|error| {
-                radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
+                crate::signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
             })
     }
 
@@ -172,12 +172,12 @@ impl RadrootsNostrSignerNip46Signer for MycNip46Signer {
         &self,
         public_key: &RadrootsNostrPublicKey,
         ciphertext: &str,
-    ) -> Result<String, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+    ) -> Result<String, crate::signer::prelude::RadrootsNostrSignerError> {
         self.signer
             .user_identity()
             .nip44_decrypt(public_key, ciphertext)
             .map_err(|error| {
-                radroots_nostr_signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
+                crate::signer::prelude::RadrootsNostrSignerError::Sign(error.to_string())
             })
     }
 }
@@ -233,7 +233,7 @@ impl MycNip46Handler {
         client_public_key: RadrootsNostrPublicKey,
         request_id: impl Into<String>,
         response: RadrootsNostrConnectResponse,
-    ) -> Result<radroots_nostr::prelude::RadrootsNostrGenericEventBuilder, MycError> {
+    ) -> Result<crate::nostr_contract::RadrootsNostrGenericEventBuilder, MycError> {
         self.handler
             .build_response_event(client_public_key, request_id, response)
             .map_err(Into::into)
@@ -833,20 +833,21 @@ impl MycNip46Service {
 
 #[cfg(test)]
 mod tests {
+    use crate::nostr_contract::{RadrootsNostrTag, radroots_nostr_kind};
+    use crate::signer::prelude::{
+        RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerConnectionStatus,
+        RadrootsNostrSignerHandledRequest,
+    };
     use nostr::nips::nip04;
     use nostr::nips::nip44;
     use nostr::nips::nip44::Version;
-    use nostr::{EventBuilder, Keys, PublicKey, SecretKey, Timestamp, UnsignedEvent};
-    use radroots_nostr::prelude::{RadrootsNostrTag, radroots_nostr_kind};
+    use nostr::{EventBuilder, Keys, PublicKey, SecretKey, Timestamp};
+    use radroots_nostr_connect::message::UnsignedEvent;
     use radroots_nostr_connect::prelude::{
         RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectMethod,
         RadrootsNostrConnectPermission, RadrootsNostrConnectRequest,
         RadrootsNostrConnectRequestMessage, RadrootsNostrConnectResponse,
         RadrootsNostrConnectResponseEnvelope,
-    };
-    use radroots_nostr_signer::prelude::{
-        RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerConnectionStatus,
-        RadrootsNostrSignerHandledRequest,
     };
     use serde_json::json;
 
@@ -856,8 +857,8 @@ mod tests {
     use super::MycNip46Handler;
 
     fn write_identity(path: &std::path::Path, secret_key: &str) {
-        let identity =
-            radroots_identity::RadrootsIdentity::from_secret_key_str(secret_key).expect("identity");
+        let identity = crate::host_identity::RadrootsIdentity::from_secret_key_str(secret_key)
+            .expect("identity");
         crate::identity_files::store_encrypted_identity(path, &identity).expect("save identity");
     }
 
@@ -956,13 +957,16 @@ mod tests {
     }
 
     fn unsigned_event(pubkey: PublicKey, kind: u16, content: &str) -> UnsignedEvent {
-        serde_json::from_value(json!({
-            "pubkey": pubkey.to_hex(),
-            "created_at": Timestamp::from(1).as_secs(),
-            "kind": kind,
-            "tags": [],
-            "content": content
-        }))
+        UnsignedEvent::from_json(
+            &json!({
+                "pubkey": pubkey.to_hex(),
+                "created_at": Timestamp::from(1).as_secs(),
+                "kind": kind,
+                "tags": [],
+                "content": content
+            })
+            .to_string(),
+        )
         .expect("unsigned event")
     }
 
@@ -977,7 +981,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: None,
                         requested_permissions: requested_permissions.into(),
                         client_metadata: None,
@@ -1055,7 +1062,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: Some("s3cr3t".to_owned()),
                         requested_permissions: Default::default(),
                         client_metadata: None,
@@ -1097,7 +1107,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: None,
                         requested_permissions: Default::default(),
                         client_metadata: None,
@@ -1134,7 +1147,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect-1",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: Some("s3cr3t".to_owned()),
                         requested_permissions: Default::default(),
                         client_metadata: None,
@@ -1148,7 +1164,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect-2",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: Some("s3cr3t".to_owned()),
                         requested_permissions: Default::default(),
                         client_metadata: None,
@@ -1174,7 +1193,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: Some("s3cr3t".to_owned()),
                         requested_permissions: Default::default(),
                         client_metadata: None,
@@ -1207,7 +1229,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect-reused",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: Some("s3cr3t".to_owned()),
                         requested_permissions: Default::default(),
                         client_metadata: None,
@@ -1243,7 +1268,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect-1",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: None,
                         requested_permissions: Default::default(),
                         client_metadata: None,
@@ -1259,7 +1287,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect-2",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: None,
                         requested_permissions: Default::default(),
                         client_metadata: None,
@@ -1288,7 +1319,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect-3",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: None,
                         requested_permissions: Default::default(),
                         client_metadata: None,
@@ -1310,7 +1344,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: None,
                         requested_permissions: vec![sign_event_permission(1)].into(),
                         client_metadata: None,
@@ -1330,11 +1367,11 @@ mod tests {
             .expect("connection");
         assert_eq!(
             connection.status,
-            radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionStatus::Pending
+            crate::signer::prelude::RadrootsNostrSignerConnectionStatus::Pending
         );
         assert_eq!(
             connection.approval_state,
-            radroots_nostr_signer::prelude::RadrootsNostrSignerApprovalState::Pending
+            crate::signer::prelude::RadrootsNostrSignerApprovalState::Pending
         );
         assert!(connection.granted_permissions().as_slice().is_empty());
     }
@@ -1405,7 +1442,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: None,
                         requested_permissions: vec![
                             RadrootsNostrConnectPermission::new(
@@ -1427,11 +1467,11 @@ mod tests {
         let connection = connection_for(&runtime, trusted_client_keys.public_key());
         assert_eq!(
             connection.granted_permissions().to_string(),
-            "sign_event:kind:1,nip04_encrypt"
+            "nip04_encrypt,sign_event:kind:1"
         );
         assert_eq!(
             connection.requested_permissions.to_string(),
-            "sign_event:kind:1,nip04_encrypt"
+            "nip04_encrypt,sign_event:kind:1"
         );
     }
 
@@ -1455,7 +1495,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: None,
                         requested_permissions: vec![sign_event_permission(1)].into(),
                         client_metadata: None,
@@ -1548,7 +1591,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: None,
                         requested_permissions: vec![sign_event_permission(1)].into(),
                         client_metadata: None,
@@ -1625,7 +1671,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: None,
                         requested_permissions: vec![sign_event_permission(1)].into(),
                         client_metadata: None,
@@ -1684,7 +1733,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: None,
                         requested_permissions: vec![RadrootsNostrConnectPermission::new(
                             RadrootsNostrConnectMethod::SwitchRelays,
@@ -1707,7 +1759,9 @@ mod tests {
             .expect("get public key");
         assert_eq!(
             public_key,
-            RadrootsNostrConnectResponse::UserPublicKey(runtime.user_identity().public_key())
+            RadrootsNostrConnectResponse::UserPublicKey(
+                runtime.user_identity().public_identity().public_key()
+            )
         );
 
         let pong = handler
@@ -1733,7 +1787,15 @@ mod tests {
         assert_eq!(
             relays,
             RadrootsNostrConnectResponse::RelayList(
-                runtime.transport().expect("transport").relays().to_vec()
+                runtime
+                    .transport()
+                    .expect("transport")
+                    .relays()
+                    .iter()
+                    .map(|relay| {
+                        radroots_nostr_connect::uri::RelayUrl::parse(relay.as_str()).expect("relay")
+                    })
+                    .collect()
             )
         );
 
@@ -1750,8 +1812,17 @@ mod tests {
             capability,
             RadrootsNostrConnectResponse::RemoteSessionCapability(
                 radroots_nostr_connect::prelude::RadrootsNostrConnectRemoteSessionCapability {
-                    user_public_key: runtime.user_identity().public_key(),
-                    relays: runtime.transport().expect("transport").relays().to_vec(),
+                    user_public_key: runtime.user_identity().public_identity().public_key(),
+                    relays: runtime
+                        .transport()
+                        .expect("transport")
+                        .relays()
+                        .iter()
+                        .map(|relay| {
+                            radroots_nostr_connect::uri::RelayUrl::parse(relay.as_str())
+                                .expect("relay")
+                        })
+                        .collect(),
                     permissions: vec![RadrootsNostrConnectPermission::new(
                         RadrootsNostrConnectMethod::SwitchRelays,
                     )]
@@ -1771,7 +1842,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-connect",
                     RadrootsNostrConnectRequest::Connect {
-                        remote_signer_public_key: runtime.signer_identity().public_key(),
+                        remote_signer_public_key: runtime
+                            .signer_identity()
+                            .public_identity()
+                            .public_key(),
                         secret: None,
                         requested_permissions: vec![sign_event_permission(1)].into(),
                         client_metadata: None,
@@ -1817,6 +1891,7 @@ mod tests {
         let RadrootsNostrConnectResponse::SignedEvent(event) = response else {
             panic!("unexpected sign_event response");
         };
+        let event: nostr::Event = serde_json::from_str(&event.as_json()).expect("signed event");
         assert_eq!(event.pubkey, runtime.user_identity().public_key());
         assert_eq!(event.kind.as_u16(), 1);
         assert_eq!(event.content, "hello world");
@@ -1900,7 +1975,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-nip04-encrypt",
                     RadrootsNostrConnectRequest::Nip04Encrypt {
-                        public_key: client_keys().public_key(),
+                        public_key: radroots_nostr::key::public_key_from_nostr(
+                            client_keys().public_key(),
+                        )
+                        .expect("identity public key"),
                         plaintext: "hello from myc".to_owned(),
                     },
                 ),
@@ -1931,7 +2009,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-nip04-decrypt",
                     RadrootsNostrConnectRequest::Nip04Decrypt {
-                        public_key: client_keys().public_key(),
+                        public_key: radroots_nostr::key::public_key_from_nostr(
+                            client_keys().public_key(),
+                        )
+                        .expect("identity public key"),
                         ciphertext: client_ciphertext,
                     },
                 ),
@@ -1962,7 +2043,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-nip44-encrypt",
                     RadrootsNostrConnectRequest::Nip44Encrypt {
-                        public_key: client_keys().public_key(),
+                        public_key: radroots_nostr::key::public_key_from_nostr(
+                            client_keys().public_key(),
+                        )
+                        .expect("identity public key"),
                         plaintext: "hello from myc".to_owned(),
                     },
                 ),
@@ -1994,7 +2078,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-nip44-decrypt",
                     RadrootsNostrConnectRequest::Nip44Decrypt {
-                        public_key: client_keys().public_key(),
+                        public_key: radroots_nostr::key::public_key_from_nostr(
+                            client_keys().public_key(),
+                        )
+                        .expect("identity public key"),
                         ciphertext: client_ciphertext,
                     },
                 ),
@@ -2024,7 +2111,10 @@ mod tests {
                 RadrootsNostrConnectRequestMessage::new(
                     "req-nip04-decrypt",
                     RadrootsNostrConnectRequest::Nip04Decrypt {
-                        public_key: client_keys().public_key(),
+                        public_key: radroots_nostr::key::public_key_from_nostr(
+                            client_keys().public_key(),
+                        )
+                        .expect("identity public key"),
                         ciphertext: "invalid".to_owned(),
                     },
                 ),

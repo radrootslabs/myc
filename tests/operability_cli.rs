@@ -2,13 +2,13 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+use myc::host_identity::RadrootsIdentity;
+use myc::nostr_contract::{RadrootsNostrGenericEventBuilder, RadrootsNostrKind};
 use myc::{
     MYC_SIGNER_STATUS_CONTRACT_VERSION, MycActiveIdentity, MycDeliveryOutboxKind,
     MycDeliveryOutboxRecord, MycOperationAuditKind, MycOperationAuditOutcome,
     MycOperationAuditRecord, MycRuntime,
 };
-use radroots_identity::RadrootsIdentity;
-use radroots_nostr::prelude::{RadrootsNostrGenericEventBuilder, RadrootsNostrKind};
 use serde_json::{Value, json};
 
 fn write_test_identity(path: &Path, secret_key: &str) {

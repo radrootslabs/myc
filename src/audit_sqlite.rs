@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionId;
-use radroots_sql_core::migrations::{Migration, migrations_run_all_up};
-use radroots_sql_core::{SqlExecutor, SqlxSqliteExecutor};
+use crate::signer::prelude::RadrootsNostrSignerConnectionId;
+use crate::sql::migrations::{Migration, migrations_run_all_up};
+use crate::sql::{SqlExecutor, SqlxSqliteExecutor};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -321,7 +321,7 @@ impl MycOperationAuditSqliteDb {
 
     #[cfg(test)]
     fn migrate_down(&self) -> Result<(), MycError> {
-        use radroots_sql_core::migrations::migrations_run_all_down;
+        use crate::sql::migrations::migrations_run_all_down;
 
         migrations_run_all_down(&self.executor, MYC_OPERATION_AUDIT_MIGRATIONS).map_err(|source| {
             MycError::AuditSql {
@@ -547,8 +547,8 @@ fn parse_delivery_policy(value: &str) -> Result<MycTransportDeliveryPolicy, MycE
 
 #[cfg(test)]
 mod tests {
-    use radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionId;
-    use radroots_sql_core::SqlExecutor;
+    use crate::signer::prelude::RadrootsNostrSignerConnectionId;
+    use crate::sql::SqlExecutor;
     use serde_json::Value;
 
     use crate::audit::{

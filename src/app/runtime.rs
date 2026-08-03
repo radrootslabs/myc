@@ -18,6 +18,7 @@ use crate::config::{
 use crate::custody::{MycActiveIdentity, MycIdentityProvider};
 use crate::discovery::MycDiscoveryContext;
 use crate::error::MycError;
+use crate::host_identity::RadrootsIdentityPublic;
 use crate::operability::{
     MycDeliveryOutboxStatusOutput, MycLiveMetricsHandle, MycLiveMetricsState, MycMetricsSnapshot,
     server::run_observability_server,
@@ -27,16 +28,15 @@ use crate::outbox::{
 };
 use crate::outbox_sqlite::MycSqliteDeliveryOutboxStore;
 use crate::policy::MycPolicyContext;
-use crate::transport::{
-    MycNip46Service, MycNostrTransport, MycPublishOutcome, MycTransportSnapshot,
-};
-use radroots_identity::RadrootsIdentityPublic;
-use radroots_nostr_signer::prelude::{
+use crate::signer::prelude::{
     RadrootsNostrFileSignerStore, RadrootsNostrSignerApprovalRequirement,
     RadrootsNostrSignerAuthState, RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerManager,
     RadrootsNostrSignerPublishWorkflowKind, RadrootsNostrSignerPublishWorkflowRecord,
     RadrootsNostrSignerPublishWorkflowState, RadrootsNostrSignerRequestAuditRecord,
     RadrootsNostrSignerStore, RadrootsNostrSqliteSignerStore,
+};
+use crate::transport::{
+    MycNip46Service, MycNostrTransport, MycPublishOutcome, MycTransportSnapshot,
 };
 use serde::Serialize;
 
@@ -1309,14 +1309,14 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    use nostr::PublicKey;
-    use radroots_identity::RadrootsIdentity;
-    use radroots_nostr::prelude::{RadrootsNostrGenericEventBuilder, RadrootsNostrKind};
-    use radroots_nostr_signer::prelude::{
+    use crate::host_identity::RadrootsIdentity;
+    use crate::nostr_contract::{RadrootsNostrGenericEventBuilder, RadrootsNostrKind};
+    use crate::signer::prelude::{
         RadrootsNostrFileSignerStore, RadrootsNostrSignerApprovalRequirement,
         RadrootsNostrSignerAuthState, RadrootsNostrSignerConnectionDraft,
         RadrootsNostrSignerManager, RadrootsNostrSqliteSignerStore,
     };
+    use nostr::PublicKey;
 
     use super::{MycRuntime, startup_identity_path};
     use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};

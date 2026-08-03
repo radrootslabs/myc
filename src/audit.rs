@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionId;
+use crate::signer::prelude::RadrootsNostrSignerConnectionId;
 use serde::{Deserialize, Serialize};
 
 use crate::config::MycAuditConfig;
@@ -816,7 +816,7 @@ fn now_unix_secs() -> u64 {
 mod tests {
     use std::fs;
 
-    use radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionId;
+    use crate::signer::prelude::RadrootsNostrSignerConnectionId;
 
     use crate::config::MycAuditConfig;
 

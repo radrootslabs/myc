@@ -7,14 +7,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use nostr::filter::MatchEventOptions;
-use nostr::{ClientMessage, Event, Filter, JsonUtil, PublicKey, RelayMessage, SubscriptionId};
-use radroots_identity::RadrootsIdentity;
-use radroots_nostr::prelude::{
+use myc::host_identity::RadrootsIdentity;
+use myc::nostr_contract::{
     RadrootsNostrApplicationHandlerSpec, RadrootsNostrClient, RadrootsNostrMetadata,
     radroots_nostr_build_application_handler_event,
 };
-use radroots_nostr_connect::prelude::{RadrootsNostrConnectBunkerUri, RadrootsNostrConnectUri};
+use nostr::filter::MatchEventOptions;
+use nostr::{ClientMessage, Event, Filter, JsonUtil, PublicKey, RelayMessage, SubscriptionId};
+use radroots_nostr_connect::prelude::RadrootsNostrConnectUri;
 use serde_json::Value;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
@@ -626,19 +626,19 @@ async fn conflicted_refresh_requires_force_through_the_cli() -> TestResult<()> {
         &[relay.url()],
     );
 
-    let mut first_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133]);
-    first_spec.identifier = Some("myc".to_owned());
-    first_spec.relays = vec!["wss://relay-a.example.com".to_owned()];
+    let first_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133])
+        .with_identifier("myc".to_owned())
+        .with_relays(vec!["wss://relay-a.example.com".to_owned()]);
     publish_handler_event(relay.url(), &app_identity, &first_spec).await?;
 
-    let mut second_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133]);
-    second_spec.identifier = Some("myc".to_owned());
-    second_spec.relays = vec!["wss://relay-b.example.com".to_owned()];
+    let mut second_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133])
+        .with_identifier("myc".to_owned())
+        .with_relays(vec!["wss://relay-b.example.com".to_owned()]);
     let metadata = RadrootsNostrMetadata {
         name: Some("conflict".to_owned()),
         ..RadrootsNostrMetadata::default()
     };
-    second_spec.metadata = Some(metadata);
+    second_spec = second_spec.with_metadata(metadata);
     publish_handler_event(relay.url(), &app_identity, &second_spec).await?;
 
     relay
@@ -1163,21 +1163,21 @@ async fn discovery_diff_surfaces_relay_provenance_through_the_cli() -> TestResul
         &[relay_a.url(), relay_b.url()],
     );
 
-    let mut matched_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133]);
-    matched_spec.identifier = Some("myc".to_owned());
-    matched_spec.relays = vec![relay_a.url().to_owned(), relay_b.url().to_owned()];
-    let bunker_uri = RadrootsNostrConnectUri::Bunker(RadrootsNostrConnectBunkerUri {
-        remote_signer_public_key: signer_identity.public_key(),
-        relays: vec![
-            relay_a.url().parse().expect("relay a url"),
-            relay_b.url().parse().expect("relay b url"),
-        ],
-        secret: None,
-    })
+    let mut matched_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133])
+        .with_identifier("myc".to_owned())
+        .with_relays(vec![relay_a.url().to_owned(), relay_b.url().to_owned()]);
+    let mut bunker_query = url::form_urlencoded::Serializer::new(String::new());
+    bunker_query.append_pair("relay", relay_a.url());
+    bunker_query.append_pair("relay", relay_b.url());
+    let bunker_uri = RadrootsNostrConnectUri::parse(&format!(
+        "bunker://{}?{}",
+        signer_identity.final_public_key(),
+        bunker_query.finish()
+    ))?
     .to_string();
     let encoded_bunker_uri: String =
         url::form_urlencoded::byte_serialize(bunker_uri.as_bytes()).collect();
-    matched_spec.nostrconnect_url = Some(format!(
+    matched_spec = matched_spec.with_nostr_connect_url(format!(
         "https://signer.example.com/connect?uri={encoded_bunker_uri}"
     ));
     let matched_metadata = RadrootsNostrMetadata {
@@ -1188,17 +1188,17 @@ async fn discovery_diff_surfaces_relay_provenance_through_the_cli() -> TestResul
         picture: Some("https://signer.example.com/logo.png".to_owned()),
         ..RadrootsNostrMetadata::default()
     };
-    matched_spec.metadata = Some(matched_metadata);
+    matched_spec = matched_spec.with_metadata(matched_metadata);
     publish_handler_event(relay_a.url(), &app_identity, &matched_spec).await?;
 
-    let mut drifted_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133]);
-    drifted_spec.identifier = Some("myc".to_owned());
-    drifted_spec.relays = vec!["wss://stale.example.com".to_owned()];
+    let mut drifted_spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133])
+        .with_identifier("myc".to_owned())
+        .with_relays(vec!["wss://stale.example.com".to_owned()]);
     let drifted_metadata = RadrootsNostrMetadata {
         name: Some("stale".to_owned()),
         ..RadrootsNostrMetadata::default()
     };
-    drifted_spec.metadata = Some(drifted_metadata);
+    drifted_spec = drifted_spec.with_metadata(drifted_metadata);
     publish_handler_event(relay_b.url(), &app_identity, &drifted_spec).await?;
 
     relay_a

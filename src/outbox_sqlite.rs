@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use radroots_sql_core::migrations::{Migration, migrations_run_all_up};
-use radroots_sql_core::{SqlExecutor, SqlxSqliteExecutor};
+use crate::sql::migrations::{Migration, migrations_run_all_up};
+use crate::sql::{SqlExecutor, SqlxSqliteExecutor};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -494,11 +494,9 @@ fn usize_from_i64(path: &Path, value: i64, field: &str) -> Result<usize, MycErro
 
 #[cfg(test)]
 mod tests {
-    use radroots_identity::RadrootsIdentity;
-    use radroots_nostr::prelude::{RadrootsNostrGenericEventBuilder, RadrootsNostrKind};
-    use radroots_nostr_signer::prelude::{
-        RadrootsNostrSignerConnectionId, RadrootsNostrSignerWorkflowId,
-    };
+    use crate::host_identity::RadrootsIdentity;
+    use crate::nostr_contract::{RadrootsNostrGenericEventBuilder, RadrootsNostrKind};
+    use crate::signer::prelude::{RadrootsNostrSignerConnectionId, RadrootsNostrSignerWorkflowId};
 
     use crate::outbox::{
         MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycDeliveryOutboxStatus,

@@ -2,15 +2,15 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::signer::prelude::{
+    RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerBackend,
+    RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerManager,
+    RadrootsNostrSignerNip46ConnectDecision, RadrootsNostrSignerNip46Policy,
+};
 use nostr::PublicKey;
 use radroots_nostr_connect::prelude::{
     RadrootsNostrConnectMethod, RadrootsNostrConnectPermission, RadrootsNostrConnectPermissions,
     RadrootsNostrConnectRequest, RadrootsNostrConnectRequestMessage,
-};
-use radroots_nostr_signer::prelude::{
-    RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerBackend,
-    RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerManager,
-    RadrootsNostrSignerNip46ConnectDecision, RadrootsNostrSignerNip46Policy,
 };
 
 use crate::config::{MycConnectionApproval, MycPolicyConfig};
@@ -190,8 +190,7 @@ impl MycPolicyContext {
             return Ok(Some(reason));
         }
 
-        if connection.auth_state
-            == radroots_nostr_signer::prelude::RadrootsNostrSignerAuthState::Pending
+        if connection.auth_state == crate::signer::prelude::RadrootsNostrSignerAuthState::Pending
             && self.auth_challenge_is_expired(connection)
         {
             if self.request_uses_automatic_auth(connection, &request_message.request) {
@@ -219,8 +218,7 @@ impl MycPolicyContext {
         &self,
         connection: &RadrootsNostrSignerConnectionRecord,
     ) -> Result<(), MycError> {
-        if connection.auth_state
-            == radroots_nostr_signer::prelude::RadrootsNostrSignerAuthState::Pending
+        if connection.auth_state == crate::signer::prelude::RadrootsNostrSignerAuthState::Pending
             && self.auth_challenge_is_expired(connection)
         {
             return Err(MycError::InvalidOperation(
@@ -317,9 +315,7 @@ impl MycPolicyContext {
             return false;
         }
 
-        if connection.auth_state
-            == radroots_nostr_signer::prelude::RadrootsNostrSignerAuthState::Pending
-        {
+        if connection.auth_state == crate::signer::prelude::RadrootsNostrSignerAuthState::Pending {
             return false;
         }
 
@@ -411,7 +407,7 @@ impl MycPolicyContext {
     ) -> bool {
         if connection.is_terminal()
             || connection.auth_state
-                != radroots_nostr_signer::prelude::RadrootsNostrSignerAuthState::Authorized
+                != crate::signer::prelude::RadrootsNostrSignerAuthState::Authorized
             || !self.automatic_auth_enabled_for_connection(connection)
         {
             return false;
@@ -483,7 +479,7 @@ impl<B: RadrootsNostrSignerBackend> RadrootsNostrSignerNip46Policy<B> for MycPol
         backend: &B,
         connection: &RadrootsNostrSignerConnectionRecord,
         request_message: &RadrootsNostrConnectRequestMessage,
-    ) -> Result<Option<String>, radroots_nostr_signer::prelude::RadrootsNostrSignerError> {
+    ) -> Result<Option<String>, crate::signer::prelude::RadrootsNostrSignerError> {
         self.prepare_request(backend, connection, request_message)
             .map_err(myc_policy_signer_error)
     }
@@ -562,7 +558,7 @@ fn required_permission_for_request(
         RadrootsNostrConnectRequest::SignEvent(unsigned_event) => {
             Some(RadrootsNostrConnectPermission::with_parameter(
                 RadrootsNostrConnectMethod::SignEvent,
-                format!("kind:{}", unsigned_event.kind.as_u16()),
+                format!("kind:{}", unsigned_event.kind()),
             ))
         }
         RadrootsNostrConnectRequest::Nip04Encrypt { .. } => Some(
@@ -668,27 +664,25 @@ fn now_unix_secs() -> u64 {
         .unwrap_or_default()
 }
 
-fn myc_policy_signer_error(
-    error: MycError,
-) -> radroots_nostr_signer::prelude::RadrootsNostrSignerError {
-    radroots_nostr_signer::prelude::RadrootsNostrSignerError::InvalidState(error.to_string())
+fn myc_policy_signer_error(error: MycError) -> crate::signer::prelude::RadrootsNostrSignerError {
+    crate::signer::prelude::RadrootsNostrSignerError::InvalidState(error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::{MycConnectDecision, MycPolicyContext};
     use crate::config::{MycConnectionApproval, MycPolicyConfig};
+    use crate::host_identity::RadrootsIdentity;
+    use crate::signer::prelude::{
+        RadrootsNostrEmbeddedSignerBackend, RadrootsNostrSignerApprovalRequirement,
+        RadrootsNostrSignerAuthState, RadrootsNostrSignerConnectionDraft,
+        RadrootsNostrSignerManager,
+    };
     use nostr::PublicKey;
-    use radroots_identity::RadrootsIdentity;
     use radroots_nostr_connect::prelude::{
         RadrootsNostrConnectMethod, RadrootsNostrConnectPermission,
         RadrootsNostrConnectPermissions, RadrootsNostrConnectRequest,
         RadrootsNostrConnectRequestMessage,
-    };
-    use radroots_nostr_signer::prelude::{
-        RadrootsNostrEmbeddedSignerBackend, RadrootsNostrSignerApprovalRequirement,
-        RadrootsNostrSignerAuthState, RadrootsNostrSignerConnectionDraft,
-        RadrootsNostrSignerManager,
     };
     use serde_json::json;
     use std::thread;
@@ -716,7 +710,9 @@ mod tests {
     fn backend_for(manager: &RadrootsNostrSignerManager) -> RadrootsNostrEmbeddedSignerBackend {
         RadrootsNostrEmbeddedSignerBackend::new(
             manager.clone(),
-            identity("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            identity("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+                .keys()
+                .clone(),
         )
         .expect("backend")
     }
@@ -724,7 +720,7 @@ mod tests {
     fn register_connection(
         manager: &RadrootsNostrSignerManager,
         client_public_key: PublicKey,
-    ) -> radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionRecord {
+    ) -> crate::signer::prelude::RadrootsNostrSignerConnectionRecord {
         manager
             .register_connection(
                 RadrootsNostrSignerConnectionDraft::new(
@@ -744,14 +740,14 @@ mod tests {
             .expect("register connection")
     }
 
-    fn unsigned_event(kind: u16) -> nostr::UnsignedEvent {
-        serde_json::from_value(json!({
+    fn unsigned_event(kind: u16) -> radroots_nostr_connect::message::UnsignedEvent {
+        radroots_nostr_connect::message::UnsignedEvent::from_json(&json!({
             "pubkey": public_key("1111111111111111111111111111111111111111111111111111111111111111").to_hex(),
             "created_at": 1,
             "kind": kind,
             "tags": [],
             "content": "hello"
-        }))
+        }).to_string())
         .expect("unsigned event")
     }
 
@@ -816,7 +812,7 @@ mod tests {
         .into();
         let filtered = policy.auto_granted_permissions(&requested_permissions);
 
-        assert_eq!(filtered.to_string(), "sign_event:kind:1,nip04_encrypt");
+        assert_eq!(filtered.to_string(), "nip04_encrypt,sign_event:kind:1");
     }
 
     #[test]
@@ -957,7 +953,7 @@ mod tests {
                 &connection.connection_id,
                 "request-0",
                 RadrootsNostrConnectMethod::SignEvent,
-                radroots_nostr_signer::prelude::RadrootsNostrSignerRequestDecision::Allowed,
+                crate::signer::prelude::RadrootsNostrSignerRequestDecision::Allowed,
                 None,
             )
             .expect("record request");

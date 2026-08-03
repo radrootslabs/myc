@@ -3,11 +3,11 @@ use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
+use crate::nostr_contract::RadrootsNostrRelayUrl;
+use crate::paths::{RadrootsPathResolver, RadrootsRuntimePathPolicyContract};
+use crate::signer::prelude::RadrootsNostrSignerApprovalRequirement;
 use nostr::PublicKey;
-use radroots_nostr::prelude::RadrootsNostrRelayUrl;
 use radroots_nostr_connect::prelude::RadrootsNostrConnectPermissions;
-use radroots_nostr_signer::prelude::RadrootsNostrSignerApprovalRequirement;
-use radroots_runtime_paths::{RadrootsPathResolver, RadrootsRuntimePathPolicyContract};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
@@ -1718,7 +1718,7 @@ fn validate_identity_source_config(
                     "{label}.keyring_account_id must be set when backend is `host_vault`"
                 )));
             };
-            let _ = radroots_identity::RadrootsIdentityId::parse(account_id).map_err(|_| {
+            let _ = crate::host_identity::RadrootsIdentityId::parse(account_id).map_err(|_| {
                 MycError::InvalidConfig(format!(
                     "{label}.keyring_account_id must be a valid nostr public identity id"
                 ))
@@ -1990,7 +1990,7 @@ fn discovery_host_is_local(host: Option<&str>) -> bool {
 mod tests {
     use std::fs;
 
-    use radroots_runtime_paths::{RadrootsHostEnvironment, RadrootsPathResolver, RadrootsPlatform};
+    use crate::paths::{RadrootsHostEnvironment, RadrootsPathResolver, RadrootsPlatform};
 
     use super::*;
 
@@ -2647,16 +2647,16 @@ MYC_UNKNOWN=nope
         let config = MycConfig::from_env_str(
             r#"
 MYC_IDENTITY_SIGNER_BACKEND=host_vault
-MYC_IDENTITY_SIGNER_KEYRING_ACCOUNT_ID=1111111111111111111111111111111111111111111111111111111111111111
+MYC_IDENTITY_SIGNER_KEYRING_ACCOUNT_ID=585591529da0bab31b3b1b1f986611cf5f435dca84f978c89ee8a40cca7103df
 MYC_IDENTITY_SIGNER_KEYRING_SERVICE_NAME=org.radroots.myc.test.signer
 MYC_IDENTITY_USER_BACKEND=host_vault
-MYC_IDENTITY_USER_KEYRING_ACCOUNT_ID=2222222222222222222222222222222222222222222222222222222222222222
+MYC_IDENTITY_USER_KEYRING_ACCOUNT_ID=e0266e3cfb0d2886f91c73f5f868f3b98273713e5fcd97c081663f5518a4b3af
 MYC_IDENTITY_USER_KEYRING_SERVICE_NAME=org.radroots.myc.test.user
 MYC_DISCOVERY_ENABLED=true
 MYC_DISCOVERY_DOMAIN=myc.example.com
 MYC_DISCOVERY_PUBLIC_RELAY_URLS=wss://relay.example.com
 MYC_IDENTITY_DISCOVERY_APP_BACKEND=host_vault
-MYC_IDENTITY_DISCOVERY_APP_KEYRING_ACCOUNT_ID=3333333333333333333333333333333333333333333333333333333333333333
+MYC_IDENTITY_DISCOVERY_APP_KEYRING_ACCOUNT_ID=585591529da0bab31b3b1b1f986611cf5f435dca84f978c89ee8a40cca7103df
 MYC_IDENTITY_DISCOVERY_APP_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
             "#,
         )
@@ -2668,7 +2668,7 @@ MYC_IDENTITY_DISCOVERY_APP_KEYRING_SERVICE_NAME=org.radroots.myc.test.discovery
         );
         assert_eq!(
             config.paths.signer_identity_keyring_account_id.as_deref(),
-            Some("1111111111111111111111111111111111111111111111111111111111111111")
+            Some("585591529da0bab31b3b1b1f986611cf5f435dca84f978c89ee8a40cca7103df")
         );
         assert_eq!(
             config.paths.user_identity_backend,
@@ -2869,7 +2869,7 @@ MYC_CUSTODY_EXTERNAL_COMMAND_TIMEOUT_SECS=17
 MYC_PATHS_STATE_DIR=/tmp/myc state
 MYC_IDENTITY_SIGNER_BACKEND=host_vault
 MYC_IDENTITY_SIGNER_PATH=/tmp/ignored-signer.json
-MYC_IDENTITY_SIGNER_KEYRING_ACCOUNT_ID=1111111111111111111111111111111111111111111111111111111111111111
+MYC_IDENTITY_SIGNER_KEYRING_ACCOUNT_ID=585591529da0bab31b3b1b1f986611cf5f435dca84f978c89ee8a40cca7103df
 MYC_IDENTITY_SIGNER_KEYRING_SERVICE_NAME=org.radroots.myc.test.signer
 MYC_IDENTITY_SIGNER_PROFILE_PATH=/tmp/signer-profile.json
 MYC_IDENTITY_USER_BACKEND=plaintext_file

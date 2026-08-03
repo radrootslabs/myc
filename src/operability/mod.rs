@@ -5,14 +5,14 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use radroots_nostr::prelude::{RadrootsNostrRelayStatus, RadrootsNostrRelayUrl};
-use radroots_nostr_signer::prelude::{
+use crate::nostr_contract::{RadrootsNostrRelayStatus, RadrootsNostrRelayUrl};
+use crate::signer::prelude::{
     RadrootsNostrLocalSignerCapability, RadrootsNostrRemoteSessionSignerCapability,
     RadrootsNostrSignerBackend, RadrootsNostrSignerPublishWorkflowRecord,
     RadrootsNostrSignerPublishWorkflowState, RadrootsNostrSignerRequestAuditRecord,
     RadrootsNostrSignerRequestDecision,
 };
-use radroots_sql_core::{SqlExecutor, SqlxSqliteExecutor};
+use crate::sql::{SqlExecutor, SqlxSqliteExecutor};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
@@ -1648,12 +1648,12 @@ mod tests {
     use std::path::Path;
     use std::path::PathBuf;
 
-    use nostr::PublicKey;
-    use radroots_identity::RadrootsIdentity;
-    use radroots_nostr_signer::prelude::{
+    use crate::host_identity::RadrootsIdentity;
+    use crate::signer::prelude::{
         RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerConnectionDraft,
         RadrootsNostrSignerRequestDecision,
     };
+    use nostr::PublicKey;
 
     use super::{
         MYC_SIGNER_STATUS_CONTRACT_VERSION, MycMetricsSnapshot, MycOperationOutcomeCounts,
@@ -1819,7 +1819,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn status_full_reports_signer_backend_capabilities() {
-        use radroots_nostr_signer::prelude::{
+        use crate::signer::prelude::{
             RadrootsNostrSignerBackend, RadrootsNostrSignerConnectionDraft,
         };
 
@@ -1864,7 +1864,7 @@ mod tests {
 
     #[test]
     fn status_signer_reports_remote_sessions_without_transport_diagnostics() {
-        use radroots_nostr_signer::prelude::RadrootsNostrSignerBackend;
+        use crate::signer::prelude::RadrootsNostrSignerBackend;
 
         let temp = tempfile::tempdir().expect("tempdir");
         let mut config = MycConfig::default();

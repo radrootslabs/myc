@@ -1,5 +1,4 @@
-use radroots_identity::RadrootsIdentity;
-use radroots_log::{LogFileLayout, LoggingOptions};
+use myc::host_identity::RadrootsIdentity;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::thread;
@@ -82,16 +81,7 @@ MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=10\n",
     )
     .expect("write env");
 
-    let expected_log_path = LoggingOptions {
-        dir: Some(logs_dir.clone()),
-        file_name: "myc.log".to_owned(),
-        stdout: false,
-        default_level: Some("info,myc=info".to_owned()),
-        file_layout: LogFileLayout::StableFileName,
-        ..LoggingOptions::default()
-    }
-    .resolved_current_log_file_path()
-    .expect("resolved current log path");
+    let expected_log_path = logs_dir.join("myc.log");
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_myc"))
         .arg("--env-file")

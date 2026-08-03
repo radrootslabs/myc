@@ -3,14 +3,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use radroots_nostr::prelude::{
-    RadrootsNostrApplicationHandlerSpec, RadrootsNostrError, RadrootsNostrEvent,
-    RadrootsNostrFilter, RadrootsNostrKind, RadrootsNostrMetadata, RadrootsNostrRelayUrl,
+use crate::nostr_contract::{
+    RadrootsNostrApplicationHandlerSpec, RadrootsNostrEvent, RadrootsNostrFilter,
+    RadrootsNostrKind, RadrootsNostrMetadata, RadrootsNostrRelayUrl,
     radroots_nostr_build_application_handler_event, radroots_nostr_filter_tag,
     radroots_nostr_metadata_has_fields, radroots_nostr_tag_first_value,
 };
-use radroots_nostr_connect::prelude::{RadrootsNostrConnectBunkerUri, RadrootsNostrConnectUri};
-use radroots_nostr_signer::prelude::RadrootsNostrSignerRequestId;
+use crate::signer::prelude::RadrootsNostrSignerRequestId;
+use radroots_nostr_connect::prelude::RadrootsNostrConnectUri;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
@@ -480,11 +480,15 @@ impl MycDiscoveryContext {
     }
 
     fn build_handler_spec(&self) -> RadrootsNostrApplicationHandlerSpec {
-        let mut spec = RadrootsNostrApplicationHandlerSpec::new(vec![NIP46_RPC_KIND]);
-        spec.identifier = Some(self.handler_identifier.clone());
-        spec.metadata = self.metadata.clone();
-        spec.relays = self.public_relays.iter().map(ToString::to_string).collect();
-        spec.nostrconnect_url = self.nostrconnect_url.clone();
+        let mut spec = RadrootsNostrApplicationHandlerSpec::new(vec![NIP46_RPC_KIND])
+            .with_identifier(self.handler_identifier.clone())
+            .with_relays(self.public_relays.iter().map(ToString::to_string).collect());
+        if let Some(metadata) = self.metadata.clone() {
+            spec = spec.with_metadata(metadata);
+        }
+        if let Some(url) = self.nostrconnect_url.clone() {
+            spec = spec.with_nostr_connect_url(url);
+        }
         spec
     }
 }
@@ -1443,7 +1447,7 @@ async fn fetch_live_nip89_events_for_relay(
             Duration::from_secs(context.connect_timeout_secs()),
         )
         .await
-        .map_err(RadrootsNostrError::from)?;
+        .map_err(MycError::from)?;
 
     let mut filter = RadrootsNostrFilter::new()
         .author(context.app_identity().public_key())
@@ -2092,12 +2096,13 @@ fn render_nostrconnect_url(
     signer_identity: &MycActiveIdentity,
     public_relays: &[RadrootsNostrRelayUrl],
 ) -> Result<String, MycError> {
-    let bunker_uri = RadrootsNostrConnectUri::Bunker(RadrootsNostrConnectBunkerUri {
-        remote_signer_public_key: signer_identity.public_key(),
-        relays: public_relays.to_vec(),
-        secret: None,
-    })
-    .to_string();
+    let signer_public_key = signer_identity.public_identity().public_key();
+    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+    for relay in public_relays {
+        serializer.append_pair("relay", relay.as_str());
+    }
+    let bunker_uri = format!("bunker://{signer_public_key}?{}", serializer.finish());
+    let bunker_uri = RadrootsNostrConnectUri::parse(&bunker_uri)?.to_string();
     let encoded_bunker_uri: String =
         url::form_urlencoded::byte_serialize(bunker_uri.as_bytes()).collect();
     let rendered = template.replace("<nostrconnect>", &encoded_bunker_uri);
@@ -2114,8 +2119,8 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
+    use crate::host_identity::RadrootsIdentity;
     use nostr::JsonUtil;
-    use radroots_identity::RadrootsIdentity;
 
     use crate::config::MycConfig;
 

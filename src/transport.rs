@@ -3,7 +3,7 @@ pub mod nip46;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
-use radroots_nostr::prelude::{
+use crate::nostr_contract::{
     RadrootsNostrClient, RadrootsNostrEvent, RadrootsNostrGenericEventBuilder, RadrootsNostrOutput,
     RadrootsNostrRelayUrl,
 };
@@ -513,9 +513,7 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, Mutex};
 
-    use radroots_nostr::prelude::{
-        RadrootsNostrEventId, RadrootsNostrOutput, RadrootsNostrRelayUrl,
-    };
+    use crate::nostr_contract::{RadrootsNostrEventId, RadrootsNostrOutput, RadrootsNostrRelayUrl};
     use tokio::time::Instant;
 
     use crate::config::{MycTransportConfig, MycTransportDeliveryPolicy};
@@ -525,7 +523,7 @@ mod tests {
 
     fn signer_identity() -> MycActiveIdentity {
         MycActiveIdentity::new(
-            radroots_identity::RadrootsIdentity::from_secret_key_str(
+            crate::host_identity::RadrootsIdentity::from_secret_key_str(
                 "1111111111111111111111111111111111111111111111111111111111111111",
             )
             .expect("identity"),

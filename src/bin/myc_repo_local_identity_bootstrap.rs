@@ -4,11 +4,8 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use myc::host_identity::RadrootsIdentity;
 use myc::identity_files::{load_encrypted_identity, store_encrypted_identity};
-use radroots_identity::RadrootsIdentity;
-use radroots_runtime_paths::{
-    RadrootsPathOverrides, RadrootsPathProfile, RadrootsPathResolver, RadrootsRuntimeNamespace,
-};
 
 fn main() -> ExitCode {
     match run() {
@@ -52,18 +49,10 @@ struct MycRuntimePaths {
 }
 
 fn resolve_runtime_paths(runtime_root: &Path) -> Result<MycRuntimePaths, String> {
-    let base_paths = RadrootsPathResolver::current()
-        .resolve(
-            RadrootsPathProfile::RepoLocal,
-            &RadrootsPathOverrides::repo_local(runtime_root),
-        )
-        .map_err(|err| format!("resolve repo_local runtime roots: {err}"))?;
-    let myc_namespace = RadrootsRuntimeNamespace::service("myc")
-        .map_err(|err| format!("resolve myc namespace: {err}"))?;
-    let myc_paths = base_paths.namespaced(&myc_namespace);
+    let secrets = runtime_root.join("secrets").join("services").join("myc");
     Ok(MycRuntimePaths {
-        signer_identity_path: myc_paths.secrets.join("signer-identity.json"),
-        user_identity_path: myc_paths.secrets.join("user-identity.json"),
+        signer_identity_path: secrets.join("signer-identity.json"),
+        user_identity_path: secrets.join("user-identity.json"),
     })
 }
 

@@ -5,17 +5,19 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
-use nostr::nips::nip44::Version;
-use nostr::nips::{nip04, nip44};
-use radroots_identity::{RadrootsIdentity, RadrootsIdentityId, RadrootsIdentityPublic};
-use radroots_nostr::prelude::{
+use crate::accounts::{
+    RadrootsNostrAccountsManager, RadrootsSecretVault, RadrootsSecretVaultOsKeyring,
+};
+use crate::host_identity::{RadrootsIdentity, RadrootsIdentityId, RadrootsIdentityPublic};
+use crate::nostr_contract::{
     RadrootsNostrClient, RadrootsNostrEvent, RadrootsNostrExternalSigningRequest,
     RadrootsNostrGenericEventBuilder, RadrootsNostrPublicKey,
 };
-use radroots_nostr_accounts::prelude::{
-    RadrootsNostrAccountRecord, RadrootsNostrAccountStatus, RadrootsNostrAccountsManager,
+use nostr::nips::nip44::Version;
+use nostr::nips::{nip04, nip44};
+use radroots_identity::account::{
+    Record as RadrootsNostrAccountRecord, Status as RadrootsNostrAccountStatus,
 };
-use radroots_secret_vault::{RadrootsSecretVault, RadrootsSecretVaultOsKeyring};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::runtime::RuntimeFlavor;
@@ -993,19 +995,24 @@ impl MycIdentityProvider {
                         role: self.role.clone(),
                         path: account_store_path.clone(),
                         service_name: service_name.clone(),
-                        account_id: account.account_id.to_string(),
+                        account_id: account.id().to_string(),
                     })
                 }
                 RadrootsNostrAccountStatus::Ready { .. } => manager
-                    .default_signing_identity()
+                    .default_signing_keys()
                     .map_err(|source| MycError::CustodyManager {
                         role: self.role.clone(),
                         source,
                     })?
+                    .map(RadrootsIdentity::new)
                     .ok_or_else(|| MycError::CustodyManagedAccountNotConfigured {
                         role: self.role.clone(),
                         path: account_store_path.clone(),
                     }),
+                _ => Err(MycError::InvalidOperation(format!(
+                    "{} managed account backend returned an unsupported account status",
+                    self.role
+                ))),
             },
             MycIdentityProviderBackend::ExternalCommand { command_path, .. } => {
                 Err(MycError::InvalidOperation(format!(
@@ -1104,7 +1111,7 @@ impl MycIdentityProvider {
         match &self.backend {
             MycIdentityProviderBackend::ManagedAccount { manager, .. } => {
                 manager
-                    .upsert_identity(&identity, label, true)
+                    .upsert_keys(identity.keys(), label, true)
                     .map_err(|source| MycError::CustodyManager {
                         role: self.role.clone(),
                         source,
@@ -1182,7 +1189,7 @@ impl MycIdentityProvider {
         let account_id = {
             let manager = self.managed_accounts_manager()?;
             manager
-                .generate_identity(label, make_selected)
+                .generate_keys(label, make_selected)
                 .map_err(|source| MycError::CustodyManager {
                     role: self.role.clone(),
                     source,
@@ -1206,7 +1213,7 @@ impl MycIdentityProvider {
             let manager = self.managed_accounts_manager()?;
             let identity = RadrootsIdentity::load_from_path_auto(path).map_err(MycError::from)?;
             manager
-                .upsert_identity(&identity, label, make_selected)
+                .upsert_keys(identity.keys(), label, make_selected)
                 .map_err(|source| MycError::CustodyManager {
                     role: self.role.clone(),
                     source,
@@ -1229,12 +1236,12 @@ impl MycIdentityProvider {
         })?;
         {
             let manager = self.managed_accounts_manager()?;
-            manager.set_default_account(&account_id).map_err(|source| {
-                MycError::CustodyManager {
+            manager
+                .set_default_account(&account_id.to_final().into())
+                .map_err(|source| MycError::CustodyManager {
                     role: self.role.clone(),
                     source,
-                }
-            })?;
+                })?;
         }
         Ok(MycManagedAccountMutationOutput {
             role: self.role.clone(),
@@ -1254,7 +1261,7 @@ impl MycIdentityProvider {
         {
             let manager = self.managed_accounts_manager()?;
             manager
-                .remove_account(&account_id)
+                .remove_account(&account_id.to_final().into())
                 .map_err(|source| MycError::CustodyManager {
                     role: self.role.clone(),
                     source,
@@ -1502,10 +1509,10 @@ impl MycIdentityProvider {
         let (selected_account_id, selected_account_label, identity_id, public_key_hex) =
             match account_result {
                 Ok(Some(account)) => (
-                    Some(account.account_id.to_string()),
-                    account.label.clone(),
-                    Some(account.account_id.to_string()),
-                    Some(account.public_identity.public_key_hex),
+                    Some(account.id().to_string()),
+                    account.label().map(ToOwned::to_owned),
+                    Some(account.id().to_string()),
+                    Some(account.public_identity().public_key().to_hex()),
                 ),
                 Ok(None) => (None, None, None, None),
                 Err(error) => {
@@ -1556,7 +1563,7 @@ impl MycIdentityProvider {
                         role: self.role.clone(),
                         path: account_store_path.clone(),
                         service_name: service_name.clone(),
-                        account_id: account.account_id.to_string(),
+                        account_id: account.id().to_string(),
                     }
                     .to_string(),
                 ),
@@ -1569,6 +1576,11 @@ impl MycIdentityProvider {
                     Some(error.to_string()),
                 ),
             },
+            Ok(_) => (
+                false,
+                None,
+                Some("managed account backend returned an unsupported account status".to_owned()),
+            ),
             Err(error) => (false, None, Some(error.to_string())),
         };
 
@@ -1634,6 +1646,7 @@ impl MycIdentityProvider {
                     MycManagedAccountSelectionState::PublicOnly
                 }
                 RadrootsNostrAccountStatus::Ready { .. } => MycManagedAccountSelectionState::Ready,
+                _ => MycManagedAccountSelectionState::PublicOnly,
             };
 
         Ok(MycManagedAccountsOutput {
@@ -1854,7 +1867,7 @@ fn validate_external_command_public_identity(
                 ),
             }
         })?;
-    let expected_id = RadrootsIdentityId::from(public_key);
+    let expected_id = RadrootsIdentityId::from_public_key(public_key)?;
     if identity.id != expected_id {
         return Err(MycError::CustodyExternalCommandInvalidIdentity {
             role: role.to_owned(),
@@ -1885,12 +1898,12 @@ mod tests {
     use std::sync::Mutex;
     use std::time::Instant;
 
-    use radroots_identity::RadrootsIdentity;
-    use radroots_nostr_accounts::prelude::{
+    use crate::accounts::RadrootsSecretVault;
+    use crate::accounts::{
         RadrootsNostrAccountsManager, RadrootsNostrMemoryAccountStore,
         RadrootsNostrSecretVaultMemory,
     };
-    use radroots_secret_vault::RadrootsSecretVault;
+    use crate::host_identity::RadrootsIdentity;
 
     use super::*;
 
@@ -2613,7 +2626,7 @@ mod tests {
         assert!(matches!(
             error,
             MycError::Nostr(
-                radroots_nostr::prelude::RadrootsNostrError::ExternalSigningEventIdMismatch { .. }
+                crate::nostr_contract::RadrootsNostrError::ExternalSigningEventIdMismatch { .. }
             )
         ));
     }

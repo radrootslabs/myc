@@ -1,12 +1,12 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use radroots_identity::IdentityError;
-use radroots_nostr::prelude::RadrootsNostrError;
-use radroots_nostr_accounts::prelude::RadrootsNostrAccountsError;
+use crate::accounts::RadrootsNostrAccountsError;
+use crate::host_identity::IdentityError;
+use crate::nostr_contract::RadrootsNostrError;
+use crate::signer::prelude::RadrootsNostrSignerError;
+use crate::sql::error::SqlError;
 use radroots_nostr_connect::prelude::RadrootsNostrConnectError;
-use radroots_nostr_signer::prelude::RadrootsNostrSignerError;
-use radroots_sql_core::error::SqlError;
 use thiserror::Error;
 
 use crate::config::MycTransportDeliveryPolicy;
@@ -322,6 +322,12 @@ pub enum MycError {
         configured_identity_id: String,
         imported_identity_id: String,
     },
+}
+
+impl From<nostr_sdk::client::Error> for MycError {
+    fn from(_: nostr_sdk::client::Error) -> Self {
+        Self::InvalidOperation("Nostr client operation failed".to_owned())
+    }
 }
 
 impl MycError {

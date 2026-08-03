@@ -1,8 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use radroots_runtime_paths::{
-    RadrootsPathProfile, RadrootsPathResolver, RadrootsRuntimePathSelection,
-};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -26,6 +23,230 @@ const DEFAULT_DISCOVERY_PUBLIC_DIR_NAME: &str = "public";
 const DEFAULT_DISCOVERY_NIP05_RELATIVE_PATH: &str = ".well-known/nostr.json";
 const MYC_PATHS_PROFILE_ENV: &str = "MYC_PATHS_PROFILE";
 const MYC_PATHS_REPO_LOCAL_ROOT_ENV: &str = "MYC_PATHS_REPO_LOCAL_ROOT";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum RadrootsPlatform {
+    Linux,
+    Macos,
+    Windows,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RadrootsHostEnvironment {
+    pub home_dir: Option<PathBuf>,
+    pub appdata_dir: Option<PathBuf>,
+    pub localappdata_dir: Option<PathBuf>,
+    pub programdata_dir: Option<PathBuf>,
+}
+
+impl RadrootsHostEnvironment {
+    fn current() -> Self {
+        Self {
+            home_dir: std::env::var_os("HOME").map(PathBuf::from),
+            appdata_dir: std::env::var_os("APPDATA").map(PathBuf::from),
+            localappdata_dir: std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
+            programdata_dir: std::env::var_os("PROGRAMDATA").map(PathBuf::from),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum RadrootsPathProfile {
+    InteractiveUser,
+    ServiceHost,
+    RepoLocal,
+    MobileNative,
+}
+
+#[derive(Debug, Clone)]
+pub struct RadrootsPathResolver {
+    platform: RadrootsPlatform,
+    environment: RadrootsHostEnvironment,
+}
+
+impl RadrootsPathResolver {
+    pub const fn new(platform: RadrootsPlatform, environment: RadrootsHostEnvironment) -> Self {
+        Self {
+            platform,
+            environment,
+        }
+    }
+
+    pub fn current() -> Self {
+        #[cfg(target_os = "windows")]
+        let platform = RadrootsPlatform::Windows;
+        #[cfg(target_os = "macos")]
+        let platform = RadrootsPlatform::Macos;
+        #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+        let platform = RadrootsPlatform::Linux;
+        Self::new(platform, RadrootsHostEnvironment::current())
+    }
+
+    fn roots(
+        &self,
+        profile: RadrootsPathProfile,
+        repo_local_root: Option<&Path>,
+    ) -> Result<RuntimeRoots, String> {
+        match profile {
+            RadrootsPathProfile::RepoLocal => repo_local_root
+                .map(RuntimeRoots::from_base)
+                .ok_or_else(|| "repo_local requires an explicit root".to_owned()),
+            RadrootsPathProfile::ServiceHost => match self.platform {
+                RadrootsPlatform::Linux | RadrootsPlatform::Macos => Ok(RuntimeRoots {
+                    config: PathBuf::from("/etc/radroots"),
+                    data: PathBuf::from("/var/lib/radroots"),
+                    logs: PathBuf::from("/var/log/radroots"),
+                    run: PathBuf::from("/run/radroots"),
+                    secrets: PathBuf::from("/etc/radroots/secrets"),
+                }),
+                RadrootsPlatform::Windows => {
+                    let base = self
+                        .environment
+                        .programdata_dir
+                        .as_deref()
+                        .ok_or_else(|| "PROGRAMDATA is required".to_owned())?
+                        .join("Radroots");
+                    Ok(RuntimeRoots::from_base(&base))
+                }
+            },
+            RadrootsPathProfile::InteractiveUser | RadrootsPathProfile::MobileNative => {
+                match self.platform {
+                    RadrootsPlatform::Linux | RadrootsPlatform::Macos => {
+                        let base = self
+                            .environment
+                            .home_dir
+                            .as_deref()
+                            .ok_or_else(|| "HOME is required".to_owned())?
+                            .join(".radroots");
+                        Ok(RuntimeRoots::from_base(&base))
+                    }
+                    RadrootsPlatform::Windows => {
+                        let roaming = self
+                            .environment
+                            .appdata_dir
+                            .as_deref()
+                            .ok_or_else(|| "APPDATA is required".to_owned())?
+                            .join("Radroots");
+                        let local = self
+                            .environment
+                            .localappdata_dir
+                            .as_deref()
+                            .ok_or_else(|| "LOCALAPPDATA is required".to_owned())?
+                            .join("Radroots");
+                        Ok(RuntimeRoots {
+                            config: roaming.join("config"),
+                            data: local.join("data"),
+                            logs: local.join("logs"),
+                            run: local.join("run"),
+                            secrets: roaming.join("secrets"),
+                        })
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeRoots {
+    config: PathBuf,
+    data: PathBuf,
+    logs: PathBuf,
+    run: PathBuf,
+    secrets: PathBuf,
+}
+
+impl RuntimeRoots {
+    fn from_base(base: &Path) -> Self {
+        Self {
+            config: base.join("config"),
+            data: base.join("data"),
+            logs: base.join("logs"),
+            run: base.join("run"),
+            secrets: base.join("secrets"),
+        }
+    }
+
+    fn service(self, service: &str) -> Self {
+        Self {
+            config: self.config.join("services").join(service),
+            data: self.data.join("services").join(service),
+            logs: self.logs.join("services").join(service),
+            run: self.run.join("services").join(service),
+            secrets: self.secrets.join("services").join(service),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RadrootsRuntimePathSelection {
+    pub profile: RadrootsPathProfile,
+    pub repo_local_root: Option<PathBuf>,
+}
+
+impl RadrootsRuntimePathSelection {
+    pub fn caller(profile: RadrootsPathProfile, repo_local_root: Option<PathBuf>) -> Self {
+        Self {
+            profile,
+            repo_local_root,
+        }
+    }
+
+    pub fn from_env(
+        profile_env: &str,
+        root_env: &str,
+        default_profile: RadrootsPathProfile,
+    ) -> Result<Self, String> {
+        let profile = match std::env::var(profile_env).ok().as_deref() {
+            None => default_profile,
+            Some("interactive_user") => RadrootsPathProfile::InteractiveUser,
+            Some("service_host") => RadrootsPathProfile::ServiceHost,
+            Some("repo_local") => RadrootsPathProfile::RepoLocal,
+            Some(value) => return Err(format!("unknown path profile `{value}`")),
+        };
+        let repo_local_root = std::env::var_os(root_env)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from);
+        if profile == RadrootsPathProfile::RepoLocal && repo_local_root.is_none() {
+            return Err(format!("{root_env} is required for repo_local"));
+        }
+        Ok(Self {
+            profile,
+            repo_local_root,
+        })
+    }
+
+    fn resolve_service_roots(
+        &self,
+        resolver: &RadrootsPathResolver,
+        service: &str,
+        _profile_env: &str,
+        _root_env: &str,
+    ) -> Result<RuntimeRoots, String> {
+        Ok(resolver
+            .roots(self.profile, self.repo_local_root.as_deref())?
+            .service(service))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RadrootsRuntimePathPolicyContract {
+    pub canonical_root_selection: String,
+    pub canonical_subordinate_path_override: String,
+    pub leaf_path_env_posture: String,
+}
+
+impl RadrootsRuntimePathPolicyContract {
+    pub fn new(root: &str, subordinate: &str, leaf: &str) -> Self {
+        Self {
+            canonical_root_selection: root.to_owned(),
+            canonical_subordinate_path_override: subordinate.to_owned(),
+            leaf_path_env_posture: leaf.to_owned(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]

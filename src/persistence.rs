@@ -3,13 +3,13 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use nostr::PublicKey;
-use radroots_nostr_signer::prelude::{
+use crate::signer::prelude::{
     RadrootsNostrFileSignerStore, RadrootsNostrSignerAuthState,
     RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerPublishWorkflowKind,
     RadrootsNostrSignerPublishWorkflowRecord, RadrootsNostrSignerPublishWorkflowState,
     RadrootsNostrSignerStore, RadrootsNostrSignerStoreState, RadrootsNostrSqliteSignerStore,
 };
+use nostr::PublicKey;
 use serde::{Deserialize, Serialize};
 
 use crate::app::MycRuntimePaths;
@@ -1145,7 +1145,7 @@ fn now_unix_secs() -> u64 {
 }
 
 fn signer_store_state_is_empty(
-    state: &radroots_nostr_signer::prelude::RadrootsNostrSignerStoreState,
+    state: &crate::signer::prelude::RadrootsNostrSignerStoreState,
 ) -> bool {
     state.signer_identity.is_none()
         && state.connections.is_empty()
@@ -1452,17 +1452,17 @@ fn verify_already_finalized_without_workflow(
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use nostr::PublicKey;
-    use radroots_identity::RadrootsIdentity;
-    use radroots_nostr::prelude::{
+    use crate::host_identity::RadrootsIdentity;
+    use crate::nostr_contract::{
         RadrootsNostrEvent, RadrootsNostrGenericEventBuilder, RadrootsNostrKind,
     };
-    use radroots_nostr_signer::prelude::{
+    use crate::signer::prelude::{
         RADROOTS_NOSTR_SIGNER_STORE_VERSION, RadrootsNostrFileSignerStore,
         RadrootsNostrSignerConnectionDraft, RadrootsNostrSignerConnectionId,
         RadrootsNostrSignerStore, RadrootsNostrSignerStoreState, RadrootsNostrSignerWorkflowId,
         RadrootsNostrSqliteSignerStore,
     };
+    use nostr::PublicKey;
 
     use super::{
         MycPersistenceImportSelection, import_json_to_sqlite, signer_store_state_is_empty,
@@ -1551,7 +1551,7 @@ mod tests {
 
     #[test]
     fn signer_store_state_is_not_empty_when_only_publish_workflows_are_present() {
-        let workflow = radroots_nostr_signer::prelude::RadrootsNostrSignerPublishWorkflowRecord::new_connect_secret_finalization(
+        let workflow = crate::signer::prelude::RadrootsNostrSignerPublishWorkflowRecord::new_connect_secret_finalization(
             RadrootsNostrSignerConnectionId::parse("workflow-only-connection")
                 .expect("workflow connection id"),
             17,

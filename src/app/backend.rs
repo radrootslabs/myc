@@ -1,10 +1,5 @@
-use nostr::{PublicKey, RelayUrl, UnsignedEvent};
-use radroots_identity::RadrootsIdentityPublic;
-use radroots_nostr_connect::prelude::{
-    RadrootsNostrConnectMethod, RadrootsNostrConnectPermissions, RadrootsNostrConnectRequest,
-    RadrootsNostrConnectRequestMessage,
-};
-use radroots_nostr_signer::prelude::{
+use crate::host_identity::RadrootsIdentityPublic;
+use crate::signer::prelude::{
     RadrootsNostrLocalSignerAvailability, RadrootsNostrLocalSignerCapability,
     RadrootsNostrRemoteSessionSignerCapability, RadrootsNostrSignerAuthorizationOutcome,
     RadrootsNostrSignerBackend, RadrootsNostrSignerBackendCapabilities,
@@ -16,6 +11,11 @@ use radroots_nostr_signer::prelude::{
     RadrootsNostrSignerRequestAuditRecord, RadrootsNostrSignerRequestDecision,
     RadrootsNostrSignerRequestEvaluation, RadrootsNostrSignerSessionLookup,
     RadrootsNostrSignerSignOutput, RadrootsNostrSignerWorkflowId,
+};
+use nostr::{PublicKey, RelayUrl, UnsignedEvent};
+use radroots_nostr_connect::prelude::{
+    RadrootsNostrConnectMethod, RadrootsNostrConnectPermissions, RadrootsNostrConnectRequest,
+    RadrootsNostrConnectRequestMessage,
 };
 
 use crate::app::MycSignerContext;
@@ -44,7 +44,7 @@ impl MycSignerBackend {
     fn local_signer_capability(&self) -> RadrootsNostrLocalSignerCapability {
         let public_identity = self.configured_signer_identity();
         RadrootsNostrLocalSignerCapability::new(
-            public_identity.id.clone(),
+            public_identity.id.to_final().into(),
             public_identity,
             RadrootsNostrLocalSignerAvailability::SecretBacked,
         )
@@ -349,11 +349,9 @@ fn convert_runtime_signer_error(error: MycError) -> RadrootsNostrSignerError {
 mod tests {
     use std::path::PathBuf;
 
+    use crate::host_identity::RadrootsIdentity;
+    use crate::signer::prelude::{RadrootsNostrSignerBackend, RadrootsNostrSignerConnectionDraft};
     use nostr::Keys;
-    use radroots_identity::RadrootsIdentity;
-    use radroots_nostr_signer::prelude::{
-        RadrootsNostrSignerBackend, RadrootsNostrSignerConnectionDraft,
-    };
 
     use crate::app::MycRuntime;
     use crate::config::MycConfig;

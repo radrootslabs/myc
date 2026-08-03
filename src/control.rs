@@ -1,14 +1,14 @@
 use std::str::FromStr;
 
-use radroots_nostr_connect::prelude::{
-    RadrootsNostrConnectPermission, RadrootsNostrConnectPermissions, RadrootsNostrConnectRequest,
-    RadrootsNostrConnectResponse, RadrootsNostrConnectUri,
-};
-use radroots_nostr_signer::prelude::{
+use crate::signer::prelude::{
     RadrootsNostrSignerApprovalRequirement, RadrootsNostrSignerBackend,
     RadrootsNostrSignerConnectionId, RadrootsNostrSignerConnectionRecord,
     RadrootsNostrSignerPublishTransition, RadrootsNostrSignerPublishWorkflowRecord,
     RadrootsNostrSignerRequestId, RadrootsNostrSignerWorkflowId,
+};
+use radroots_nostr_connect::prelude::{
+    RadrootsNostrConnectPermission, RadrootsNostrConnectPermissions, RadrootsNostrConnectRequest,
+    RadrootsNostrConnectResponse, RadrootsNostrConnectUri,
 };
 use serde::Serialize;
 
@@ -86,26 +86,30 @@ pub async fn accept_client_uri(
             ));
         }
     };
+    let client_public_key =
+        radroots_nostr::key::public_key_to_nostr(client_uri.client_public_key()).map_err(|_| {
+            MycError::InvalidOperation("NIP-46 client public key conversion failed".to_owned())
+        })?;
 
     let request = RadrootsNostrConnectRequest::Connect {
-        remote_signer_public_key: runtime.signer_identity().public_key(),
-        secret: Some(client_uri.secret.clone()),
-        requested_permissions: client_uri.metadata.requested_permissions.clone(),
-        client_metadata: (!client_uri.metadata.is_display_empty())
-            .then(|| client_uri.metadata.clone()),
+        remote_signer_public_key: runtime.signer_identity().public_identity().public_key(),
+        secret: Some(client_uri.secret().to_owned()),
+        requested_permissions: client_uri.metadata().requested_permissions().clone(),
+        client_metadata: (!client_uri.metadata().is_display_empty())
+            .then(|| client_uri.metadata().clone()),
     };
     let backend = runtime.signer_backend();
     let Some(approval_requirement) = runtime
         .signer_context()
         .policy()
-        .approval_requirement_for_client(&client_uri.client_public_key)
+        .approval_requirement_for_client(&client_public_key)
     else {
         return Err(MycError::InvalidOperation(
             "client public key denied by policy".to_owned(),
         ));
     };
-    let connection = match backend.evaluate_connect_request(client_uri.client_public_key, request)? {
-        radroots_nostr_signer::prelude::RadrootsNostrSignerConnectEvaluation::ExistingConnection(
+    let connection = match backend.evaluate_connect_request(client_public_key, request)? {
+        crate::signer::prelude::RadrootsNostrSignerConnectEvaluation::ExistingConnection(
             connection,
         ) => {
             if connection.connect_secret_is_consumed() {
@@ -126,7 +130,7 @@ pub async fn accept_client_uri(
             }
             connection
         }
-        radroots_nostr_signer::prelude::RadrootsNostrSignerConnectEvaluation::RegistrationRequired(
+        crate::signer::prelude::RadrootsNostrSignerConnectEvaluation::RegistrationRequired(
             proposal,
         ) => {
             let requested_permissions = runtime
@@ -139,17 +143,13 @@ pub async fn accept_client_uri(
                 .with_relays(preferred_relays.clone())
                 .with_approval_requirement(approval_requirement);
             let connection = backend.register_connection(draft)?;
-            if approval_requirement
-                == RadrootsNostrSignerApprovalRequirement::NotRequired
-            {
+            if approval_requirement == RadrootsNostrSignerApprovalRequirement::NotRequired {
                 let granted_permissions = runtime
                     .signer_context()
                     .policy()
                     .auto_granted_permissions(&connection.requested_permissions);
-                let _ = backend.set_granted_permissions(
-                    &connection.connection_id,
-                    granted_permissions,
-                )?;
+                let _ = backend
+                    .set_granted_permissions(&connection.connection_id, granted_permissions)?;
             }
             Box::new(connection)
         }
@@ -158,11 +158,19 @@ pub async fn accept_client_uri(
     let handler = MycNip46Handler::new(runtime.signer_context(), preferred_relays.clone());
     let response_request_id = RadrootsNostrSignerRequestId::new_v7().into_string();
     let event = handler.build_response_event(
-        client_uri.client_public_key,
+        client_public_key,
         response_request_id.clone(),
-        RadrootsNostrConnectResponse::ConnectSecretEcho(client_uri.secret),
+        RadrootsNostrConnectResponse::ConnectSecretEcho(client_uri.secret().to_owned()),
     )?;
-    let response_relays = merge_relays(&client_uri.relays, &preferred_relays);
+    let client_relays = client_uri
+        .relays()
+        .iter()
+        .map(|relay| {
+            nostr::RelayUrl::parse(&relay.to_string())
+                .expect("NIP-46 client URI relays were already validated")
+        })
+        .collect::<Vec<_>>();
+    let response_relays = merge_relays(&client_relays, &preferred_relays);
     let workflow = workflow_from_transition(
         backend.begin_connect_secret_publish_finalization(&connection.connection_id)?,
         "connect accept",
@@ -649,7 +657,7 @@ fn workflow_from_transition(
 
 fn build_control_outbox_record(
     kind: MycDeliveryOutboxKind,
-    event: radroots_nostr::prelude::RadrootsNostrEvent,
+    event: crate::nostr_contract::RadrootsNostrEvent,
     relay_urls: &[nostr::RelayUrl],
     connection_id: Option<&RadrootsNostrSignerConnectionId>,
     request_id: Option<&str>,
@@ -796,10 +804,7 @@ mod tests {
     use super::{accept_client_uri, authorize_auth_challenge};
     use crate::app::MycRuntime;
     use crate::config::{MycConfig, MycConnectionApproval};
-    use radroots_identity::RadrootsIdentity;
-    use radroots_nostr_connect::prelude::{
-        RadrootsNostrConnectClientMetadata, RadrootsNostrConnectClientUri, RadrootsNostrConnectUri,
-    };
+    use crate::host_identity::RadrootsIdentity;
     use std::path::PathBuf;
     use std::thread;
     use std::time::Duration;
@@ -841,7 +846,7 @@ mod tests {
         let manager = runtime.signer_manager().expect("manager");
         let connection = manager
             .register_connection(
-                radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionDraft::new(
+                crate::signer::prelude::RadrootsNostrSignerConnectionDraft::new(
                     nostr::Keys::generate().public_key(),
                     runtime.user_public_identity(),
                 ),
@@ -868,13 +873,14 @@ mod tests {
         let runtime = runtime_with_config(MycConnectionApproval::ExplicitUser, |config| {
             config.policy.denied_client_pubkeys = vec![denied_identity.public_key().to_hex()];
         });
-        let uri = RadrootsNostrConnectUri::Client(RadrootsNostrConnectClientUri {
-            client_public_key: denied_identity.public_key(),
-            relays: vec![nostr::RelayUrl::parse("ws://127.0.0.1:65500").expect("relay")],
-            secret: "client-secret".to_owned(),
-            metadata: RadrootsNostrConnectClientMetadata::default(),
-        })
-        .to_string();
+        let mut query = url::form_urlencoded::Serializer::new(String::new());
+        query.append_pair("relay", "ws://127.0.0.1:65500");
+        query.append_pair("secret", "client-secret");
+        let uri = format!(
+            "nostrconnect://{}?{}",
+            denied_identity.final_public_key(),
+            query.finish()
+        );
 
         let error = accept_client_uri(&runtime, &uri)
             .await

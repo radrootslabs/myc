@@ -1,13 +1,13 @@
 use std::path::Path;
 use std::process::Command;
 
+use myc::host_identity::RadrootsIdentity;
+use myc::signer::prelude::RadrootsNostrSignerConnectionDraft;
 use myc::{
     MycConfig, MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord,
     MycRuntime, MycRuntimeAuditBackend, MycSignerStateBackend,
 };
 use nostr::PublicKey;
-use radroots_identity::RadrootsIdentity;
-use radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionDraft;
 use serde_json::Value;
 
 fn write_identity(path: &Path, secret_key: &str) {

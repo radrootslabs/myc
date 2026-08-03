@@ -2,12 +2,12 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
-use radroots_nostr_connect::prelude::RadrootsNostrConnectPermissions;
-use radroots_nostr_signer::prelude::{
+use crate::signer::prelude::{
     RadrootsNostrSignerBackend, RadrootsNostrSignerConnectionId,
     RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerRequestAuditRecord,
 };
+use clap::{Args, Parser, Subcommand, ValueEnum};
+use radroots_nostr_connect::prelude::RadrootsNostrConnectPermissions;
 use serde::Serialize;
 use zeroize::Zeroizing;
 
@@ -732,7 +732,7 @@ fn granted_permissions_for_approval(
 
 fn load_audit_output(
     runtime: &MycRuntime,
-    manager: &radroots_nostr_signer::prelude::RadrootsNostrSignerManager,
+    manager: &crate::signer::prelude::RadrootsNostrSignerManager,
     connection_id: Option<&str>,
     attempt_id: Option<&str>,
     scope: MycAuditScope,
@@ -791,7 +791,7 @@ fn load_audit_output(
 
 fn summarize_audit_output(
     runtime: &MycRuntime,
-    manager: &radroots_nostr_signer::prelude::RadrootsNostrSignerManager,
+    manager: &crate::signer::prelude::RadrootsNostrSignerManager,
     connection_id: Option<&str>,
     attempt_id: Option<&str>,
     scope: MycAuditScope,
@@ -809,13 +809,13 @@ fn summarize_audit_output(
     let mut signer_request_decisions = MycAuditDecisionCounts::default();
     for record in &audit.signer_request_audit {
         match record.decision {
-            radroots_nostr_signer::prelude::RadrootsNostrSignerRequestDecision::Allowed => {
+            crate::signer::prelude::RadrootsNostrSignerRequestDecision::Allowed => {
                 signer_request_decisions.allowed += 1;
             }
-            radroots_nostr_signer::prelude::RadrootsNostrSignerRequestDecision::Denied => {
+            crate::signer::prelude::RadrootsNostrSignerRequestDecision::Denied => {
                 signer_request_decisions.denied += 1;
             }
-            radroots_nostr_signer::prelude::RadrootsNostrSignerRequestDecision::Challenged => {
+            crate::signer::prelude::RadrootsNostrSignerRequestDecision::Challenged => {
                 signer_request_decisions.challenged += 1;
             }
         }
@@ -1051,11 +1051,11 @@ fn read_secret_env(name: &str, operation: &str) -> Result<Zeroizing<String>, Myc
 mod tests {
     use std::path::PathBuf;
 
+    use crate::host_identity::RadrootsIdentity;
+    use crate::signer::prelude::RadrootsNostrSignerConnectionDraft;
     use clap::Parser;
     use nostr::Timestamp;
-    use radroots_identity::RadrootsIdentity;
     use radroots_nostr_connect::prelude::RadrootsNostrConnectRequest;
-    use radroots_nostr_signer::prelude::RadrootsNostrSignerConnectionDraft;
     use serde_json::json;
 
     use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
@@ -1195,13 +1195,16 @@ mod tests {
                 radroots_nostr_connect::prelude::RadrootsNostrConnectRequestMessage::new(
                     "request-1",
                     RadrootsNostrConnectRequest::SignEvent(
-                        serde_json::from_value(json!({
-                            "pubkey": runtime.user_identity().public_key().to_hex(),
-                            "created_at": Timestamp::from(1).as_secs(),
-                            "kind": 1,
-                            "tags": [],
-                            "content": "hello"
-                        }))
+                        radroots_nostr_connect::message::UnsignedEvent::from_json(
+                            &json!({
+                                "pubkey": runtime.user_identity().public_key().to_hex(),
+                                "created_at": Timestamp::from(1).as_secs(),
+                                "kind": 1,
+                                "tags": [],
+                                "content": "hello"
+                            })
+                            .to_string(),
+                        )
                         .expect("unsigned event"),
                     ),
                 ),

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod accounts;
 pub mod app;
 pub mod audit;
 mod audit_sqlite;
@@ -9,14 +10,19 @@ pub mod control;
 pub mod custody;
 pub mod discovery;
 pub mod error;
+pub mod host_identity;
 pub mod identity_files;
 pub mod logging;
+pub mod nostr_contract;
 pub mod operability;
 pub mod outbox;
 mod outbox_sqlite;
 mod paths;
 pub mod persistence;
 pub mod policy;
+pub mod signer;
+mod signing_adapter;
+pub mod sql;
 pub mod transport;
 
 pub use app::{

@@ -43,7 +43,7 @@ impl MycApp {
 mod tests {
     use std::path::PathBuf;
 
-    use radroots_identity::RadrootsIdentity;
+    use crate::host_identity::RadrootsIdentity;
 
     use crate::config::{MycConfig, MycSignerStateBackend};
 

@@ -2,10 +2,8 @@ use std::fmt;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use radroots_nostr::prelude::{RadrootsNostrEvent, RadrootsNostrRelayUrl};
-use radroots_nostr_signer::prelude::{
-    RadrootsNostrSignerConnectionId, RadrootsNostrSignerWorkflowId,
-};
+use crate::nostr_contract::{RadrootsNostrEvent, RadrootsNostrRelayUrl};
+use crate::signer::prelude::{RadrootsNostrSignerConnectionId, RadrootsNostrSignerWorkflowId};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -248,11 +246,9 @@ pub(crate) fn now_unix_secs() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use radroots_identity::RadrootsIdentity;
-    use radroots_nostr::prelude::{RadrootsNostrGenericEventBuilder, RadrootsNostrKind};
-    use radroots_nostr_signer::prelude::{
-        RadrootsNostrSignerConnectionId, RadrootsNostrSignerWorkflowId,
-    };
+    use crate::host_identity::RadrootsIdentity;
+    use crate::nostr_contract::{RadrootsNostrGenericEventBuilder, RadrootsNostrKind};
+    use crate::signer::prelude::{RadrootsNostrSignerConnectionId, RadrootsNostrSignerWorkflowId};
 
     use super::{
         MycDeliveryOutboxJobId, MycDeliveryOutboxKind, MycDeliveryOutboxRecord,
