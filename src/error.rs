@@ -6,7 +6,7 @@ use crate::host_identity::IdentityError;
 use crate::nostr_contract::RadrootsNostrError;
 use crate::signer::prelude::RadrootsNostrSignerError;
 use crate::sql::error::SqlError;
-use radroots_nostr_connect::prelude::RadrootsNostrConnectError;
+use radroots_nostr_connect::Error as NostrConnectError;
 use thiserror::Error;
 
 use crate::config::MycTransportDeliveryPolicy;
@@ -280,7 +280,7 @@ pub enum MycError {
     #[error(transparent)]
     Nostr(#[from] RadrootsNostrError),
     #[error(transparent)]
-    NostrConnect(#[from] RadrootsNostrConnectError),
+    NostrConnect(#[from] NostrConnectError),
     #[error(transparent)]
     SignerState(#[from] RadrootsNostrSignerError),
     #[error(transparent)]

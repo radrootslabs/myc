@@ -10,7 +10,7 @@ use crate::nostr_contract::{
     radroots_nostr_metadata_has_fields, radroots_nostr_tag_first_value,
 };
 use crate::signer::prelude::RadrootsNostrSignerRequestId;
-use radroots_nostr_connect::prelude::RadrootsNostrConnectUri;
+use radroots_nostr_connect::uri::Uri;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
@@ -2102,7 +2102,7 @@ fn render_nostrconnect_url(
         serializer.append_pair("relay", relay.as_str());
     }
     let bunker_uri = format!("bunker://{signer_public_key}?{}", serializer.finish());
-    let bunker_uri = RadrootsNostrConnectUri::parse(&bunker_uri)?.to_string();
+    let bunker_uri = Uri::parse(&bunker_uri)?.to_string();
     let encoded_bunker_uri: String =
         url::form_urlencoded::byte_serialize(bunker_uri.as_bytes()).collect();
     let rendered = template.replace("<nostrconnect>", &encoded_bunker_uri);

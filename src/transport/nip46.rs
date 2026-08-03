@@ -13,10 +13,7 @@ use crate::signer::prelude::{
     RadrootsNostrSignerRequestDecision, RadrootsNostrSignerRequestEvaluation,
     RadrootsNostrSignerRequestId, RadrootsNostrSignerSessionLookup, RadrootsNostrSignerWorkflowId,
 };
-use radroots_nostr_connect::prelude::{
-    RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectRequestMessage,
-    RadrootsNostrConnectResponse,
-};
+use radroots_nostr_connect::{Response, message::RPC_KIND, message::RequestMessage};
 use tokio::sync::broadcast;
 
 use crate::app::MycSignerContext;
@@ -202,8 +199,8 @@ impl MycNip46Handler {
     pub fn parse_request_event(
         &self,
         event: &RadrootsNostrEvent,
-    ) -> Result<RadrootsNostrConnectRequestMessage, MycError> {
-        if event.kind != RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND) {
+    ) -> Result<RequestMessage, MycError> {
+        if event.kind != RadrootsNostrKind::Custom(RPC_KIND) {
             return Err(MycError::InvalidOperation(
                 "NIP-46 request event has the wrong kind".to_owned(),
             ));
@@ -232,7 +229,7 @@ impl MycNip46Handler {
         &self,
         client_public_key: RadrootsNostrPublicKey,
         request_id: impl Into<String>,
-        response: RadrootsNostrConnectResponse,
+        response: Response,
     ) -> Result<crate::nostr_contract::RadrootsNostrGenericEventBuilder, MycError> {
         self.handler
             .build_response_event(client_public_key, request_id, response)
@@ -242,11 +239,11 @@ impl MycNip46Handler {
     pub(crate) fn handle_request(
         &self,
         client_public_key: RadrootsNostrPublicKey,
-        request_message: RadrootsNostrConnectRequestMessage,
+        request_message: RequestMessage,
     ) -> Result<MycNip46HandledOutcome, MycError> {
         if matches!(
             &request_message.request,
-            radroots_nostr_connect::prelude::RadrootsNostrConnectRequest::Logout
+            radroots_nostr_connect::Request::Logout
         ) {
             return self.handle_logout_request(client_public_key, request_message);
         }
@@ -258,26 +255,22 @@ impl MycNip46Handler {
     fn handle_logout_request(
         &self,
         client_public_key: RadrootsNostrPublicKey,
-        request_message: RadrootsNostrConnectRequestMessage,
+        request_message: RequestMessage,
     ) -> Result<MycNip46HandledOutcome, MycError> {
         let manager = self.signer.load_signer_manager()?;
         let connection = match manager.lookup_session(&client_public_key, None)? {
             RadrootsNostrSignerSessionLookup::Connection(connection) => *connection,
             RadrootsNostrSignerSessionLookup::None => {
-                return Ok(MycNip46HandledOutcome::respond(
-                    RadrootsNostrConnectResponse::Error {
-                        result: None,
-                        error: "unauthorized".to_owned(),
-                    },
-                ));
+                return Ok(MycNip46HandledOutcome::respond(Response::Error {
+                    result: None,
+                    error: "unauthorized".to_owned(),
+                }));
             }
             RadrootsNostrSignerSessionLookup::Ambiguous(_) => {
-                return Ok(MycNip46HandledOutcome::respond(
-                    RadrootsNostrConnectResponse::Error {
-                        result: None,
-                        error: "ambiguous client sessions".to_owned(),
-                    },
-                ));
+                return Ok(MycNip46HandledOutcome::respond(Response::Error {
+                    result: None,
+                    error: "ambiguous client sessions".to_owned(),
+                }));
             }
         };
         if connection.status != RadrootsNostrSignerConnectionStatus::Active {
@@ -292,7 +285,7 @@ impl MycNip46Handler {
             return Ok(MycNip46HandledOutcome::new(
                 RadrootsNostrSignerHandledRequest::respond_for_connection(
                     Some(connection.connection_id),
-                    RadrootsNostrConnectResponse::Error {
+                    Response::Error {
                         result: None,
                         error: reason,
                     },
@@ -311,7 +304,7 @@ impl MycNip46Handler {
         Ok(MycNip46HandledOutcome::new(
             RadrootsNostrSignerHandledRequest::respond_for_connection(
                 Some(connection.connection_id),
-                RadrootsNostrConnectResponse::LogoutAcknowledged,
+                Response::LogoutAcknowledged,
             ),
             Some(audit),
         ))
@@ -321,8 +314,8 @@ impl MycNip46Handler {
     fn handle_request_response(
         &self,
         client_public_key: RadrootsNostrPublicKey,
-        request_message: RadrootsNostrConnectRequestMessage,
-    ) -> Result<RadrootsNostrConnectResponse, MycError> {
+        request_message: RequestMessage,
+    ) -> Result<Response, MycError> {
         match self.handle_request(client_public_key, request_message)? {
             MycNip46HandledOutcome {
                 handled_request: RadrootsNostrSignerHandledRequest::Respond { response, .. },
@@ -339,7 +332,7 @@ impl MycNip46Handler {
 
     pub(crate) fn handle_authorized_request_evaluation(
         &self,
-        request_message: RadrootsNostrConnectRequestMessage,
+        request_message: RequestMessage,
         evaluation: RadrootsNostrSignerRequestEvaluation,
     ) -> Result<MycNip46HandledOutcome, MycError> {
         self.handler
@@ -401,7 +394,7 @@ impl MycNip46Service {
                 continue;
             };
             let event = *event;
-            if event.kind != RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND) {
+            if event.kind != RadrootsNostrKind::Custom(RPC_KIND) {
                 continue;
             }
 
@@ -422,7 +415,7 @@ impl MycNip46Service {
                 Ok(handled_outcome) => handled_outcome,
                 Err(error) => {
                     tracing::warn!(error = %error, "failed to handle NIP-46 request");
-                    MycNip46HandledOutcome::respond(RadrootsNostrConnectResponse::Error {
+                    MycNip46HandledOutcome::respond(Response::Error {
                         result: None,
                         error: error.to_string(),
                     })
@@ -441,10 +434,9 @@ impl MycNip46Service {
                 );
                 continue;
             };
-            let revoke_logout_connection =
-                matches!(&response, RadrootsNostrConnectResponse::LogoutAcknowledged)
-                    .then(|| connection_id.clone())
-                    .flatten();
+            let revoke_logout_connection = matches!(&response, Response::LogoutAcknowledged)
+                .then(|| connection_id.clone())
+                .flatten();
 
             let response_event =
                 self.handler
@@ -843,11 +835,9 @@ mod tests {
     use nostr::nips::nip44::Version;
     use nostr::{EventBuilder, Keys, PublicKey, SecretKey, Timestamp};
     use radroots_nostr_connect::message::UnsignedEvent;
-    use radroots_nostr_connect::prelude::{
-        RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectMethod,
-        RadrootsNostrConnectPermission, RadrootsNostrConnectRequest,
-        RadrootsNostrConnectRequestMessage, RadrootsNostrConnectResponse,
-        RadrootsNostrConnectResponseEnvelope,
+    use radroots_nostr_connect::{
+        Method, Permission, Request, Response,
+        message::{RPC_KIND, RequestMessage, ResponseEnvelope},
     };
     use serde_json::json;
 
@@ -911,16 +901,13 @@ mod tests {
         Keys::new(secret)
     }
 
-    fn request_event(
-        handler: &MycNip46Handler,
-        request: RadrootsNostrConnectRequestMessage,
-    ) -> nostr::Event {
+    fn request_event(handler: &MycNip46Handler, request: RequestMessage) -> nostr::Event {
         request_event_with_client_keys(handler, request, &client_keys())
     }
 
     fn request_event_with_client_keys(
         handler: &MycNip46Handler,
-        request: RadrootsNostrConnectRequestMessage,
+        request: RequestMessage,
         client_keys: &Keys,
     ) -> nostr::Event {
         let payload = serde_json::to_string(&request).expect("serialize request");
@@ -938,22 +925,16 @@ mod tests {
             Version::V2,
         )
         .expect("encrypt");
-        EventBuilder::new(
-            radroots_nostr_kind(RADROOTS_NOSTR_CONNECT_RPC_KIND),
-            ciphertext,
-        )
-        .tags(vec![RadrootsNostrTag::public_key(
-            handler.signer.signer_identity().public_key(),
-        )])
-        .sign_with_keys(client_keys)
-        .expect("sign request")
+        EventBuilder::new(radroots_nostr_kind(RPC_KIND), ciphertext)
+            .tags(vec![RadrootsNostrTag::public_key(
+                handler.signer.signer_identity().public_key(),
+            )])
+            .sign_with_keys(client_keys)
+            .expect("sign request")
     }
 
-    fn sign_event_permission(kind: u16) -> RadrootsNostrConnectPermission {
-        RadrootsNostrConnectPermission::with_parameter(
-            RadrootsNostrConnectMethod::SignEvent,
-            format!("kind:{kind}"),
-        )
+    fn sign_event_permission(kind: u16) -> Permission {
+        Permission::with_parameter(Method::SignEvent, format!("kind:{kind}"))
     }
 
     fn unsigned_event(pubkey: PublicKey, kind: u16, content: &str) -> UnsignedEvent {
@@ -973,14 +954,14 @@ mod tests {
     fn connect_with_permissions(
         handler: &MycNip46Handler,
         runtime: &MycRuntime,
-        requested_permissions: Vec<RadrootsNostrConnectPermission>,
+        requested_permissions: Vec<Permission>,
     ) {
         handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
@@ -1012,15 +993,14 @@ mod tests {
     fn parse_and_build_nip46_envelopes_roundtrip() {
         let runtime = runtime();
         let handler = handler(&runtime);
-        let request =
-            RadrootsNostrConnectRequestMessage::new("req-1", RadrootsNostrConnectRequest::Ping);
+        let request = RequestMessage::new("req-1", Request::Ping);
         let event = request_event(&handler, request.clone());
 
         let parsed = handler.parse_request_event(&event).expect("parse request");
         assert_eq!(parsed, request);
 
         let response_builder = handler
-            .build_response_event(event.pubkey, "req-1", RadrootsNostrConnectResponse::Pong)
+            .build_response_event(event.pubkey, "req-1", Response::Pong)
             .expect("response builder");
         let response_event = runtime
             .signer_identity()
@@ -1032,14 +1012,10 @@ mod tests {
             &response_event.content,
         )
         .expect("decrypt response");
-        let envelope: RadrootsNostrConnectResponseEnvelope =
-            serde_json::from_str(&decrypted).expect("parse envelope");
-        let parsed = RadrootsNostrConnectResponse::from_envelope(
-            &RadrootsNostrConnectRequest::Ping.method(),
-            envelope,
-        )
-        .expect("parse response");
-        assert_eq!(parsed, RadrootsNostrConnectResponse::Pong);
+        let envelope: ResponseEnvelope = serde_json::from_str(&decrypted).expect("parse envelope");
+        let parsed =
+            Response::from_envelope(&Request::Ping.method(), envelope).expect("parse response");
+        assert_eq!(parsed, Response::Pong);
     }
 
     #[test]
@@ -1059,9 +1035,9 @@ mod tests {
         let response = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
@@ -1074,10 +1050,7 @@ mod tests {
             )
             .expect("connect response");
 
-        assert_eq!(
-            response,
-            RadrootsNostrConnectResponse::ConnectSecretEcho("s3cr3t".to_owned())
-        );
+        assert_eq!(response, Response::ConnectSecretEcho("s3cr3t".to_owned()));
         let connections = runtime
             .signer_manager()
             .expect("manager")
@@ -1104,9 +1077,9 @@ mod tests {
         let response = handler
             .handle_request_response(
                 denied_client_keys.public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
@@ -1121,7 +1094,7 @@ mod tests {
 
         assert_eq!(
             response,
-            RadrootsNostrConnectResponse::Error {
+            Response::Error {
                 result: None,
                 error: "client public key denied by policy".to_owned(),
             }
@@ -1144,9 +1117,9 @@ mod tests {
         let first = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect-1",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
@@ -1161,9 +1134,9 @@ mod tests {
         let second = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect-2",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
@@ -1176,10 +1149,7 @@ mod tests {
             )
             .expect("second connect response");
 
-        assert_eq!(
-            first,
-            RadrootsNostrConnectResponse::ConnectSecretEcho("s3cr3t".to_owned())
-        );
+        assert_eq!(first, Response::ConnectSecretEcho("s3cr3t".to_owned()));
         assert_eq!(second, first);
     }
 
@@ -1190,9 +1160,9 @@ mod tests {
         let response = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
@@ -1204,10 +1174,7 @@ mod tests {
                 ),
             )
             .expect("connect response");
-        assert_eq!(
-            response,
-            RadrootsNostrConnectResponse::ConnectSecretEcho("s3cr3t".to_owned())
-        );
+        assert_eq!(response, Response::ConnectSecretEcho("s3cr3t".to_owned()));
 
         let connection = runtime
             .signer_manager()
@@ -1226,9 +1193,9 @@ mod tests {
         let ignored = handler
             .handle_request(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect-reused",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
@@ -1265,9 +1232,9 @@ mod tests {
         let first = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect-1",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
@@ -1279,14 +1246,14 @@ mod tests {
                 ),
             )
             .expect("first connect response");
-        assert_eq!(first, RadrootsNostrConnectResponse::ConnectAcknowledged);
+        assert_eq!(first, Response::ConnectAcknowledged);
 
         let second = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect-2",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
@@ -1300,7 +1267,7 @@ mod tests {
             .expect("second connect response");
         assert!(matches!(
             second,
-            RadrootsNostrConnectResponse::Error { error, .. }
+            Response::Error { error, .. }
                 if error.contains("connect attempts throttled by policy")
         ));
 
@@ -1316,9 +1283,9 @@ mod tests {
         let third = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect-3",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
@@ -1330,7 +1297,7 @@ mod tests {
                 ),
             )
             .expect("third connect response");
-        assert_eq!(third, RadrootsNostrConnectResponse::ConnectAcknowledged);
+        assert_eq!(third, Response::ConnectAcknowledged);
     }
 
     #[test]
@@ -1341,9 +1308,9 @@ mod tests {
         let response = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
@@ -1356,7 +1323,7 @@ mod tests {
             )
             .expect("connect response");
 
-        assert_eq!(response, RadrootsNostrConnectResponse::ConnectAcknowledged);
+        assert_eq!(response, Response::ConnectAcknowledged);
         let connection = runtime
             .signer_manager()
             .expect("manager")
@@ -1384,15 +1351,12 @@ mod tests {
         let pending_response = pending_handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
-                    "req-pending-logout",
-                    RadrootsNostrConnectRequest::Logout,
-                ),
+                RequestMessage::new("req-pending-logout", Request::Logout),
             )
             .expect("pending logout response");
         assert_eq!(
             pending_response,
-            RadrootsNostrConnectResponse::Error {
+            Response::Error {
                 result: None,
                 error: "connection is pending".to_owned(),
             }
@@ -1404,16 +1368,10 @@ mod tests {
         let active_response = active_handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
-                    "req-active-logout",
-                    RadrootsNostrConnectRequest::Logout,
-                ),
+                RequestMessage::new("req-active-logout", Request::Logout),
             )
             .expect("active logout response");
-        assert_eq!(
-            active_response,
-            RadrootsNostrConnectResponse::LogoutAcknowledged
-        );
+        assert_eq!(active_response, Response::LogoutAcknowledged);
         assert_eq!(
             connection_for(&active_runtime, client_keys().public_key()).status,
             RadrootsNostrSignerConnectionStatus::Active
@@ -1428,7 +1386,7 @@ mod tests {
         let runtime = runtime_with_config(MycConnectionApproval::ExplicitUser, |config| {
             config.policy.trusted_client_pubkeys = vec![trusted_client_keys.public_key().to_hex()];
             config.policy.permission_ceiling = vec![
-                RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip04Encrypt),
+                Permission::new(Method::Nip04Encrypt),
                 sign_event_permission(1),
             ]
             .into();
@@ -1439,21 +1397,17 @@ mod tests {
         let response = handler
             .handle_request_response(
                 trusted_client_keys.public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
                             .public_key(),
                         secret: None,
                         requested_permissions: vec![
-                            RadrootsNostrConnectPermission::new(
-                                RadrootsNostrConnectMethod::Nip04Encrypt,
-                            ),
-                            RadrootsNostrConnectPermission::new(
-                                RadrootsNostrConnectMethod::SignEvent,
-                            ),
+                            Permission::new(Method::Nip04Encrypt),
+                            Permission::new(Method::SignEvent),
                             sign_event_permission(7),
                         ]
                         .into(),
@@ -1463,7 +1417,7 @@ mod tests {
             )
             .expect("connect response");
 
-        assert_eq!(response, RadrootsNostrConnectResponse::ConnectAcknowledged);
+        assert_eq!(response, Response::ConnectAcknowledged);
         let connection = connection_for(&runtime, trusted_client_keys.public_key());
         assert_eq!(
             connection.granted_permissions().to_string(),
@@ -1492,9 +1446,9 @@ mod tests {
         let _ = handler
             .handle_request_response(
                 trusted_client_keys.public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
@@ -1510,9 +1464,9 @@ mod tests {
         let first = handler
             .handle_request_response(
                 trusted_client_keys.public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-sign-1",
-                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                    Request::SignEvent(unsigned_event(
                         runtime.user_identity().public_key(),
                         1,
                         "first",
@@ -1522,7 +1476,7 @@ mod tests {
             .expect("first sign request");
         assert_eq!(
             first,
-            RadrootsNostrConnectResponse::AuthUrl("https://auth.example/challenge".to_owned())
+            Response::AuthUrl("https://auth.example/challenge".to_owned())
         );
 
         let connection = connection_for(&runtime, trusted_client_keys.public_key());
@@ -1535,9 +1489,9 @@ mod tests {
         let second = handler
             .handle_request_response(
                 trusted_client_keys.public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-sign-2",
-                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                    Request::SignEvent(unsigned_event(
                         runtime.user_identity().public_key(),
                         1,
                         "second",
@@ -1545,19 +1499,16 @@ mod tests {
                 ),
             )
             .expect("second sign request");
-        assert!(matches!(
-            second,
-            RadrootsNostrConnectResponse::SignedEvent(_)
-        ));
+        assert!(matches!(second, Response::SignedEvent(_)));
 
         std::thread::sleep(std::time::Duration::from_secs(2));
 
         let third = handler
             .handle_request_response(
                 trusted_client_keys.public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-sign-3",
-                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                    Request::SignEvent(unsigned_event(
                         runtime.user_identity().public_key(),
                         1,
                         "third",
@@ -1567,7 +1518,7 @@ mod tests {
             .expect("third sign request");
         assert_eq!(
             third,
-            RadrootsNostrConnectResponse::AuthUrl("https://auth.example/challenge".to_owned())
+            Response::AuthUrl("https://auth.example/challenge".to_owned())
         );
     }
 
@@ -1588,9 +1539,9 @@ mod tests {
         let _ = handler
             .handle_request_response(
                 trusted_client_keys.public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
@@ -1606,9 +1557,9 @@ mod tests {
         let first = handler
             .handle_request_response(
                 trusted_client_keys.public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-sign-1",
-                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                    Request::SignEvent(unsigned_event(
                         runtime.user_identity().public_key(),
                         1,
                         "first",
@@ -1618,7 +1569,7 @@ mod tests {
             .expect("first sign request");
         assert_eq!(
             first,
-            RadrootsNostrConnectResponse::AuthUrl("https://auth.example/challenge".to_owned())
+            Response::AuthUrl("https://auth.example/challenge".to_owned())
         );
 
         let connection = connection_for(&runtime, trusted_client_keys.public_key());
@@ -1633,9 +1584,9 @@ mod tests {
         let second = handler
             .handle_request_response(
                 trusted_client_keys.public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-sign-2",
-                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                    Request::SignEvent(unsigned_event(
                         runtime.user_identity().public_key(),
                         1,
                         "second",
@@ -1645,7 +1596,7 @@ mod tests {
             .expect("second sign request");
         assert_eq!(
             second,
-            RadrootsNostrConnectResponse::AuthUrl("https://auth.example/challenge".to_owned())
+            Response::AuthUrl("https://auth.example/challenge".to_owned())
         );
     }
 
@@ -1668,9 +1619,9 @@ mod tests {
         let _ = handler
             .handle_request_response(
                 trusted_client_keys.public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
@@ -1686,9 +1637,9 @@ mod tests {
         let first = handler
             .handle_request_response(
                 trusted_client_keys.public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-sign-1",
-                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                    Request::SignEvent(unsigned_event(
                         runtime.user_identity().public_key(),
                         1,
                         "first",
@@ -1698,7 +1649,7 @@ mod tests {
             .expect("first sign request");
         assert_eq!(
             first,
-            RadrootsNostrConnectResponse::AuthUrl("https://auth.example/challenge".to_owned())
+            Response::AuthUrl("https://auth.example/challenge".to_owned())
         );
 
         std::thread::sleep(std::time::Duration::from_secs(2));
@@ -1706,9 +1657,9 @@ mod tests {
         let second = handler
             .handle_request_response(
                 trusted_client_keys.public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-sign-2",
-                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                    Request::SignEvent(unsigned_event(
                         runtime.user_identity().public_key(),
                         1,
                         "second",
@@ -1718,7 +1669,7 @@ mod tests {
             .expect("second sign request");
         assert!(matches!(
             second,
-            RadrootsNostrConnectResponse::Error { error, .. }
+            Response::Error { error, .. }
                 if error.contains("auth challenge issuance throttled by policy")
         ));
     }
@@ -1730,18 +1681,15 @@ mod tests {
         handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
                             .public_key(),
                         secret: None,
-                        requested_permissions: vec![RadrootsNostrConnectPermission::new(
-                            RadrootsNostrConnectMethod::SwitchRelays,
-                        )]
-                        .into(),
+                        requested_permissions: vec![Permission::new(Method::SwitchRelays)].into(),
                         client_metadata: None,
                     },
                 ),
@@ -1751,42 +1699,31 @@ mod tests {
         let public_key = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
-                    "req-pubkey",
-                    RadrootsNostrConnectRequest::GetPublicKey,
-                ),
+                RequestMessage::new("req-pubkey", Request::GetPublicKey),
             )
             .expect("get public key");
         assert_eq!(
             public_key,
-            RadrootsNostrConnectResponse::UserPublicKey(
-                runtime.user_identity().public_identity().public_key()
-            )
+            Response::UserPublicKey(runtime.user_identity().public_identity().public_key())
         );
 
         let pong = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
-                    "req-ping",
-                    RadrootsNostrConnectRequest::Ping,
-                ),
+                RequestMessage::new("req-ping", Request::Ping),
             )
             .expect("ping");
-        assert_eq!(pong, RadrootsNostrConnectResponse::Pong);
+        assert_eq!(pong, Response::Pong);
 
         let relays = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
-                    "req-switch",
-                    RadrootsNostrConnectRequest::SwitchRelays,
-                ),
+                RequestMessage::new("req-switch", Request::SwitchRelays),
             )
             .expect("switch relays");
         assert_eq!(
             relays,
-            RadrootsNostrConnectResponse::RelayList(
+            Response::RelayList(
                 runtime
                     .transport()
                     .expect("transport")
@@ -1802,16 +1739,13 @@ mod tests {
         let capability = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
-                    "req-capability",
-                    RadrootsNostrConnectRequest::GetSessionCapability,
-                ),
+                RequestMessage::new("req-capability", Request::GetSessionCapability),
             )
             .expect("get session capability");
         assert_eq!(
             capability,
-            RadrootsNostrConnectResponse::RemoteSessionCapability(
-                radroots_nostr_connect::prelude::RadrootsNostrConnectRemoteSessionCapability {
+            Response::RemoteSessionCapability(
+                radroots_nostr_connect::message::RemoteSessionCapability {
                     user_public_key: runtime.user_identity().public_identity().public_key(),
                     relays: runtime
                         .transport()
@@ -1823,10 +1757,7 @@ mod tests {
                                 .expect("relay")
                         })
                         .collect(),
-                    permissions: vec![RadrootsNostrConnectPermission::new(
-                        RadrootsNostrConnectMethod::SwitchRelays,
-                    )]
-                    .into(),
+                    permissions: vec![Permission::new(Method::SwitchRelays,)].into(),
                 },
             )
         );
@@ -1839,9 +1770,9 @@ mod tests {
         handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-connect",
-                    RadrootsNostrConnectRequest::Connect {
+                    Request::Connect {
                         remote_signer_public_key: runtime
                             .signer_identity()
                             .public_identity()
@@ -1877,9 +1808,9 @@ mod tests {
         let response = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-sign",
-                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                    Request::SignEvent(unsigned_event(
                         runtime.user_identity().public_key(),
                         1,
                         "hello world",
@@ -1888,7 +1819,7 @@ mod tests {
             )
             .expect("sign event");
 
-        let RadrootsNostrConnectResponse::SignedEvent(event) = response else {
+        let Response::SignedEvent(event) = response else {
             panic!("unexpected sign_event response");
         };
         let event: nostr::Event = serde_json::from_str(&event.as_json()).expect("signed event");
@@ -1907,9 +1838,9 @@ mod tests {
         let response = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-sign",
-                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                    Request::SignEvent(unsigned_event(
                         runtime.user_identity().public_key(),
                         1,
                         "hello world",
@@ -1920,7 +1851,7 @@ mod tests {
 
         assert_eq!(
             response,
-            RadrootsNostrConnectResponse::Error {
+            Response::Error {
                 result: None,
                 error: "unauthorized sign_event".to_owned(),
             }
@@ -1936,9 +1867,9 @@ mod tests {
         let response = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-sign",
-                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(
+                    Request::SignEvent(unsigned_event(
                         client_keys().public_key(),
                         1,
                         "hello world",
@@ -1949,7 +1880,7 @@ mod tests {
 
         assert_eq!(
             response,
-            RadrootsNostrConnectResponse::Error {
+            Response::Error {
                 result: None,
                 error: "sign_event pubkey does not match the managed user identity".to_owned(),
             }
@@ -1964,17 +1895,17 @@ mod tests {
             &handler,
             &runtime,
             vec![
-                RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip04Encrypt),
-                RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip04Decrypt),
+                Permission::new(Method::Nip04Encrypt),
+                Permission::new(Method::Nip04Decrypt),
             ],
         );
 
         let encrypt_response = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-nip04-encrypt",
-                    RadrootsNostrConnectRequest::Nip04Encrypt {
+                    Request::Nip04Encrypt {
                         public_key: radroots_nostr::key::public_key_from_nostr(
                             client_keys().public_key(),
                         )
@@ -1984,7 +1915,7 @@ mod tests {
                 ),
             )
             .expect("nip04 encrypt");
-        let RadrootsNostrConnectResponse::Nip04Encrypt(ciphertext) = encrypt_response else {
+        let Response::Nip04Encrypt(ciphertext) = encrypt_response else {
             panic!("unexpected nip04 encrypt response");
         };
         assert_eq!(
@@ -2006,9 +1937,9 @@ mod tests {
         let decrypt_response = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-nip04-decrypt",
-                    RadrootsNostrConnectRequest::Nip04Decrypt {
+                    Request::Nip04Decrypt {
                         public_key: radroots_nostr::key::public_key_from_nostr(
                             client_keys().public_key(),
                         )
@@ -2020,7 +1951,7 @@ mod tests {
             .expect("nip04 decrypt");
         assert_eq!(
             decrypt_response,
-            RadrootsNostrConnectResponse::Nip04Decrypt("hello to myc".to_owned())
+            Response::Nip04Decrypt("hello to myc".to_owned())
         );
     }
 
@@ -2032,17 +1963,17 @@ mod tests {
             &handler,
             &runtime,
             vec![
-                RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip44Encrypt),
-                RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip44Decrypt),
+                Permission::new(Method::Nip44Encrypt),
+                Permission::new(Method::Nip44Decrypt),
             ],
         );
 
         let encrypt_response = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-nip44-encrypt",
-                    RadrootsNostrConnectRequest::Nip44Encrypt {
+                    Request::Nip44Encrypt {
                         public_key: radroots_nostr::key::public_key_from_nostr(
                             client_keys().public_key(),
                         )
@@ -2052,7 +1983,7 @@ mod tests {
                 ),
             )
             .expect("nip44 encrypt");
-        let RadrootsNostrConnectResponse::Nip44Encrypt(ciphertext) = encrypt_response else {
+        let Response::Nip44Encrypt(ciphertext) = encrypt_response else {
             panic!("unexpected nip44 encrypt response");
         };
         assert_eq!(
@@ -2075,9 +2006,9 @@ mod tests {
         let decrypt_response = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-nip44-decrypt",
-                    RadrootsNostrConnectRequest::Nip44Decrypt {
+                    Request::Nip44Decrypt {
                         public_key: radroots_nostr::key::public_key_from_nostr(
                             client_keys().public_key(),
                         )
@@ -2089,7 +2020,7 @@ mod tests {
             .expect("nip44 decrypt");
         assert_eq!(
             decrypt_response,
-            RadrootsNostrConnectResponse::Nip44Decrypt("hello to myc".to_owned())
+            Response::Nip44Decrypt("hello to myc".to_owned())
         );
     }
 
@@ -2100,17 +2031,15 @@ mod tests {
         connect_with_permissions(
             &handler,
             &runtime,
-            vec![RadrootsNostrConnectPermission::new(
-                RadrootsNostrConnectMethod::Nip04Encrypt,
-            )],
+            vec![Permission::new(Method::Nip04Encrypt)],
         );
 
         let response = handler
             .handle_request_response(
                 client_keys().public_key(),
-                RadrootsNostrConnectRequestMessage::new(
+                RequestMessage::new(
                     "req-nip04-decrypt",
-                    RadrootsNostrConnectRequest::Nip04Decrypt {
+                    Request::Nip04Decrypt {
                         public_key: radroots_nostr::key::public_key_from_nostr(
                             client_keys().public_key(),
                         )
@@ -2123,7 +2052,7 @@ mod tests {
 
         assert_eq!(
             response,
-            RadrootsNostrConnectResponse::Error {
+            Response::Error {
                 result: None,
                 error: "unauthorized nip04_decrypt".to_owned(),
             }

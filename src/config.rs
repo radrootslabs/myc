@@ -7,7 +7,7 @@ use crate::nostr_contract::RadrootsNostrRelayUrl;
 use crate::paths::{RadrootsPathResolver, RadrootsRuntimePathPolicyContract};
 use crate::signer::prelude::RadrootsNostrSignerApprovalRequirement;
 use nostr::PublicKey;
-use radroots_nostr_connect::prelude::RadrootsNostrConnectPermissions;
+use radroots_nostr_connect::permission::Permissions;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
@@ -188,7 +188,7 @@ pub struct MycPolicyConfig {
     pub connection_approval: MycConnectionApproval,
     pub trusted_client_pubkeys: Vec<String>,
     pub denied_client_pubkeys: Vec<String>,
-    pub permission_ceiling: RadrootsNostrConnectPermissions,
+    pub permission_ceiling: Permissions,
     pub allowed_sign_event_kinds: Vec<u16>,
     pub auth_url: Option<String>,
     pub auth_pending_ttl_secs: u64,
@@ -308,7 +308,7 @@ impl Default for MycPolicyConfig {
             connection_approval: MycConnectionApproval::ExplicitUser,
             trusted_client_pubkeys: Vec::new(),
             denied_client_pubkeys: Vec::new(),
-            permission_ceiling: RadrootsNostrConnectPermissions::default(),
+            permission_ceiling: Permissions::default(),
             allowed_sign_event_kinds: Vec::new(),
             auth_url: None,
             auth_pending_ttl_secs: 900,
@@ -1553,12 +1553,10 @@ fn parse_permissions_env(
     value: &str,
     path: &Path,
     line_number: usize,
-) -> Result<RadrootsNostrConnectPermissions, MycError> {
-    value
-        .parse::<RadrootsNostrConnectPermissions>()
-        .map_err(|error| {
-            config_parse_error(path, line_number, format!("{key} parse error: {error}"))
-        })
+) -> Result<Permissions, MycError> {
+    value.parse::<Permissions>().map_err(|error| {
+        config_parse_error(path, line_number, format!("{key} parse error: {error}"))
+    })
 }
 
 fn parse_u16_list_env(

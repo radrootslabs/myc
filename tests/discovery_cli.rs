@@ -14,7 +14,7 @@ use myc::nostr_contract::{
 };
 use nostr::filter::MatchEventOptions;
 use nostr::{ClientMessage, Event, Filter, JsonUtil, PublicKey, RelayMessage, SubscriptionId};
-use radroots_nostr_connect::prelude::RadrootsNostrConnectUri;
+use radroots_nostr_connect::uri::Uri;
 use serde_json::Value;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
@@ -1169,7 +1169,7 @@ async fn discovery_diff_surfaces_relay_provenance_through_the_cli() -> TestResul
     let mut bunker_query = url::form_urlencoded::Serializer::new(String::new());
     bunker_query.append_pair("relay", relay_a.url());
     bunker_query.append_pair("relay", relay_b.url());
-    let bunker_uri = RadrootsNostrConnectUri::parse(&format!(
+    let bunker_uri = Uri::parse(&format!(
         "bunker://{}?{}",
         signer_identity.final_public_key(),
         bunker_query.finish()

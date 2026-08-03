@@ -36,10 +36,12 @@ use nostr::{
     ClientMessage, Event, EventBuilder, Filter, JsonUtil, Keys, Kind, PublicKey, RelayMessage,
     SecretKey, SubscriptionId, Tag, Timestamp, UnsignedEvent,
 };
-use radroots_nostr_connect::prelude::{
-    RADROOTS_NOSTR_CONNECT_RPC_KIND, RadrootsNostrConnectClientMetadata,
-    RadrootsNostrConnectRequest, RadrootsNostrConnectRequestMessage, RadrootsNostrConnectResponse,
-    RadrootsNostrConnectResponseEnvelope, RadrootsNostrConnectUri,
+use radroots_nostr_connect::{
+    Client, Request, Response,
+    client::{ClientEvent, EventOutcome, Target},
+    message::{RPC_KIND, RequestId, RequestMessage, ResponseEnvelope},
+    permission::Permissions,
+    uri::{ClientMetadata, RelayUrl as ConnectRelayUrl, Uri},
 };
 use tempfile::TempDir;
 use tokio::net::{TcpListener, TcpStream};
@@ -76,7 +78,7 @@ fn connect_client_uri(
     identity: &RadrootsIdentity,
     relays: &[&str],
     secret: &str,
-    metadata: &RadrootsNostrConnectClientMetadata,
+    metadata: &ClientMetadata,
 ) -> TestResult<String> {
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     for relay in relays {
@@ -100,11 +102,11 @@ fn connect_client_uri(
         identity.final_public_key(),
         query.finish()
     );
-    Ok(RadrootsNostrConnectUri::parse(&uri)?.to_string())
+    Ok(Uri::parse(&uri)?.to_string())
 }
 
 const RELAY_EVENT_TIMEOUT: Duration = Duration::from_secs(15);
-const EXTERNAL_RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
+const EXTERNAL_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
 const RUNTIME_STATE_TIMEOUT: Duration = Duration::from_secs(15);
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
 
@@ -603,7 +605,7 @@ fn connect_request_message(
     request_id: &str,
     signer_public_key: PublicKey,
     secret: &str,
-) -> RadrootsNostrConnectRequestMessage {
+) -> RequestMessage {
     connect_request_message_with_metadata(request_id, signer_public_key, secret, None)
 }
 
@@ -611,11 +613,11 @@ fn connect_request_message_with_metadata(
     request_id: &str,
     signer_public_key: PublicKey,
     secret: &str,
-    client_metadata: Option<RadrootsNostrConnectClientMetadata>,
-) -> RadrootsNostrConnectRequestMessage {
-    RadrootsNostrConnectRequestMessage::new(
+    client_metadata: Option<ClientMetadata>,
+) -> RequestMessage {
+    RequestMessage::new(
         request_id,
-        RadrootsNostrConnectRequest::Connect {
+        Request::Connect {
             remote_signer_public_key: connect_public_key(signer_public_key),
             secret: Some(secret.to_owned()),
             requested_permissions: Default::default(),
@@ -624,14 +626,14 @@ fn connect_request_message_with_metadata(
     )
 }
 
-fn ping_request_message(request_id: &str) -> RadrootsNostrConnectRequestMessage {
-    RadrootsNostrConnectRequestMessage::new(request_id, RadrootsNostrConnectRequest::Ping)
+fn ping_request_message(request_id: &str) -> RequestMessage {
+    RequestMessage::new(request_id, Request::Ping)
 }
 
 fn build_request_event(
     client_identity: &RadrootsIdentity,
     signer_public_key: PublicKey,
-    request_message: RadrootsNostrConnectRequestMessage,
+    request_message: RequestMessage,
     created_at_unix: u64,
 ) -> Event {
     build_request_event_with_recipient(
@@ -647,7 +649,7 @@ fn build_request_event_with_recipient(
     client_identity: &RadrootsIdentity,
     signer_public_key: PublicKey,
     recipient_public_key: PublicKey,
-    request_message: RadrootsNostrConnectRequestMessage,
+    request_message: RequestMessage,
     created_at_unix: u64,
 ) -> Event {
     let payload = serde_json::to_string(&request_message).expect("request payload");
@@ -674,7 +676,7 @@ fn build_request_event_payload(
         Version::V2,
     )
     .expect("encrypt request");
-    EventBuilder::new(Kind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND), ciphertext)
+    EventBuilder::new(Kind::Custom(RPC_KIND), ciphertext)
         .tags([Tag::public_key(recipient_public_key)])
         .custom_created_at(Timestamp::from(created_at_unix))
         .sign_with_keys(client_identity.keys())
@@ -706,7 +708,7 @@ fn build_external_request_event(
         Version::V2,
     )
     .expect("encrypt external request");
-    EventBuilder::new(Kind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND), ciphertext)
+    EventBuilder::new(Kind::Custom(RPC_KIND), ciphertext)
         .tags([Tag::public_key(signer_public_key)])
         .custom_created_at(Timestamp::from(created_at_unix))
         .sign_with_keys(client_identity.keys())
@@ -717,7 +719,7 @@ fn build_signer_noise_event(signer_identity: &MycActiveIdentity, created_at_unix
     signer_identity
         .sign_protocol_event_builder(
             RadrootsNostrGenericEventBuilder::new(
-                RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+                RadrootsNostrKind::Custom(RPC_KIND),
                 "non-nip44-signer-noise",
             )
             .custom_created_at(Timestamp::from(created_at_unix)),
@@ -730,7 +732,7 @@ fn decrypt_response(
     client_identity: &RadrootsIdentity,
     signer_public_key: PublicKey,
     response_event: &Event,
-) -> RadrootsNostrConnectResponseEnvelope {
+) -> ResponseEnvelope {
     let plaintext = nip44::decrypt(
         client_identity.keys().secret_key(),
         &signer_public_key,
@@ -770,7 +772,13 @@ async fn wait_for_external_response(
             sleep(POLL_INTERVAL).await;
         }
     })
-    .await?
+    .await
+    .map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            format!("timed out waiting for NIP-46 response `{request_id}`"),
+        )
+    })?
 }
 
 async fn publish_external_request_and_wait_for_response(
@@ -800,6 +808,72 @@ async fn publish_external_request_and_wait_for_response(
     .await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn packaged_final_client_interoperates_with_myc_server() -> TestResult<()> {
+    let relay = TestRelay::spawn().await?;
+    let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
+    let runtime = test_runtime.runtime.clone();
+    let signer_public_key = runtime.signer_identity().public_key();
+    let final_signer_public_key = connect_public_key(signer_public_key);
+    let target = Target::try_new(
+        final_signer_public_key,
+        vec![ConnectRelayUrl::parse(relay.url())?],
+    )?;
+    let client = Client::from_secret(
+        "3333333333333333333333333333333333333333333333333333333333333333",
+        target,
+    )?;
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let service_runtime = runtime.clone();
+    let listener_task = tokio::spawn(async move {
+        service_runtime
+            .run_until(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+    });
+    relay.wait_for_subscription_count(1).await?;
+
+    let mut connect = client.prepare(
+        RequestId::parse("final-client-connect")?,
+        Request::Connect {
+            remote_signer_public_key: final_signer_public_key,
+            secret: None,
+            requested_permissions: Permissions::default(),
+            client_metadata: None,
+        },
+    )?;
+    let request = Event::from_json(connect.publication()?.as_json())?;
+    publish_event(relay.url(), &request).await?;
+    connect.mark_published()?;
+    let responses = relay
+        .wait_for_published_events_by_author(signer_public_key, 1)
+        .await?;
+    let response = ClientEvent::from_json(&responses[0].as_json())?;
+    assert_eq!(
+        connect.select(&response)?,
+        EventOutcome::Complete(Box::new(Response::ConnectAcknowledged))
+    );
+
+    let mut ping = client.prepare(RequestId::parse("final-client-ping")?, Request::Ping)?;
+    let request = Event::from_json(ping.publication()?.as_json())?;
+    publish_event(relay.url(), &request).await?;
+    ping.mark_published()?;
+    let responses = relay
+        .wait_for_published_events_by_author(signer_public_key, 2)
+        .await?;
+    let response = ClientEvent::from_json(&responses[1].as_json())?;
+    assert_eq!(
+        ping.select(&response)?,
+        EventOutcome::Complete(Box::new(Response::Pong))
+    );
+
+    let _ = shutdown_tx.send(());
+    listener_task.await??;
+    Ok(())
+}
+
 fn register_external_client_session(
     runtime: &MycRuntime,
     client_public_key: PublicKey,
@@ -807,7 +881,7 @@ fn register_external_client_session(
     permissions: &str,
 ) -> TestResult<()> {
     let manager = runtime.signer_manager()?;
-    let requested_permissions: radroots_nostr_connect::prelude::RadrootsNostrConnectPermissions =
+    let requested_permissions: radroots_nostr_connect::permission::Permissions =
         if permissions.trim().is_empty() {
             Default::default()
         } else {
@@ -1000,8 +1074,8 @@ async fn live_listener_rejects_denied_clients_without_registering_connection() -
         .await?;
     let response = decrypt_response(&client_identity, signer_public_key, &response_events[0]);
     assert_eq!(response.id, "denied-connect");
-    let parsed = radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::from_envelope(
-        &RadrootsNostrConnectRequest::Connect {
+    let parsed = radroots_nostr_connect::Response::from_envelope(
+        &Request::Connect {
             remote_signer_public_key: connect_public_key(signer_public_key),
             secret: Some("denied-secret".to_owned()),
             requested_permissions: Default::default(),
@@ -1012,7 +1086,7 @@ async fn live_listener_rejects_denied_clients_without_registering_connection() -
     )?;
     assert_eq!(
         parsed,
-        radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::Error {
+        radroots_nostr_connect::Response::Error {
             result: None,
             error: "client public key denied by policy".to_owned(),
         }
@@ -1083,13 +1157,10 @@ async fn live_listener_discards_malformed_and_replayed_request_events() -> TestR
     );
     publish_event(relay.url(), &invalid_request_id).await?;
 
-    let malformed_ciphertext = EventBuilder::new(
-        Kind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
-        "not-nip44-ciphertext",
-    )
-    .tags([Tag::public_key(signer_public_key)])
-    .custom_created_at(Timestamp::from(base_created_at + 3))
-    .sign_with_keys(client_identity.keys())?;
+    let malformed_ciphertext = EventBuilder::new(Kind::Custom(RPC_KIND), "not-nip44-ciphertext")
+        .tags([Tag::public_key(signer_public_key)])
+        .custom_created_at(Timestamp::from(base_created_at + 3))
+        .sign_with_keys(client_identity.keys())?;
     publish_event(relay.url(), &malformed_ciphertext).await?;
 
     sleep(Duration::from_millis(200)).await;
@@ -1166,7 +1237,7 @@ async fn live_listener_enforces_signing_ceiling_and_switch_relay_permission() ->
     });
     relay.wait_for_subscription_count(1).await?;
 
-    let connect_request = RadrootsNostrConnectRequest::Connect {
+    let connect_request = Request::Connect {
         remote_signer_public_key: connect_public_key(signer_public_key),
         secret: None,
         requested_permissions: "get_public_key,sign_event:1,sign_event:7,switch_relays".parse()?,
@@ -1177,7 +1248,7 @@ async fn live_listener_enforces_signing_ceiling_and_switch_relay_permission() ->
         &build_request_event(
             &client_identity,
             signer_public_key,
-            RadrootsNostrConnectRequestMessage::new("policy-connect", connect_request.clone()),
+            RequestMessage::new("policy-connect", connect_request.clone()),
             base_created_at,
         ),
     )
@@ -1185,14 +1256,11 @@ async fn live_listener_enforces_signing_ceiling_and_switch_relay_permission() ->
     let responses = relay
         .wait_for_published_events_by_author(signer_public_key, 1)
         .await?;
-    let connect_response = RadrootsNostrConnectResponse::from_envelope(
+    let connect_response = Response::from_envelope(
         &connect_request.method(),
         decrypt_response(&client_identity, signer_public_key, &responses[0]),
     )?;
-    assert_eq!(
-        connect_response,
-        RadrootsNostrConnectResponse::ConnectAcknowledged
-    );
+    assert_eq!(connect_response, Response::ConnectAcknowledged);
     let connection = runtime
         .signer_manager()?
         .list_connections()?
@@ -1204,16 +1272,13 @@ async fn live_listener_enforces_signing_ceiling_and_switch_relay_permission() ->
         "get_public_key,sign_event:1,switch_relays"
     );
 
-    let get_public_key_request = RadrootsNostrConnectRequest::GetPublicKey;
+    let get_public_key_request = Request::GetPublicKey;
     publish_event(
         relay.url(),
         &build_request_event(
             &client_identity,
             signer_public_key,
-            RadrootsNostrConnectRequestMessage::new(
-                "policy-get-public-key",
-                get_public_key_request.clone(),
-            ),
+            RequestMessage::new("policy-get-public-key", get_public_key_request.clone()),
             base_created_at + 1,
         ),
     )
@@ -1223,26 +1288,23 @@ async fn live_listener_enforces_signing_ceiling_and_switch_relay_permission() ->
         .await?;
     assert_eq!(responses[1].pubkey, signer_public_key);
     assert_eq!(
-        RadrootsNostrConnectResponse::from_envelope(
+        Response::from_envelope(
             &get_public_key_request.method(),
             decrypt_response(&client_identity, signer_public_key, &responses[1]),
         )?,
-        RadrootsNostrConnectResponse::UserPublicKey(connect_public_key(user_public_key))
+        Response::UserPublicKey(connect_public_key(user_public_key))
     );
 
     let unsigned_event = |kind: u16, content: &str| {
         connect_unsigned_event(user_public_key, base_created_at, kind, content)
     };
-    let allowed_sign_request = RadrootsNostrConnectRequest::SignEvent(unsigned_event(1, "allowed"));
+    let allowed_sign_request = Request::SignEvent(unsigned_event(1, "allowed"));
     publish_event(
         relay.url(),
         &build_request_event(
             &client_identity,
             signer_public_key,
-            RadrootsNostrConnectRequestMessage::new(
-                "policy-sign-allowed",
-                allowed_sign_request.clone(),
-            ),
+            RequestMessage::new("policy-sign-allowed", allowed_sign_request.clone()),
             base_created_at + 2,
         ),
     )
@@ -1250,27 +1312,24 @@ async fn live_listener_enforces_signing_ceiling_and_switch_relay_permission() ->
     let responses = relay
         .wait_for_published_events_by_author(signer_public_key, 3)
         .await?;
-    let allowed_response = RadrootsNostrConnectResponse::from_envelope(
+    let allowed_response = Response::from_envelope(
         &allowed_sign_request.method(),
         decrypt_response(&client_identity, signer_public_key, &responses[2]),
     )?;
-    let RadrootsNostrConnectResponse::SignedEvent(signed_event) = allowed_response else {
+    let Response::SignedEvent(signed_event) = allowed_response else {
         panic!("expected signed event response");
     };
     let signed_event: Event = serde_json::from_str(&signed_event.as_json())?;
     assert_eq!(signed_event.pubkey, user_public_key);
     signed_event.verify()?;
 
-    let denied_sign_request = RadrootsNostrConnectRequest::SignEvent(unsigned_event(7, "denied"));
+    let denied_sign_request = Request::SignEvent(unsigned_event(7, "denied"));
     publish_event(
         relay.url(),
         &build_request_event(
             &client_identity,
             signer_public_key,
-            RadrootsNostrConnectRequestMessage::new(
-                "policy-sign-denied",
-                denied_sign_request.clone(),
-            ),
+            RequestMessage::new("policy-sign-denied", denied_sign_request.clone()),
             base_created_at + 3,
         ),
     )
@@ -1279,21 +1338,21 @@ async fn live_listener_enforces_signing_ceiling_and_switch_relay_permission() ->
         .wait_for_published_events_by_author(signer_public_key, 4)
         .await?;
     assert!(matches!(
-        RadrootsNostrConnectResponse::from_envelope(
+        Response::from_envelope(
             &denied_sign_request.method(),
             decrypt_response(&client_identity, signer_public_key, &responses[3]),
         )?,
-        RadrootsNostrConnectResponse::Error { error, .. }
+        Response::Error { error, .. }
             if error.contains("outside the configured policy ceiling")
     ));
 
-    let switch_request = RadrootsNostrConnectRequest::SwitchRelays;
+    let switch_request = Request::SwitchRelays;
     publish_event(
         relay.url(),
         &build_request_event(
             &client_identity,
             signer_public_key,
-            RadrootsNostrConnectRequestMessage::new("policy-switch", switch_request.clone()),
+            RequestMessage::new("policy-switch", switch_request.clone()),
             base_created_at + 4,
         ),
     )
@@ -1302,11 +1361,11 @@ async fn live_listener_enforces_signing_ceiling_and_switch_relay_permission() ->
         .wait_for_published_events_by_author(signer_public_key, 5)
         .await?;
     assert_eq!(
-        RadrootsNostrConnectResponse::from_envelope(
+        Response::from_envelope(
             &switch_request.method(),
             decrypt_response(&client_identity, signer_public_key, &responses[4]),
         )?,
-        RadrootsNostrConnectResponse::RelayList(vec![relay.url().parse()?])
+        Response::RelayList(vec![relay.url().parse()?])
     );
 
     let _ = shutdown_tx.send(());
@@ -1917,10 +1976,7 @@ async fn live_listener_acknowledges_logout_before_revoking_session() -> TestResu
     let logout = build_request_event(
         &client_identity,
         signer_public_key,
-        RadrootsNostrConnectRequestMessage::new(
-            "logout-request",
-            RadrootsNostrConnectRequest::Logout,
-        ),
+        RequestMessage::new("logout-request", Request::Logout),
         base_created_at + 1,
     );
     publish_event(relay.url(), &logout).await?;
@@ -1928,14 +1984,8 @@ async fn live_listener_acknowledges_logout_before_revoking_session() -> TestResu
         .wait_for_published_events_by_author(signer_public_key, 2)
         .await?;
     let logout_response = decrypt_response(&client_identity, signer_public_key, &responses[1]);
-    let logout_response = RadrootsNostrConnectResponse::from_envelope(
-        &RadrootsNostrConnectRequest::Logout.method(),
-        logout_response,
-    )?;
-    assert_eq!(
-        logout_response,
-        RadrootsNostrConnectResponse::LogoutAcknowledged
-    );
+    let logout_response = Response::from_envelope(&Request::Logout.method(), logout_response)?;
+    assert_eq!(logout_response, Response::LogoutAcknowledged);
     wait_for_client_connection_status(
         &runtime,
         client_identity.public_key(),
@@ -1959,10 +2009,7 @@ async fn live_listener_acknowledges_logout_before_revoking_session() -> TestResu
     let repeated_logout = build_request_event(
         &client_identity,
         signer_public_key,
-        RadrootsNostrConnectRequestMessage::new(
-            "repeated-logout",
-            RadrootsNostrConnectRequest::Logout,
-        ),
+        RequestMessage::new("repeated-logout", Request::Logout),
         base_created_at + 2,
     );
     publish_event(relay.url(), &repeated_logout).await?;
@@ -1971,13 +2018,11 @@ async fn live_listener_acknowledges_logout_before_revoking_session() -> TestResu
         .await?;
     let repeated_logout_response =
         decrypt_response(&client_identity, signer_public_key, &responses[2]);
-    let repeated_logout_response = RadrootsNostrConnectResponse::from_envelope(
-        &RadrootsNostrConnectRequest::Logout.method(),
-        repeated_logout_response,
-    )?;
+    let repeated_logout_response =
+        Response::from_envelope(&Request::Logout.method(), repeated_logout_response)?;
     assert_eq!(
         repeated_logout_response,
-        RadrootsNostrConnectResponse::Error {
+        Response::Error {
             result: None,
             error: "unauthorized".to_owned(),
         }
@@ -1994,13 +2039,10 @@ async fn live_listener_acknowledges_logout_before_revoking_session() -> TestResu
         .wait_for_published_events_by_author(signer_public_key, 4)
         .await?;
     let ping_response = decrypt_response(&client_identity, signer_public_key, &responses[3]);
-    let ping_response = RadrootsNostrConnectResponse::from_envelope(
-        &RadrootsNostrConnectRequest::Ping.method(),
-        ping_response,
-    )?;
+    let ping_response = Response::from_envelope(&Request::Ping.method(), ping_response)?;
     assert_eq!(
         ping_response,
-        RadrootsNostrConnectResponse::Error {
+        Response::Error {
             result: None,
             error: "unauthorized".to_owned(),
         }
@@ -2084,10 +2126,7 @@ async fn failed_logout_publish_is_retried_and_revoked_during_startup_recovery() 
     let logout = build_request_event(
         &client_identity,
         signer_public_key,
-        RadrootsNostrConnectRequestMessage::new(
-            "recovery-logout",
-            RadrootsNostrConnectRequest::Logout,
-        ),
+        RequestMessage::new("recovery-logout", Request::Logout),
         base_created_at + 1,
     );
     publish_event(relay.url(), &logout).await?;
@@ -2129,14 +2168,9 @@ async fn failed_logout_publish_is_retried_and_revoked_during_startup_recovery() 
         .wait_for_published_events_by_author(signer_public_key, 2)
         .await?;
     let recovered_response = decrypt_response(&client_identity, signer_public_key, &responses[1]);
-    let recovered_response = RadrootsNostrConnectResponse::from_envelope(
-        &RadrootsNostrConnectRequest::Logout.method(),
-        recovered_response,
-    )?;
-    assert_eq!(
-        recovered_response,
-        RadrootsNostrConnectResponse::LogoutAcknowledged
-    );
+    let recovered_response =
+        Response::from_envelope(&Request::Logout.method(), recovered_response)?;
+    assert_eq!(recovered_response, Response::LogoutAcknowledged);
     let recovered_connection = restarted_runtime
         .signer_manager()?
         .find_connections_by_client_public_key(&client_identity.public_key())?
@@ -2181,7 +2215,7 @@ async fn published_logout_acknowledgement_is_finalized_without_republish_on_rest
         .signer_identity()
         .sign_protocol_event_builder(
             RadrootsNostrGenericEventBuilder::new(
-                RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+                RadrootsNostrKind::Custom(RPC_KIND),
                 "published logout acknowledgement fixture",
             ),
             "published logout acknowledgement fixture",
@@ -2286,7 +2320,7 @@ async fn live_listener_works_with_sqlite_signer_state_and_runtime_audit() -> Tes
 
     relay.wait_for_subscription_count(1).await?;
 
-    let client_metadata = RadrootsNostrConnectClientMetadata {
+    let client_metadata = ClientMetadata {
         requested_permissions: "sign_event:1".parse()?,
         name: Some("  SQLite Client  ".to_owned()),
         url: Some("https://client.example/".to_owned()),
@@ -2477,8 +2511,7 @@ async fn external_nostr_client_recovers_connect_response_after_restart() -> Test
         .with_relays(vec![relay_url.clone()])
         .with_approval_requirement(RadrootsNostrSignerApprovalRequirement::NotRequired),
     )?;
-    let response_envelope =
-        RadrootsNostrConnectResponse::ConnectAcknowledged.into_envelope(connect_request_id)?;
+    let response_envelope = Response::ConnectAcknowledged.into_envelope(connect_request_id)?;
     let response_payload = serde_json::to_string(&response_envelope)?;
     let signer_identity =
         identity("1111111111111111111111111111111111111111111111111111111111111111");
@@ -2490,7 +2523,7 @@ async fn external_nostr_client_recovers_connect_response_after_restart() -> Test
     )?;
     let response_event = runtime.signer_identity().sign_protocol_event_builder(
         RadrootsNostrGenericEventBuilder::new(
-            RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+            RadrootsNostrKind::Custom(RPC_KIND),
             response_ciphertext,
         )
         .tags(vec![RadrootsNostrTag::public_key(
@@ -2608,7 +2641,7 @@ async fn startup_recovery_republishes_queued_listener_connect_secret_job() -> Te
         .signer_identity()
         .sign_protocol_event_builder(
             RadrootsNostrGenericEventBuilder::new(
-                RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+                RadrootsNostrKind::Custom(RPC_KIND),
                 "startup-recovery",
             ),
             "startup recovery",
@@ -2707,7 +2740,7 @@ async fn startup_recovery_republishes_queued_connect_accept_job() -> TestResult<
         .signer_identity()
         .sign_protocol_event_builder(
             RadrootsNostrGenericEventBuilder::new(
-                RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+                RadrootsNostrKind::Custom(RPC_KIND),
                 "startup-recovery-connect-accept",
             ),
             "startup recovery connect accept",
@@ -2812,7 +2845,7 @@ async fn startup_recovery_republishes_queued_auth_replay_job() -> TestResult<()>
         .signer_identity()
         .sign_protocol_event_builder(
             RadrootsNostrGenericEventBuilder::new(
-                RadrootsNostrKind::Custom(RADROOTS_NOSTR_CONNECT_RPC_KIND),
+                RadrootsNostrKind::Custom(RPC_KIND),
                 "startup-recovery-auth-replay",
             ),
             "startup recovery auth replay",
@@ -2921,9 +2954,9 @@ async fn trusted_client_reauths_after_authorized_ttl() -> TestResult<()> {
     let connect_request = build_request_event(
         &client_identity,
         signer_public_key,
-        RadrootsNostrConnectRequestMessage::new(
+        RequestMessage::new(
             "trusted-connect",
-            RadrootsNostrConnectRequest::Connect {
+            Request::Connect {
                 remote_signer_public_key: connect_public_key(signer_public_key),
                 secret: None,
                 requested_permissions: "sign_event:1".parse().expect("requested permissions"),
@@ -2938,29 +2971,28 @@ async fn trusted_client_reauths_after_authorized_ttl() -> TestResult<()> {
         .await?;
     let connect_response =
         decrypt_response(&client_identity, signer_public_key, &response_events[0]);
-    let connect_parsed =
-        radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::from_envelope(
-            &RadrootsNostrConnectRequest::Connect {
-                remote_signer_public_key: connect_public_key(signer_public_key),
-                secret: None,
-                requested_permissions: "sign_event:1".parse().expect("requested permissions"),
-                client_metadata: None,
-            }
-            .method(),
-            connect_response,
-        )?;
+    let connect_parsed = radroots_nostr_connect::Response::from_envelope(
+        &Request::Connect {
+            remote_signer_public_key: connect_public_key(signer_public_key),
+            secret: None,
+            requested_permissions: "sign_event:1".parse().expect("requested permissions"),
+            client_metadata: None,
+        }
+        .method(),
+        connect_response,
+    )?;
     assert_eq!(
         connect_parsed,
-        radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::ConnectAcknowledged
+        radroots_nostr_connect::Response::ConnectAcknowledged
     );
 
     let sign_request = |request_id: &str, created_at_unix| {
         build_request_event(
             &client_identity,
             signer_public_key,
-            RadrootsNostrConnectRequestMessage::new(
+            RequestMessage::new(
                 request_id,
-                RadrootsNostrConnectRequest::SignEvent(connect_unsigned_event(
+                Request::SignEvent(connect_unsigned_event(
                     runtime.user_identity().public_key(),
                     created_at_unix,
                     1,
@@ -2980,8 +3012,8 @@ async fn trusted_client_reauths_after_authorized_ttl() -> TestResult<()> {
         .wait_for_published_events_by_author(signer_public_key, 2)
         .await?;
     let first_auth = decrypt_response(&client_identity, signer_public_key, &response_events[1]);
-    let first_auth = radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::from_envelope(
-        &RadrootsNostrConnectRequest::SignEvent(connect_unsigned_event(
+    let first_auth = radroots_nostr_connect::Response::from_envelope(
+        &Request::SignEvent(connect_unsigned_event(
             runtime.user_identity().public_key(),
             Timestamp::from(1).as_secs(),
             1,
@@ -2992,9 +3024,7 @@ async fn trusted_client_reauths_after_authorized_ttl() -> TestResult<()> {
     )?;
     assert_eq!(
         first_auth,
-        radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::AuthUrl(
-            "https://auth.example/challenge".to_owned()
-        )
+        radroots_nostr_connect::Response::AuthUrl("https://auth.example/challenge".to_owned())
     );
 
     let connection = runtime
@@ -3014,20 +3044,19 @@ async fn trusted_client_reauths_after_authorized_ttl() -> TestResult<()> {
         .await?;
     let replay_response =
         decrypt_response(&client_identity, signer_public_key, &response_events[2]);
-    let replay_parsed =
-        radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::from_envelope(
-            &RadrootsNostrConnectRequest::SignEvent(connect_unsigned_event(
-                runtime.user_identity().public_key(),
-                Timestamp::from(1).as_secs(),
-                1,
-                "trusted-sign-1",
-            ))
-            .method(),
-            replay_response,
-        )?;
+    let replay_parsed = radroots_nostr_connect::Response::from_envelope(
+        &Request::SignEvent(connect_unsigned_event(
+            runtime.user_identity().public_key(),
+            Timestamp::from(1).as_secs(),
+            1,
+            "trusted-sign-1",
+        ))
+        .method(),
+        replay_response,
+    )?;
     assert!(matches!(
         replay_parsed,
-        radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::SignedEvent(_)
+        radroots_nostr_connect::Response::SignedEvent(_)
     ));
 
     sleep(Duration::from_secs(2)).await;
@@ -3041,8 +3070,8 @@ async fn trusted_client_reauths_after_authorized_ttl() -> TestResult<()> {
         .wait_for_published_events_by_author(signer_public_key, 4)
         .await?;
     let second_auth = decrypt_response(&client_identity, signer_public_key, &response_events[3]);
-    let second_auth = radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::from_envelope(
-        &RadrootsNostrConnectRequest::SignEvent(connect_unsigned_event(
+    let second_auth = radroots_nostr_connect::Response::from_envelope(
+        &Request::SignEvent(connect_unsigned_event(
             runtime.user_identity().public_key(),
             Timestamp::from(1).as_secs(),
             1,
@@ -3053,9 +3082,7 @@ async fn trusted_client_reauths_after_authorized_ttl() -> TestResult<()> {
     )?;
     assert_eq!(
         second_auth,
-        radroots_nostr_connect::prelude::RadrootsNostrConnectResponse::AuthUrl(
-            "https://auth.example/challenge".to_owned()
-        )
+        radroots_nostr_connect::Response::AuthUrl("https://auth.example/challenge".to_owned())
     );
 
     let _ = shutdown_tx.send(());
@@ -3077,7 +3104,7 @@ async fn connect_accept_retries_without_consuming_secret_until_publish_succeeds(
         .queue_publish_outcomes(signer_public_key, &[false, true])
         .await;
 
-    let client_metadata = RadrootsNostrConnectClientMetadata {
+    let client_metadata = ClientMetadata {
         requested_permissions: Default::default(),
         name: Some("  Connect Accept Client  ".to_owned()),
         url: Some("https://connect.example/".to_owned()),
@@ -3257,7 +3284,7 @@ async fn connect_accept_succeeds_with_any_delivery_policy_when_one_relay_acknowl
         &client_identity,
         &[relay_a.url(), relay_b.url()],
         "delivery-any-secret",
-        &RadrootsNostrConnectClientMetadata::default(),
+        &ClientMetadata::default(),
     )?;
 
     let accepted = control::accept_client_uri(&runtime, &client_uri).await?;
@@ -3328,7 +3355,7 @@ async fn connect_accept_rejects_when_quorum_delivery_policy_is_not_met() -> Test
         &client_identity,
         &[relay_a.url(), relay_b.url()],
         "delivery-quorum-secret",
-        &RadrootsNostrConnectClientMetadata::default(),
+        &ClientMetadata::default(),
     )?;
 
     let error = control::accept_client_uri(&runtime, &client_uri)

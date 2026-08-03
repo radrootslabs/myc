@@ -6,10 +6,7 @@ use crate::signer::prelude::{
     RadrootsNostrSignerPublishTransition, RadrootsNostrSignerPublishWorkflowRecord,
     RadrootsNostrSignerRequestId, RadrootsNostrSignerWorkflowId,
 };
-use radroots_nostr_connect::prelude::{
-    RadrootsNostrConnectPermission, RadrootsNostrConnectPermissions, RadrootsNostrConnectRequest,
-    RadrootsNostrConnectResponse, RadrootsNostrConnectUri,
-};
+use radroots_nostr_connect::{Permission, Request, Response, permission::Permissions, uri::Uri};
 use serde::Serialize;
 
 use crate::app::MycRuntime;
@@ -78,9 +75,9 @@ pub async fn accept_client_uri(
         ));
     }
 
-    let client_uri = match RadrootsNostrConnectUri::parse(uri)? {
-        RadrootsNostrConnectUri::Client(client_uri) => client_uri,
-        RadrootsNostrConnectUri::Bunker(_) => {
+    let client_uri = match Uri::parse(uri)? {
+        Uri::Client(client_uri) => client_uri,
+        Uri::Bunker(_) => {
             return Err(MycError::InvalidOperation(
                 "connect accept requires a nostrconnect:// client URI".to_owned(),
             ));
@@ -91,7 +88,7 @@ pub async fn accept_client_uri(
             MycError::InvalidOperation("NIP-46 client public key conversion failed".to_owned())
         })?;
 
-    let request = RadrootsNostrConnectRequest::Connect {
+    let request = Request::Connect {
         remote_signer_public_key: runtime.signer_identity().public_identity().public_key(),
         secret: Some(client_uri.secret().to_owned()),
         requested_permissions: client_uri.metadata().requested_permissions().clone(),
@@ -160,7 +157,7 @@ pub async fn accept_client_uri(
     let event = handler.build_response_event(
         client_public_key,
         response_request_id.clone(),
-        RadrootsNostrConnectResponse::ConnectSecretEcho(client_uri.secret().to_owned()),
+        Response::ConnectSecretEcho(client_uri.secret().to_owned()),
     )?;
     let client_relays = client_uri
         .relays()
@@ -310,9 +307,7 @@ pub async fn accept_client_uri(
     })
 }
 
-pub fn parse_permission_values(
-    values: &[String],
-) -> Result<RadrootsNostrConnectPermissions, MycError> {
+pub fn parse_permission_values(values: &[String]) -> Result<Permissions, MycError> {
     let mut permissions = Vec::new();
     for value in values {
         for fragment in value.split(',') {
@@ -320,7 +315,7 @@ pub fn parse_permission_values(
             if trimmed.is_empty() {
                 continue;
             }
-            permissions.push(RadrootsNostrConnectPermission::from_str(trimmed)?);
+            permissions.push(Permission::from_str(trimmed)?);
         }
     }
     permissions.sort();

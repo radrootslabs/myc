@@ -1788,7 +1788,7 @@ mod tests {
             .record_request(
                 &connection.connection_id,
                 "req-live-metrics",
-                radroots_nostr_connect::prelude::RadrootsNostrConnectMethod::Ping,
+                radroots_nostr_connect::Method::Ping,
                 RadrootsNostrSignerRequestDecision::Allowed,
                 None,
             )

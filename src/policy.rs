@@ -8,9 +8,8 @@ use crate::signer::prelude::{
     RadrootsNostrSignerNip46ConnectDecision, RadrootsNostrSignerNip46Policy,
 };
 use nostr::PublicKey;
-use radroots_nostr_connect::prelude::{
-    RadrootsNostrConnectMethod, RadrootsNostrConnectPermission, RadrootsNostrConnectPermissions,
-    RadrootsNostrConnectRequest, RadrootsNostrConnectRequestMessage,
+use radroots_nostr_connect::{
+    Method, Permission, Request, message::RequestMessage, permission::Permissions,
 };
 
 use crate::config::{MycConnectionApproval, MycPolicyConfig};
@@ -28,7 +27,7 @@ pub struct MycPolicyContext {
     default_connect_decision: MycConnectDecision,
     trusted_client_pubkeys: BTreeSet<String>,
     denied_client_pubkeys: BTreeSet<String>,
-    permission_ceiling: RadrootsNostrConnectPermissions,
+    permission_ceiling: Permissions,
     allowed_sign_event_kinds: BTreeSet<u16>,
     auth_url: Option<String>,
     auth_pending_ttl_secs: u64,
@@ -116,29 +115,24 @@ impl MycPolicyContext {
         })
     }
 
-    pub fn auto_granted_permissions(
-        &self,
-        requested_permissions: &RadrootsNostrConnectPermissions,
-    ) -> RadrootsNostrConnectPermissions {
+    pub fn auto_granted_permissions(&self, requested_permissions: &Permissions) -> Permissions {
         self.filtered_requested_permissions(requested_permissions)
     }
 
     pub fn filtered_requested_permissions(
         &self,
-        requested_permissions: &RadrootsNostrConnectPermissions,
-    ) -> RadrootsNostrConnectPermissions {
+        requested_permissions: &Permissions,
+    ) -> Permissions {
         let mut filtered = Vec::new();
 
         for permission in requested_permissions.as_slice() {
-            if permission.method == RadrootsNostrConnectMethod::SignEvent
+            if permission.method == Method::SignEvent
                 && permission.parameter.is_none()
                 && !self.allowed_sign_event_kinds.is_empty()
             {
                 for kind in &self.allowed_sign_event_kinds {
-                    let candidate = RadrootsNostrConnectPermission::with_parameter(
-                        RadrootsNostrConnectMethod::SignEvent,
-                        format!("kind:{kind}"),
-                    );
+                    let candidate =
+                        Permission::with_parameter(Method::SignEvent, format!("kind:{kind}"));
                     if self.permission_within_policy(&candidate) {
                         filtered.push(candidate);
                     }
@@ -156,8 +150,8 @@ impl MycPolicyContext {
 
     pub fn validate_operator_grants(
         &self,
-        granted_permissions: RadrootsNostrConnectPermissions,
-    ) -> Result<RadrootsNostrConnectPermissions, MycError> {
+        granted_permissions: Permissions,
+    ) -> Result<Permissions, MycError> {
         let granted_permissions = normalize_permissions(granted_permissions);
         let invalid_permissions = granted_permissions
             .as_slice()
@@ -180,7 +174,7 @@ impl MycPolicyContext {
         &self,
         backend: &B,
         connection: &RadrootsNostrSignerConnectionRecord,
-        request_message: &RadrootsNostrConnectRequestMessage,
+        request_message: &RequestMessage,
     ) -> Result<Option<String>, MycError> {
         if self.client_is_denied(&connection.client_public_key) {
             return Ok(Some("client public key denied by policy".to_owned()));
@@ -253,10 +247,8 @@ impl MycPolicyContext {
             .contains(&client_public_key.to_hex())
     }
 
-    fn permission_within_policy(&self, permission: &RadrootsNostrConnectPermission) -> bool {
-        if permission.method == RadrootsNostrConnectMethod::SignEvent
-            && !self.allowed_sign_event_kinds.is_empty()
-        {
+    fn permission_within_policy(&self, permission: &Permission) -> bool {
+        if permission.method == Method::SignEvent && !self.allowed_sign_event_kinds.is_empty() {
             let Some(kind) = permission
                 .parameter
                 .as_deref()
@@ -279,10 +271,10 @@ impl MycPolicyContext {
             .any(|ceiling| permission_within_ceiling(permission, ceiling))
     }
 
-    fn request_denied_reason(&self, request: &RadrootsNostrConnectRequest) -> Option<String> {
+    fn request_denied_reason(&self, request: &Request) -> Option<String> {
         if self.permission_ceiling.is_empty()
             && (self.allowed_sign_event_kinds.is_empty()
-                || !matches!(request, RadrootsNostrConnectRequest::SignEvent(_)))
+                || !matches!(request, Request::SignEvent(_)))
         {
             return None;
         }
@@ -301,7 +293,7 @@ impl MycPolicyContext {
     fn request_uses_automatic_auth(
         &self,
         connection: &RadrootsNostrSignerConnectionRecord,
-        request: &RadrootsNostrConnectRequest,
+        request: &Request,
     ) -> bool {
         self.automatic_auth_enabled_for_connection(connection) && request_requires_auth(request)
     }
@@ -309,7 +301,7 @@ impl MycPolicyContext {
     fn should_require_fresh_auth(
         &self,
         connection: &RadrootsNostrSignerConnectionRecord,
-        request: &RadrootsNostrConnectRequest,
+        request: &Request,
     ) -> bool {
         if !self.request_uses_automatic_auth(connection, request) {
             return false;
@@ -460,17 +452,11 @@ impl<B: RadrootsNostrSignerBackend> RadrootsNostrSignerNip46Policy<B> for MycPol
         self.approval_requirement_for_client(client_public_key)
     }
 
-    fn filtered_requested_permissions(
-        &self,
-        requested_permissions: &RadrootsNostrConnectPermissions,
-    ) -> RadrootsNostrConnectPermissions {
+    fn filtered_requested_permissions(&self, requested_permissions: &Permissions) -> Permissions {
         self.filtered_requested_permissions(requested_permissions)
     }
 
-    fn auto_granted_permissions(
-        &self,
-        requested_permissions: &RadrootsNostrConnectPermissions,
-    ) -> RadrootsNostrConnectPermissions {
+    fn auto_granted_permissions(&self, requested_permissions: &Permissions) -> Permissions {
         self.auto_granted_permissions(requested_permissions)
     }
 
@@ -478,7 +464,7 @@ impl<B: RadrootsNostrSignerBackend> RadrootsNostrSignerNip46Policy<B> for MycPol
         &self,
         backend: &B,
         connection: &RadrootsNostrSignerConnectionRecord,
-        request_message: &RadrootsNostrConnectRequestMessage,
+        request_message: &RequestMessage,
     ) -> Result<Option<String>, crate::signer::prelude::RadrootsNostrSignerError> {
         self.prepare_request(backend, connection, request_message)
             .map_err(myc_policy_signer_error)
@@ -513,9 +499,7 @@ impl MycPolicyRateLimiter {
     }
 }
 
-fn normalize_permissions(
-    permissions: RadrootsNostrConnectPermissions,
-) -> RadrootsNostrConnectPermissions {
+fn normalize_permissions(permissions: Permissions) -> Permissions {
     let mut permissions = permissions.into_vec();
     permissions.sort();
     permissions.dedup();
@@ -546,46 +530,27 @@ fn normalize_public_key_hex(value: &str) -> Result<String, MycError> {
     Ok(public_key.to_hex())
 }
 
-fn required_permission_for_request(
-    request: &RadrootsNostrConnectRequest,
-) -> Option<RadrootsNostrConnectPermission> {
+fn required_permission_for_request(request: &Request) -> Option<Permission> {
     match request {
-        RadrootsNostrConnectRequest::Connect { .. }
-        | RadrootsNostrConnectRequest::GetPublicKey
-        | RadrootsNostrConnectRequest::GetSessionCapability
-        | RadrootsNostrConnectRequest::Ping
-        | RadrootsNostrConnectRequest::Logout => None,
-        RadrootsNostrConnectRequest::SignEvent(unsigned_event) => {
-            Some(RadrootsNostrConnectPermission::with_parameter(
-                RadrootsNostrConnectMethod::SignEvent,
-                format!("kind:{}", unsigned_event.kind()),
-            ))
-        }
-        RadrootsNostrConnectRequest::Nip04Encrypt { .. } => Some(
-            RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip04Encrypt),
-        ),
-        RadrootsNostrConnectRequest::Nip04Decrypt { .. } => Some(
-            RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip04Decrypt),
-        ),
-        RadrootsNostrConnectRequest::Nip44Encrypt { .. } => Some(
-            RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip44Encrypt),
-        ),
-        RadrootsNostrConnectRequest::Nip44Decrypt { .. } => Some(
-            RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip44Decrypt),
-        ),
-        RadrootsNostrConnectRequest::SwitchRelays => Some(RadrootsNostrConnectPermission::new(
-            RadrootsNostrConnectMethod::SwitchRelays,
+        Request::Connect { .. }
+        | Request::GetPublicKey
+        | Request::GetSessionCapability
+        | Request::Ping
+        | Request::Logout => None,
+        Request::SignEvent(unsigned_event) => Some(Permission::with_parameter(
+            Method::SignEvent,
+            format!("kind:{}", unsigned_event.kind()),
         )),
-        RadrootsNostrConnectRequest::Custom { method, .. } => {
-            Some(RadrootsNostrConnectPermission::new(method.clone()))
-        }
+        Request::Nip04Encrypt { .. } => Some(Permission::new(Method::Nip04Encrypt)),
+        Request::Nip04Decrypt { .. } => Some(Permission::new(Method::Nip04Decrypt)),
+        Request::Nip44Encrypt { .. } => Some(Permission::new(Method::Nip44Encrypt)),
+        Request::Nip44Decrypt { .. } => Some(Permission::new(Method::Nip44Decrypt)),
+        Request::SwitchRelays => Some(Permission::new(Method::SwitchRelays)),
+        Request::Custom { method, .. } => Some(Permission::new(method.clone())),
     }
 }
 
-fn permission_within_ceiling(
-    permission: &RadrootsNostrConnectPermission,
-    ceiling: &RadrootsNostrConnectPermission,
-) -> bool {
+fn permission_within_ceiling(permission: &Permission, ceiling: &Permission) -> bool {
     if permission.method != ceiling.method {
         return false;
     }
@@ -595,11 +560,11 @@ fn permission_within_ceiling(
         permission.parameter.as_deref(),
         ceiling.parameter.as_deref(),
     ) {
-        (RadrootsNostrConnectMethod::SignEvent, _, None) => true,
-        (RadrootsNostrConnectMethod::SignEvent, Some(parameter), Some(ceiling_parameter)) => {
+        (Method::SignEvent, _, None) => true,
+        (Method::SignEvent, Some(parameter), Some(ceiling_parameter)) => {
             sign_event_parameter_eq(parameter, ceiling_parameter)
         }
-        (RadrootsNostrConnectMethod::SignEvent, None, Some(_)) => false,
+        (Method::SignEvent, None, Some(_)) => false,
         (_, _, None) => true,
         (_, Some(parameter), Some(ceiling_parameter)) => parameter == ceiling_parameter,
         (_, None, Some(_)) => false,
@@ -618,14 +583,14 @@ fn parse_sign_event_kind_parameter(value: &str) -> Option<u16> {
         .ok()
 }
 
-fn request_requires_auth(request: &RadrootsNostrConnectRequest) -> bool {
+fn request_requires_auth(request: &Request) -> bool {
     !matches!(
         request,
-        RadrootsNostrConnectRequest::Connect { .. }
-            | RadrootsNostrConnectRequest::GetPublicKey
-            | RadrootsNostrConnectRequest::GetSessionCapability
-            | RadrootsNostrConnectRequest::Ping
-            | RadrootsNostrConnectRequest::Logout
+        Request::Connect { .. }
+            | Request::GetPublicKey
+            | Request::GetSessionCapability
+            | Request::Ping
+            | Request::Logout
     )
 }
 
@@ -679,10 +644,8 @@ mod tests {
         RadrootsNostrSignerManager,
     };
     use nostr::PublicKey;
-    use radroots_nostr_connect::prelude::{
-        RadrootsNostrConnectMethod, RadrootsNostrConnectPermission,
-        RadrootsNostrConnectPermissions, RadrootsNostrConnectRequest,
-        RadrootsNostrConnectRequestMessage,
+    use radroots_nostr_connect::{
+        Method, Permission, Request, message::RequestMessage, permission::Permissions,
     };
     use serde_json::json;
     use std::thread;
@@ -729,11 +692,7 @@ mod tests {
                         .to_public(),
                 )
                 .with_requested_permissions(
-                    vec![RadrootsNostrConnectPermission::with_parameter(
-                        RadrootsNostrConnectMethod::SignEvent,
-                        "kind:1",
-                    )]
-                    .into(),
+                    vec![Permission::with_parameter(Method::SignEvent, "kind:1")].into(),
                 )
                 .with_approval_requirement(RadrootsNostrSignerApprovalRequirement::NotRequired),
             )
@@ -789,11 +748,8 @@ mod tests {
     fn auto_granted_permissions_apply_policy_ceiling_and_kind_limits() {
         let config = MycPolicyConfig {
             permission_ceiling: vec![
-                RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip04Encrypt),
-                RadrootsNostrConnectPermission::with_parameter(
-                    RadrootsNostrConnectMethod::SignEvent,
-                    "kind:1",
-                ),
+                Permission::new(Method::Nip04Encrypt),
+                Permission::with_parameter(Method::SignEvent, "kind:1"),
             ]
             .into(),
             allowed_sign_event_kinds: vec![1],
@@ -801,13 +757,10 @@ mod tests {
         };
         let policy = MycPolicyContext::from_config(&config).expect("policy");
 
-        let requested_permissions: RadrootsNostrConnectPermissions = vec![
-            RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip04Encrypt),
-            RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::SignEvent),
-            RadrootsNostrConnectPermission::with_parameter(
-                RadrootsNostrConnectMethod::SignEvent,
-                "kind:2",
-            ),
+        let requested_permissions: Permissions = vec![
+            Permission::new(Method::Nip04Encrypt),
+            Permission::new(Method::SignEvent),
+            Permission::with_parameter(Method::SignEvent, "kind:2"),
         ]
         .into();
         let filtered = policy.auto_granted_permissions(&requested_permissions);
@@ -833,10 +786,7 @@ mod tests {
             .prepare_request(
                 &backend,
                 &connection,
-                &RadrootsNostrConnectRequestMessage::new(
-                    "request-1",
-                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(2)),
-                ),
+                &RequestMessage::new("request-1", Request::SignEvent(unsigned_event(2))),
             )
             .expect("prepare request");
 
@@ -849,20 +799,13 @@ mod tests {
     #[test]
     fn validate_operator_grants_rejects_out_of_policy_permissions() {
         let config = MycPolicyConfig {
-            permission_ceiling: RadrootsNostrConnectPermissions::from(vec![
-                RadrootsNostrConnectPermission::new(RadrootsNostrConnectMethod::Nip04Encrypt),
-            ]),
+            permission_ceiling: Permissions::from(vec![Permission::new(Method::Nip04Encrypt)]),
             ..MycPolicyConfig::default()
         };
         let policy = MycPolicyContext::from_config(&config).expect("policy");
 
         let error = policy
-            .validate_operator_grants(
-                vec![RadrootsNostrConnectPermission::new(
-                    RadrootsNostrConnectMethod::Nip44Encrypt,
-                )]
-                .into(),
-            )
+            .validate_operator_grants(vec![Permission::new(Method::Nip44Encrypt)].into())
             .expect_err("grant outside ceiling");
         assert!(
             error
@@ -902,10 +845,7 @@ mod tests {
             .prepare_request(
                 &backend,
                 &connection,
-                &RadrootsNostrConnectRequestMessage::new(
-                    "request-1",
-                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(1)),
-                ),
+                &RequestMessage::new("request-1", Request::SignEvent(unsigned_event(1))),
             )
             .expect("prepare request");
 
@@ -952,7 +892,7 @@ mod tests {
             .record_request(
                 &connection.connection_id,
                 "request-0",
-                RadrootsNostrConnectMethod::SignEvent,
+                Method::SignEvent,
                 crate::signer::prelude::RadrootsNostrSignerRequestDecision::Allowed,
                 None,
             )
@@ -967,10 +907,7 @@ mod tests {
             .prepare_request(
                 &backend,
                 &connection,
-                &RadrootsNostrConnectRequestMessage::new(
-                    "request-1",
-                    RadrootsNostrConnectRequest::SignEvent(unsigned_event(1)),
-                ),
+                &RequestMessage::new("request-1", Request::SignEvent(unsigned_event(1))),
             )
             .expect("prepare request");
 

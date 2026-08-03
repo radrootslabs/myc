@@ -13,10 +13,7 @@ use crate::signer::prelude::{
     RadrootsNostrSignerSignOutput, RadrootsNostrSignerWorkflowId,
 };
 use nostr::{PublicKey, RelayUrl, UnsignedEvent};
-use radroots_nostr_connect::prelude::{
-    RadrootsNostrConnectMethod, RadrootsNostrConnectPermissions, RadrootsNostrConnectRequest,
-    RadrootsNostrConnectRequestMessage,
-};
+use radroots_nostr_connect::{Method, Request, message::RequestMessage, permission::Permissions};
 
 use crate::app::MycSignerContext;
 use crate::error::MycError;
@@ -143,7 +140,7 @@ impl RadrootsNostrSignerBackend for MycSignerBackend {
     fn evaluate_connect_request(
         &self,
         client_public_key: PublicKey,
-        request: RadrootsNostrConnectRequest,
+        request: Request,
     ) -> Result<RadrootsNostrSignerConnectEvaluation, RadrootsNostrSignerError> {
         self.manager()?
             .evaluate_connect_request(client_public_key, request)
@@ -159,7 +156,7 @@ impl RadrootsNostrSignerBackend for MycSignerBackend {
     fn set_granted_permissions(
         &self,
         connection_id: &RadrootsNostrSignerConnectionId,
-        granted_permissions: RadrootsNostrConnectPermissions,
+        granted_permissions: Permissions,
     ) -> Result<RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerError> {
         self.manager()?
             .set_granted_permissions(connection_id, granted_permissions)
@@ -168,7 +165,7 @@ impl RadrootsNostrSignerBackend for MycSignerBackend {
     fn approve_connection(
         &self,
         connection_id: &RadrootsNostrSignerConnectionId,
-        granted_permissions: RadrootsNostrConnectPermissions,
+        granted_permissions: Permissions,
     ) -> Result<RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerError> {
         self.manager()?
             .approve_connection(connection_id, granted_permissions)
@@ -210,7 +207,7 @@ impl RadrootsNostrSignerBackend for MycSignerBackend {
     fn set_pending_request(
         &self,
         connection_id: &RadrootsNostrSignerConnectionId,
-        request_message: RadrootsNostrConnectRequestMessage,
+        request_message: RequestMessage,
     ) -> Result<RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerError> {
         self.manager()?
             .set_pending_request(connection_id, request_message)
@@ -296,7 +293,7 @@ impl RadrootsNostrSignerBackend for MycSignerBackend {
     fn evaluate_request(
         &self,
         connection_id: &RadrootsNostrSignerConnectionId,
-        request_message: RadrootsNostrConnectRequestMessage,
+        request_message: RequestMessage,
     ) -> Result<RadrootsNostrSignerRequestEvaluation, RadrootsNostrSignerError> {
         self.manager()?
             .evaluate_request(connection_id, request_message)
@@ -314,7 +311,7 @@ impl RadrootsNostrSignerBackend for MycSignerBackend {
         &self,
         connection_id: &RadrootsNostrSignerConnectionId,
         request_id: &str,
-        method: RadrootsNostrConnectMethod,
+        method: Method,
         decision: RadrootsNostrSignerRequestDecision,
         message: Option<String>,
     ) -> Result<RadrootsNostrSignerRequestAuditRecord, RadrootsNostrSignerError> {

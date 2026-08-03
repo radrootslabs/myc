@@ -7,7 +7,7 @@ use crate::signer::prelude::{
     RadrootsNostrSignerConnectionRecord, RadrootsNostrSignerRequestAuditRecord,
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use radroots_nostr_connect::prelude::RadrootsNostrConnectPermissions;
+use radroots_nostr_connect::permission::Permissions;
 use serde::Serialize;
 use zeroize::Zeroizing;
 
@@ -716,7 +716,7 @@ fn granted_permissions_for_approval(
     connections: &[RadrootsNostrSignerConnectionRecord],
     connection_id: &RadrootsNostrSignerConnectionId,
     grants: &[String],
-) -> Result<RadrootsNostrConnectPermissions, MycError> {
+) -> Result<Permissions, MycError> {
     if !grants.is_empty() {
         return policy.validate_operator_grants(parse_permission_values(grants)?);
     }
@@ -1055,7 +1055,7 @@ mod tests {
     use crate::signer::prelude::RadrootsNostrSignerConnectionDraft;
     use clap::Parser;
     use nostr::Timestamp;
-    use radroots_nostr_connect::prelude::RadrootsNostrConnectRequest;
+    use radroots_nostr_connect::Request;
     use serde_json::json;
 
     use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
@@ -1144,10 +1144,7 @@ mod tests {
         let request_evaluation = manager
             .evaluate_request(
                 &connection.connection_id,
-                radroots_nostr_connect::prelude::RadrootsNostrConnectRequestMessage::new(
-                    "request-1",
-                    RadrootsNostrConnectRequest::Ping,
-                ),
+                radroots_nostr_connect::message::RequestMessage::new("request-1", Request::Ping),
             )
             .expect("record audit");
         runtime.record_operation_audit(&MycOperationAuditRecord::new(
@@ -1192,9 +1189,9 @@ mod tests {
         let denied = manager
             .evaluate_request(
                 &connection.connection_id,
-                radroots_nostr_connect::prelude::RadrootsNostrConnectRequestMessage::new(
+                radroots_nostr_connect::message::RequestMessage::new(
                     "request-1",
-                    RadrootsNostrConnectRequest::SignEvent(
+                    Request::SignEvent(
                         radroots_nostr_connect::message::UnsignedEvent::from_json(
                             &json!({
                                 "pubkey": runtime.user_identity().public_key().to_hex(),
@@ -1216,10 +1213,7 @@ mod tests {
         let challenged_eval = manager
             .evaluate_request(
                 &challenged.connection_id,
-                radroots_nostr_connect::prelude::RadrootsNostrConnectRequestMessage::new(
-                    "request-2",
-                    RadrootsNostrConnectRequest::Ping,
-                ),
+                radroots_nostr_connect::message::RequestMessage::new("request-2", Request::Ping),
             )
             .expect("challenged request");
 
