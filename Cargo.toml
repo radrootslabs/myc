@@ -46,4 +46,5 @@ zeroize = "1.8"
 
 [dev-dependencies]
 futures-util = "0.3.32"
+serial_test = "3"
 tokio-tungstenite = "0.26.2"

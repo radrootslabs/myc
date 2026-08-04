@@ -808,7 +808,8 @@ async fn publish_external_request_and_wait_for_response(
     .await
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn packaged_final_client_interoperates_with_myc_server() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
@@ -1034,7 +1035,8 @@ where
     .map_err(Into::into)
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn live_listener_rejects_denied_clients_without_registering_connection() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let client_identity =
@@ -1098,7 +1100,8 @@ async fn live_listener_rejects_denied_clients_without_registering_connection() -
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn live_listener_discards_malformed_and_replayed_request_events() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
@@ -1205,7 +1208,8 @@ async fn live_listener_discards_malformed_and_replayed_request_events() -> TestR
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn live_listener_enforces_signing_ceiling_and_switch_relay_permission() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new_with_transport_config(
@@ -1373,7 +1377,8 @@ async fn live_listener_enforces_signing_ceiling_and_switch_relay_permission() ->
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn external_nostr_client_compatibility_covers_connect_and_base_methods() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
@@ -1445,7 +1450,8 @@ async fn external_nostr_client_compatibility_covers_connect_and_base_methods() -
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn external_nostr_client_compatibility_covers_signed_and_crypto_methods() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
@@ -1604,7 +1610,8 @@ async fn external_nostr_client_compatibility_covers_signed_and_crypto_methods() 
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn external_nostr_client_surfaces_pending_approval_state() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::ExplicitUser);
@@ -1662,7 +1669,8 @@ async fn external_nostr_client_surfaces_pending_approval_state() -> TestResult<(
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn external_nostr_client_surfaces_auth_challenge_state() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let client_identity =
@@ -1719,7 +1727,8 @@ async fn external_nostr_client_surfaces_auth_challenge_state() -> TestResult<()>
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn external_nostr_client_ignores_unrelated_signer_events_before_response() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
@@ -1764,7 +1773,8 @@ async fn external_nostr_client_ignores_unrelated_signer_events_before_response()
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn live_listener_consumes_connect_secret_only_after_successful_publish() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
@@ -1939,7 +1949,8 @@ async fn live_listener_consumes_connect_secret_only_after_successful_publish() -
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn live_listener_acknowledges_logout_before_revoking_session() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
@@ -2084,7 +2095,8 @@ async fn live_listener_acknowledges_logout_before_revoking_session() -> TestResu
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn failed_logout_publish_is_retried_and_revoked_during_startup_recovery() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
@@ -2189,7 +2201,8 @@ async fn failed_logout_publish_is_retried_and_revoked_during_startup_recovery() 
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn published_logout_acknowledgement_is_finalized_without_republish_on_restart()
 -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
@@ -2270,7 +2283,8 @@ async fn published_logout_acknowledgement_is_finalized_without_republish_on_rest
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn live_listener_works_with_sqlite_signer_state_and_runtime_audit() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new_with_transport_config(
@@ -2473,7 +2487,8 @@ async fn live_listener_works_with_sqlite_signer_state_and_runtime_audit() -> Tes
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn external_nostr_client_recovers_connect_response_after_restart() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
@@ -2609,7 +2624,8 @@ async fn external_nostr_client_recovers_connect_response_after_restart() -> Test
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn startup_recovery_republishes_queued_listener_connect_secret_job() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new_with_transport_relays(
@@ -2711,7 +2727,8 @@ async fn startup_recovery_republishes_queued_listener_connect_secret_job() -> Te
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn startup_recovery_republishes_queued_connect_accept_job() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
@@ -2812,7 +2829,8 @@ async fn startup_recovery_republishes_queued_connect_accept_job() -> TestResult<
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn startup_recovery_republishes_queued_auth_replay_job() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::ExplicitUser);
@@ -2920,7 +2938,8 @@ async fn startup_recovery_republishes_queued_auth_replay_job() -> TestResult<()>
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn trusted_client_reauths_after_authorized_ttl() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let client_identity =
@@ -3090,7 +3109,8 @@ async fn trusted_client_reauths_after_authorized_ttl() -> TestResult<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn connect_accept_retries_without_consuming_secret_until_publish_succeeds() -> TestResult<()>
 {
     let relay = TestRelay::spawn().await?;
@@ -3255,7 +3275,8 @@ async fn connect_accept_retries_without_consuming_secret_until_publish_succeeds(
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn connect_accept_succeeds_with_any_delivery_policy_when_one_relay_acknowledges()
 -> TestResult<()> {
     let relay_a = TestRelay::spawn().await?;
@@ -3326,7 +3347,8 @@ async fn connect_accept_succeeds_with_any_delivery_policy_when_one_relay_acknowl
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn connect_accept_rejects_when_quorum_delivery_policy_is_not_met() -> TestResult<()> {
     let relay_a = TestRelay::spawn().await?;
     let relay_b = TestRelay::spawn().await?;
@@ -3420,7 +3442,8 @@ async fn connect_accept_rejects_when_quorum_delivery_policy_is_not_met() -> Test
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn live_listener_retries_until_all_delivery_policy_is_met() -> TestResult<()> {
     let relay_a = TestRelay::spawn().await?;
     let relay_b = TestRelay::spawn().await?;
@@ -3510,7 +3533,8 @@ async fn live_listener_retries_until_all_delivery_policy_is_met() -> TestResult<
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn auth_replay_restores_pending_request_until_publish_succeeds() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime = MycTestRuntime::new(relay.url(), MycConnectionApproval::NotRequired);
@@ -3687,7 +3711,8 @@ async fn auth_replay_restores_pending_request_until_publish_succeeds() -> TestRe
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn explicit_nip89_publish_uses_app_identity_and_records_audit() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime =
@@ -3770,7 +3795,8 @@ async fn explicit_nip89_publish_uses_app_identity_and_records_audit() -> TestRes
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn startup_recovery_republishes_queued_discovery_publish_job() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime =
@@ -3837,7 +3863,8 @@ async fn startup_recovery_republishes_queued_discovery_publish_job() -> TestResu
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn startup_recovery_finalizes_published_discovery_publish_job() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime =
@@ -3914,7 +3941,8 @@ async fn startup_recovery_finalizes_published_discovery_publish_job() -> TestRes
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn explicit_nip89_publish_retries_cleanly_after_rejection() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime =
@@ -4020,7 +4048,8 @@ async fn explicit_nip89_publish_retries_cleanly_after_rejection() -> TestResult<
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn fetch_live_nip89_reports_missing_when_handler_is_unpublished() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime =
@@ -4040,7 +4069,8 @@ async fn fetch_live_nip89_reports_missing_when_handler_is_unpublished() -> TestR
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn fetch_live_nip89_fails_when_all_discovery_relays_are_unavailable() -> TestResult<()> {
     let unavailable_a = unavailable_relay_url()?;
     let unavailable_b = unavailable_relay_url()?;
@@ -4072,7 +4102,8 @@ async fn fetch_live_nip89_fails_when_all_discovery_relays_are_unavailable() -> T
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn fetch_live_nip89_parallelizes_relay_fetch_and_preserves_configured_order() -> TestResult<()>
 {
     let live_relay = TestRelay::spawn().await?;
@@ -4160,7 +4191,8 @@ async fn fetch_live_nip89_parallelizes_relay_fetch_and_preserves_configured_orde
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn diff_live_nip89_reports_matched_after_publish() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime =
@@ -4203,7 +4235,8 @@ async fn diff_live_nip89_reports_matched_after_publish() -> TestResult<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn refresh_nip89_publishes_when_live_handler_is_missing() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime =
@@ -4282,7 +4315,8 @@ async fn refresh_nip89_publishes_when_live_handler_is_missing() -> TestResult<()
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn refresh_nip89_repairs_missing_relays_without_republishing_matched_relays() -> TestResult<()>
 {
     let relay_a = TestRelay::spawn().await?;
@@ -4370,7 +4404,8 @@ async fn refresh_nip89_repairs_missing_relays_without_republishing_matched_relay
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn refresh_nip89_skips_when_live_handler_matches() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime =
@@ -4430,7 +4465,8 @@ async fn refresh_nip89_skips_when_live_handler_matches() -> TestResult<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn refresh_nip89_republishes_when_live_handler_drifted() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime =
@@ -4506,7 +4542,8 @@ async fn refresh_nip89_republishes_when_live_handler_drifted() -> TestResult<()>
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn refresh_nip89_repairs_drifted_relays_without_force_when_other_relays_match()
 -> TestResult<()> {
     let relay_a = TestRelay::spawn().await?;
@@ -4598,7 +4635,8 @@ async fn refresh_nip89_repairs_drifted_relays_without_force_when_other_relays_ma
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn refresh_nip89_reports_remaining_relays_after_mixed_targeted_repair() -> TestResult<()> {
     let relay_a = TestRelay::spawn().await?;
     let relay_b = TestRelay::spawn().await?;
@@ -4714,7 +4752,8 @@ async fn refresh_nip89_reports_remaining_relays_after_mixed_targeted_repair() ->
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn diff_live_nip89_reports_conflicted_when_live_groups_disagree() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime =
@@ -4752,7 +4791,8 @@ async fn diff_live_nip89_reports_conflicted_when_live_groups_disagree() -> TestR
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn diff_live_nip89_surfaces_relay_divergence_with_provenance() -> TestResult<()> {
     let relay_a = TestRelay::spawn().await?;
     let relay_b = TestRelay::spawn().await?;
@@ -4859,7 +4899,8 @@ async fn diff_live_nip89_surfaces_relay_divergence_with_provenance() -> TestResu
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn refresh_nip89_requires_force_when_any_discovery_relay_is_unavailable() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let unavailable_relay = unavailable_relay_url()?;
@@ -4941,7 +4982,8 @@ async fn refresh_nip89_requires_force_when_any_discovery_relay_is_unavailable() 
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[serial_test::serial]
 async fn refresh_nip89_requires_force_when_live_handler_is_conflicted() -> TestResult<()> {
     let relay = TestRelay::spawn().await?;
     let test_runtime =
