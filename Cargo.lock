@@ -1719,8 +1719,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 [[package]]
 name = "radroots_blossom"
 version = "0.1.0-alpha"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "786aabfb3b884f1c01a2060c3bba57fed7d83ba6e7cddc2ce4e07d33fcc5a67d"
+source = "git+https://github.com/radrootslabs/lib.git?rev=74f5c91cbc80248df1f51f644004daaf8ae8e9be#74f5c91cbc80248df1f51f644004daaf8ae8e9be"
 dependencies = [
  "mediatype",
  "serde",
@@ -1732,8 +1731,7 @@ dependencies = [
 [[package]]
 name = "radroots_core"
 version = "0.1.0-alpha"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e43ac2e488444ced1cddd6785d0a43552f887440c3f0506d9d2f90c7be30b26c"
+source = "git+https://github.com/radrootslabs/lib.git?rev=74f5c91cbc80248df1f51f644004daaf8ae8e9be#74f5c91cbc80248df1f51f644004daaf8ae8e9be"
 dependencies = [
  "rust_decimal",
  "serde",
@@ -1742,8 +1740,7 @@ dependencies = [
 [[package]]
 name = "radroots_event"
 version = "0.1.0-alpha"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b1cfbf17b7c94ee0182c48042438ccc3c6c5979043a6ef300004935780408a2"
+source = "git+https://github.com/radrootslabs/lib.git?rev=74f5c91cbc80248df1f51f644004daaf8ae8e9be#74f5c91cbc80248df1f51f644004daaf8ae8e9be"
 dependencies = [
  "hex",
  "jiff-tzdb",
@@ -1761,8 +1758,7 @@ dependencies = [
 [[package]]
 name = "radroots_event_codec"
 version = "0.1.0-alpha"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3344dee67769f76754d8713312f57f54301e9eac00584c26c51fb1b1aab9042"
+source = "git+https://github.com/radrootslabs/lib.git?rev=74f5c91cbc80248df1f51f644004daaf8ae8e9be#74f5c91cbc80248df1f51f644004daaf8ae8e9be"
 dependencies = [
  "radroots_blossom",
  "radroots_core",
@@ -1777,8 +1773,7 @@ dependencies = [
 [[package]]
 name = "radroots_identity"
 version = "0.1.0-alpha"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95d406e0fa84faee0a87493358b4c45151271a12b0bc3d57aa0167b968680eea"
+source = "git+https://github.com/radrootslabs/lib.git?rev=74f5c91cbc80248df1f51f644004daaf8ae8e9be#74f5c91cbc80248df1f51f644004daaf8ae8e9be"
 dependencies = [
  "k256",
  "serde",
@@ -1788,8 +1783,7 @@ dependencies = [
 [[package]]
 name = "radroots_nostr"
 version = "0.1.0-alpha"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcdd07611e98e10e89ce9ed80e39c6dcfd49b4bb59f72e661c21f47391b9b6e6"
+source = "git+https://github.com/radrootslabs/lib.git?rev=74f5c91cbc80248df1f51f644004daaf8ae8e9be#74f5c91cbc80248df1f51f644004daaf8ae8e9be"
 dependencies = [
  "nostr",
  "radroots_event",
@@ -1803,8 +1797,7 @@ dependencies = [
 [[package]]
 name = "radroots_nostr_connect"
 version = "0.1.0-alpha"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "488dc2fbd9012d69672cbd2a34d9c542f9c32b45825645af38793f055bbe0894"
+source = "git+https://github.com/radrootslabs/lib.git?rev=74f5c91cbc80248df1f51f644004daaf8ae8e9be#74f5c91cbc80248df1f51f644004daaf8ae8e9be"
 dependencies = [
  "nostr",
  "radroots_event",
@@ -1820,8 +1813,7 @@ dependencies = [
 [[package]]
 name = "radroots_protocol"
 version = "0.1.0-alpha"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "979c9e8217ccb11cfe1af3bf85145f3abcd4234dfc45f74801398598fd542d5a"
+source = "git+https://github.com/radrootslabs/lib.git?rev=74f5c91cbc80248df1f51f644004daaf8ae8e9be#74f5c91cbc80248df1f51f644004daaf8ae8e9be"
 dependencies = [
  "serde",
 ]
@@ -1829,8 +1821,7 @@ dependencies = [
 [[package]]
 name = "radroots_secrets"
 version = "0.1.0-alpha"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5bd0cd239140eb4006f9adb9fe8037b58d79a12dcec4ff7e179ac78891cee3d8"
+source = "git+https://github.com/radrootslabs/lib.git?rev=74f5c91cbc80248df1f51f644004daaf8ae8e9be#74f5c91cbc80248df1f51f644004daaf8ae8e9be"
 dependencies = [
  "chacha20poly1305",
  "keyring",
@@ -1841,8 +1832,7 @@ dependencies = [
 [[package]]
 name = "radroots_signing"
 version = "0.1.0-alpha"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3fa5a21d9e3aa6910303b866bcbd466243b6a797d5005fb591cd6e497a06c0b"
+source = "git+https://github.com/radrootslabs/lib.git?rev=74f5c91cbc80248df1f51f644004daaf8ae8e9be#74f5c91cbc80248df1f51f644004daaf8ae8e9be"
 dependencies = [
  "radroots_event",
  "radroots_identity",
