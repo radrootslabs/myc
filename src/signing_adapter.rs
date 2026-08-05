@@ -6,6 +6,7 @@ use nostr::{EventBuilder, JsonUtil, Kind, Tag, Timestamp};
 use radroots_event::{SignedEvent, wire::v1::Nip01EventWire};
 use radroots_signing::capability::{CancellationSupport, SignerCapability, SignerKind};
 use radroots_signing::error::Kind as SigningErrorKind;
+use radroots_signing::recovery::ReplayCapability;
 use radroots_signing::status::{SignProgress, SignProgressStage, SignerAvailability};
 use radroots_signing::{Error, SignReceipt, SignRequest, Signer, SignerStatus};
 
@@ -18,6 +19,7 @@ impl Signer for MycActiveIdentity {
                 SignerAvailability::Ready,
                 vec![SignerCapability::new(
                     SignerKind::HostMediated,
+                    ReplayCapability::LocalReplaySafe,
                     CancellationSupport::BeforePublication,
                     true,
                     true,
@@ -32,27 +34,27 @@ impl Signer for MycActiveIdentity {
         request: SignRequest,
     ) -> radroots_signing::signer::BoxFuture<'_, Result<SignReceipt, Error>> {
         Box::pin(async move {
-            let now = now_unix_secs();
-            if now > request.policy().deadline_unix() {
-                return Err(Error::new(SigningErrorKind::DeadlineExceeded));
-            }
-            if request.draft().expected_pubkey() != &self.public_identity().public_key() {
+            let now = now_unix_ms();
+            request.ensure_active(now)?;
+            let plan = request.plan();
+            if plan.author() != &self.public_identity().public_key() {
                 return Err(Error::new(SigningErrorKind::AuthorizationDenied));
             }
             report_progress(&request, SignProgressStage::Validating)?;
 
-            let kind = u16::try_from(request.draft().kind_u32())
+            let kind = u16::try_from(plan.body().kind())
                 .map_err(|_| Error::new(SigningErrorKind::InvalidArgument))?;
-            let tags = request
-                .draft()
-                .tags_as_vec()
-                .into_iter()
+            let tags = plan
+                .body()
+                .tags()
+                .iter()
+                .cloned()
                 .map(Tag::parse)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|source| Error::with_source(SigningErrorKind::InvalidArgument, source))?;
-            let unsigned = EventBuilder::new(Kind::Custom(kind), request.draft().content())
+            let unsigned = EventBuilder::new(Kind::Custom(kind), plan.body().content())
                 .tags(tags)
-                .custom_created_at(Timestamp::from(request.draft().created_at_u64()))
+                .custom_created_at(Timestamp::from(plan.created_at()))
                 .build(self.public_key());
             let event = self
                 .sign_unsigned_event(unsigned, "final signing request")
@@ -79,8 +81,10 @@ fn report_progress(request: &SignRequest, stage: SignProgressStage) -> Result<()
     Ok(())
 }
 
-fn now_unix_secs() -> u64 {
+fn now_unix_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs())
+        .map_or(0, |duration| {
+            u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+        })
 }
