@@ -45,6 +45,9 @@ nix run .#test
 nix run .#release-acceptance
 ```
 
+Use `nix develop` to enter the repository's development shell before running
+narrower ad hoc Cargo commands from this repository root.
+
 ## Copyright
 
 Except as otherwise noted, all files in the `myc` distribution are

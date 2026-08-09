@@ -16,6 +16,11 @@
 - `.github/**` and capsule-local CI workflows are forbidden; keep validation
   forge-agnostic, and place any required monorepo orchestration exclusively
   under the parent monorepo's root `.act/**` authority.
+- Do not add or retain tracked `docs/**`, `.github/**`, or `.act/**` content in
+  this capsule. Human-facing Myc specifications, decisions, runbooks, and
+  qualification evidence belong under the parent monorepo's
+  `docs/oss/myc/**` authority; standalone machine-enforced declarations belong
+  under this repository's governed contract surfaces.
 - Myc does not own relay storage or tenancy, general relay fanout, SDK contract
   generation, wallet UX, hosted accounts, telemetry, artifact promotion, or
   deployment transport.
