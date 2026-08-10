@@ -23,12 +23,12 @@ hex = "0.4"
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service"] }
 nostr = { version = "0.44.2", features = ["nip04", "nip44", "nip46", "nip49"] }
 nostr-sdk = { version = "0.44.1" }
-radroots_identity = { git = "https://github.com/radrootslabs/lib.git", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }
-radroots_event = { git = "https://github.com/radrootslabs/lib.git", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", features = ["serde"] }
-radroots_nostr = { git = "https://github.com/radrootslabs/lib.git", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", features = ["events"] }
-radroots_nostr_connect = { git = "https://github.com/radrootslabs/lib.git", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }
-radroots_secrets = { git = "https://github.com/radrootslabs/lib.git", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", features = ["std", "keyring"] }
-radroots_signing = { git = "https://github.com/radrootslabs/lib.git", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", features = ["std"] }
+radroots_identity = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }
+radroots_event = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", features = ["serde"] }
+radroots_nostr = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", features = ["events"] }
+radroots_nostr_connect = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }
+radroots_secrets = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", features = ["std", "keyring"] }
+radroots_signing = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", features = ["std"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
