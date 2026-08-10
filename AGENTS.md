@@ -30,6 +30,12 @@
 - Before editing, read this file, `README`, `Cargo.toml`,
   `radroots.lib.source-lock.v1.toml`, the relevant implementation and tests,
   and `flake.nix` or migrations when they are in scope.
+- `.radroots-consumer-root` is the standalone source-lock identity and must
+  remain exactly `myc`. The reserved pre-implementation control-plane
+  contract is `contracts/services_hardening/operator_contract.v1.json`.
+  Service implementation must use its exact routes, operation IDs, model
+  fields, doctor checks, and shared host/exit references; prototype CLI or
+  HTTP behavior is not authority to reinterpret that contract.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.
