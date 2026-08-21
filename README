@@ -34,8 +34,14 @@ text, paths, credentials, relay URLs, or identity values.
 
 The prototype environment loader, `.env` example, environment selectors,
 implicit command/profile selection, compatibility aliases, and arbitrary leaf
-flags have been removed. The remaining internal runtime model is not a process
-configuration surface and is replaced only by its later owning checkpoints.
+flags have been removed. Bootstrap now resolves a sealed runtime context from
+the validated CLI profile and typed instance ID through the source-locked
+`radroots_runtime_paths` authority. Config, state, cache, logs, run, secrets,
+`config.toml`, `state.sqlite`, `state.lock`, and `admin.sock` are derived under
+the exact `services/myc/<instance>` namespace. The service contains no local
+host-environment resolver, worker namespace, ambient selector, or implicit
+path default. An explicit absolute `--config` may select the document to read
+without changing the canonical common artifact inventory.
 
 ## NIP-46 runtime contract
 

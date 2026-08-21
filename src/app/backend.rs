@@ -351,8 +351,6 @@ mod tests {
     use nostr::Keys;
 
     use crate::app::MycRuntime;
-    use crate::config::MycConfig;
-
     fn write_identity(path: &std::path::Path, secret_key: &str) {
         let identity = RadrootsIdentity::from_secret_key_str(secret_key).expect("identity");
         crate::identity_files::store_encrypted_identity(path, &identity).expect("save identity");
@@ -360,8 +358,7 @@ mod tests {
 
     fn test_runtime() -> MycRuntime {
         let temp = tempfile::tempdir().expect("tempdir").keep();
-        let mut config = MycConfig::default();
-        config.paths.state_dir = PathBuf::from(&temp).join("state");
+        let mut config = crate::config::test_config(PathBuf::from(&temp).as_path());
         config.paths.signer_identity_path = PathBuf::from(&temp).join("signer.json");
         config.paths.user_identity_path = PathBuf::from(&temp).join("user.json");
         write_identity(

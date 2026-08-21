@@ -4,7 +4,7 @@ use std::error::Error;
 use std::path::Path;
 
 use myc::{
-    MYC_INSTANCE_ID_MAX_BYTES, MycBootstrapProfileV1, MycCliV1ErrorKind, MycCommandV1,
+    INSTANCE_ID_MAX_BYTES, MycBootstrapProfileV1, MycCliV1ErrorKind, MycCommandV1,
     MycConfigCommandV1, MycIdentityCommandV1, MycStateCommandV1, parse_myc_cli_v1_from,
 };
 
@@ -117,7 +117,7 @@ fn root_api_exposes_validated_cross_bound_bootstrap_values() {
     ])
     .expect("repo-local invocation");
     assert_eq!(invocation.profile(), MycBootstrapProfileV1::RepoLocal);
-    assert_eq!(invocation.instance(), "dev-01");
+    assert_eq!(invocation.instance().as_str(), "dev-01");
     assert_eq!(
         invocation.repo_local_root(),
         Some(Path::new("/repo/radroots"))
@@ -126,7 +126,7 @@ fn root_api_exposes_validated_cross_bound_bootstrap_values() {
         invocation.config_path(),
         Some(Path::new("/repo/radroots/config/services/myc/config.toml"))
     );
-    assert_eq!(MYC_INSTANCE_ID_MAX_BYTES, 128);
+    assert_eq!(INSTANCE_ID_MAX_BYTES, 128);
 }
 
 #[test]

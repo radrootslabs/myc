@@ -6,12 +6,11 @@ use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
-
-/// Maximum encoded length of a Myc instance identifier.
-pub const MYC_INSTANCE_ID_MAX_BYTES: usize = 128;
+use radroots_runtime_paths::InstanceId;
 
 /// The exact bootstrap profile selected by the operator.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MycBootstrapProfileV1 {
     ServiceHost,
     Interactive,
@@ -121,7 +120,7 @@ impl Error for MycCliV1Error {}
 /// A validated one-pass Myc bootstrap and command selection.
 pub struct MycCliInvocationV1 {
     profile: MycBootstrapProfileV1,
-    instance: Box<str>,
+    instance: InstanceId,
     repo_local_root: Option<PathBuf>,
     config_path: Option<PathBuf>,
     command: MycCommandV1,
@@ -136,7 +135,7 @@ impl MycCliInvocationV1 {
 
     /// Returns the validated instance identifier.
     #[must_use]
-    pub fn instance(&self) -> &str {
+    pub fn instance(&self) -> &InstanceId {
         &self.instance
     }
 
@@ -197,7 +196,8 @@ where
     let instance = parsed
         .instance
         .ok_or_else(|| MycCliV1Error::new(MycCliV1ErrorKind::InvalidArguments))?;
-    validate_instance(&instance)?;
+    let instance = InstanceId::new(instance)
+        .map_err(|_| MycCliV1Error::new(MycCliV1ErrorKind::InvalidInstance))?;
     validate_bootstrap_paths(
         profile,
         parsed.repo_local_root.as_deref(),
@@ -206,27 +206,11 @@ where
 
     Ok(MycCliInvocationV1 {
         profile,
-        instance: instance.into_boxed_str(),
+        instance,
         repo_local_root: parsed.repo_local_root,
         config_path: parsed.config,
         command: parsed.command.into(),
     })
-}
-
-fn validate_instance(value: &str) -> Result<(), MycCliV1Error> {
-    let bytes = value.as_bytes();
-    let is_boundary = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
-    if bytes.is_empty()
-        || bytes.len() > MYC_INSTANCE_ID_MAX_BYTES
-        || !is_boundary(bytes[0])
-        || !is_boundary(bytes[bytes.len() - 1])
-        || !bytes
-            .iter()
-            .all(|byte| is_boundary(*byte) || matches!(*byte, b'-' | b'_'))
-    {
-        return Err(MycCliV1Error::new(MycCliV1ErrorKind::InvalidInstance));
-    }
-    Ok(())
 }
 
 fn validate_bootstrap_paths(
@@ -484,7 +468,7 @@ mod tests {
                 "run",
             ])
             .expect("production profile");
-            assert_eq!(invocation.instance(), "north-01");
+            assert_eq!(invocation.instance().as_str(), "north-01");
             assert_eq!(
                 invocation.config_path(),
                 Some(Path::new("/etc/radroots/myc.toml"))
@@ -543,7 +527,7 @@ mod tests {
                 .kind(),
             MycCliV1ErrorKind::InvalidInstance
         );
-        let exact = "a".repeat(MYC_INSTANCE_ID_MAX_BYTES);
+        let exact = "a".repeat(radroots_runtime_paths::INSTANCE_ID_MAX_BYTES);
         assert!(
             parse_myc_cli_v1_from([
                 "myc",
@@ -555,7 +539,7 @@ mod tests {
             ])
             .is_ok()
         );
-        let overlong = "a".repeat(MYC_INSTANCE_ID_MAX_BYTES + 1);
+        let overlong = "a".repeat(radroots_runtime_paths::INSTANCE_ID_MAX_BYTES + 1);
         assert_eq!(
             parse_myc_cli_v1_from([
                 "myc",

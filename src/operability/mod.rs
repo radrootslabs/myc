@@ -1662,7 +1662,7 @@ mod tests {
     };
     use crate::app::{MycRuntime, MycRuntimePaths};
     use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
-    use crate::config::{MycConfig, MycRuntimeAuditBackend};
+    use crate::config::MycRuntimeAuditBackend;
 
     fn write_test_identity(path: &Path, secret_key: &str) {
         let identity =
@@ -1757,8 +1757,7 @@ mod tests {
     #[test]
     fn collect_metrics_uses_live_state_after_bootstrap() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_path = temp.path().join("signer.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         write_test_identity(
@@ -1824,8 +1823,7 @@ mod tests {
         };
 
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_path = temp.path().join("signer.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         write_test_identity(
@@ -1867,8 +1865,7 @@ mod tests {
         use crate::signer::prelude::RadrootsNostrSignerBackend;
 
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_path = temp.path().join("signer.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         config.transport.enabled = true;

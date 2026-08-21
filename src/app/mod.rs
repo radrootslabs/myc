@@ -41,11 +41,9 @@ impl MycApp {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use crate::host_identity::RadrootsIdentity;
 
-    use crate::config::{MycConfig, MycSignerStateBackend};
+    use crate::config::MycSignerStateBackend;
 
     use super::MycApp;
 
@@ -58,8 +56,7 @@ mod tests {
     #[test]
     fn app_bootstrap_preserves_runtime_snapshot() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = PathBuf::from(temp.path()).join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_path = temp.path().join("identity.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         write_test_identity(
@@ -74,7 +71,7 @@ mod tests {
         let app = MycApp::bootstrap(config).expect("bootstrap");
         let snapshot = app.snapshot();
 
-        assert!(snapshot.state_dir.ends_with("state"));
+        assert!(snapshot.state_dir.ends_with("services/myc/test"));
         assert!(snapshot.audit_dir.ends_with("audit"));
         assert!(
             snapshot
@@ -112,8 +109,7 @@ mod tests {
     #[test]
     fn app_bootstrap_uses_backend_aware_signer_state_path() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = PathBuf::from(temp.path()).join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_path = temp.path().join("identity.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         config.persistence.signer_state_backend = MycSignerStateBackend::Sqlite;

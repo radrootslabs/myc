@@ -861,8 +861,7 @@ mod tests {
         F: FnOnce(&mut MycConfig),
     {
         let temp = tempfile::tempdir().expect("tempdir").keep();
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.join("state");
+        let mut config = crate::config::test_config(&temp);
         config.paths.signer_identity_path = temp.join("signer.json");
         config.paths.user_identity_path = temp.join("user.json");
         config.policy.connection_approval = approval;

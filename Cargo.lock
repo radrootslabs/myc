@@ -1531,6 +1531,7 @@ dependencies = [
  "radroots_identity",
  "radroots_nostr",
  "radroots_nostr_connect",
+ "radroots_runtime_paths",
  "radroots_secrets",
  "radroots_signing",
  "rand 0.9.2",
@@ -2047,6 +2048,15 @@ version = "0.1.0-alpha"
 source = "git+https://github.com/radrootslabs/lib?rev=b44119fbac5985be8127ad1bf56d2950e6399427#b44119fbac5985be8127ad1bf56d2950e6399427"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "radroots_runtime_paths"
+version = "0.1.0-alpha"
+source = "git+https://github.com/radrootslabs/lib?rev=b44119fbac5985be8127ad1bf56d2950e6399427#b44119fbac5985be8127ad1bf56d2950e6399427"
+dependencies = [
+ "serde",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

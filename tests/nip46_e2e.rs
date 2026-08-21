@@ -49,6 +49,8 @@ use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 use tokio::time::{Instant, sleep, timeout};
 use tokio_tungstenite::tungstenite::Message;
 
+mod support;
+
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 fn connect_public_key(public_key: PublicKey) -> radroots_identity::PublicKey {
@@ -469,21 +471,20 @@ impl MycTestRuntime {
         F: FnOnce(&mut MycConfig),
     {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
-        config.paths.signer_identity_path = temp.path().join("signer.json");
-        config.paths.user_identity_path = temp.path().join("user.json");
+        let mut config = support::repo_local_config(temp.path());
         config.policy.connection_approval = approval;
         config.transport.enabled = true;
         config.transport.connect_timeout_secs = 1;
         config.transport.relays = relay_urls.iter().map(|relay| (*relay).to_owned()).collect();
+        let signer_identity_path = config.paths().signer_identity_path().to_path_buf();
+        let user_identity_path = config.paths().user_identity_path().to_path_buf();
         configure(&mut config);
         write_identity(
-            &config.paths.signer_identity_path,
+            &signer_identity_path,
             "1111111111111111111111111111111111111111111111111111111111111111",
         );
         write_identity(
-            &config.paths.user_identity_path,
+            &user_identity_path,
             "2222222222222222222222222222222222222222222222222222222222222222",
         );
 
@@ -507,10 +508,7 @@ impl MycTestRuntime {
         connect_timeout_secs: u64,
     ) -> Self {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
-        config.paths.signer_identity_path = temp.path().join("signer.json");
-        config.paths.user_identity_path = temp.path().join("user.json");
+        let mut config = support::repo_local_config(temp.path());
         config.policy.connection_approval = approval;
         config.transport.connect_timeout_secs = connect_timeout_secs;
         config.discovery.enabled = true;
@@ -522,12 +520,14 @@ impl MycTestRuntime {
         config.discovery.nostrconnect_url_template =
             Some("https://signer.example.com/connect?uri=<nostrconnect>".to_owned());
         config.discovery.app_identity_path = Some(temp.path().join("app.json"));
+        let signer_identity_path = config.paths().signer_identity_path().to_path_buf();
+        let user_identity_path = config.paths().user_identity_path().to_path_buf();
         write_identity(
-            &config.paths.signer_identity_path,
+            &signer_identity_path,
             "1111111111111111111111111111111111111111111111111111111111111111",
         );
         write_identity(
-            &config.paths.user_identity_path,
+            &user_identity_path,
             "2222222222222222222222222222222222222222222222222222222222222222",
         );
         write_identity(

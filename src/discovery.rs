@@ -2122,8 +2122,6 @@ mod tests {
     use crate::host_identity::RadrootsIdentity;
     use nostr::JsonUtil;
 
-    use crate::config::MycConfig;
-
     use super::{MycDiscoveryContext, build_metadata, verify_bundle, write_pretty_json};
     use crate::MycError;
     use crate::app::MycRuntime;
@@ -2135,8 +2133,7 @@ mod tests {
 
     fn runtime() -> MycRuntime {
         let temp = tempfile::tempdir().expect("tempdir").keep();
-        let mut config = MycConfig::default();
-        config.paths.state_dir = PathBuf::from(&temp).join("state");
+        let mut config = crate::config::test_config(PathBuf::from(&temp).as_path());
         config.paths.signer_identity_path = PathBuf::from(&temp).join("signer.json");
         config.paths.user_identity_path = PathBuf::from(&temp).join("user.json");
         config.discovery.enabled = true;

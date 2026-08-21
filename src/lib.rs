@@ -21,6 +21,7 @@ mod outbox_sqlite;
 mod paths;
 pub mod persistence;
 pub mod policy;
+mod runtime_context;
 pub mod signer;
 mod signing_adapter;
 pub mod sql;
@@ -35,16 +36,15 @@ pub use audit::{
 };
 pub use audit_sqlite::MycSqliteOperationAuditStore;
 pub use cli_v1::{
-    MYC_INSTANCE_ID_MAX_BYTES, MycBootstrapProfileV1, MycCliInvocationV1, MycCliV1Error,
-    MycCliV1ErrorKind, MycCommandV1, MycConfigCommandV1, MycIdentityCommandV1, MycStateCommandV1,
-    parse_myc_cli_v1_from,
+    MycBootstrapProfileV1, MycCliInvocationV1, MycCliV1Error, MycCliV1ErrorKind, MycCommandV1,
+    MycConfigCommandV1, MycIdentityCommandV1, MycStateCommandV1, parse_myc_cli_v1_from,
 };
 pub use config::{
     MycAuditConfig, MycConfig, MycConnectionApproval, MycCustodyConfig, MycDiscoveryConfig,
     MycDiscoveryMetadataConfig, MycIdentityBackend, MycIdentitySourceSpec, MycLoggingConfig,
     MycObservabilityConfig, MycPathsConfig, MycPersistenceConfig, MycPolicyConfig,
-    MycRuntimeAuditBackend, MycRuntimeContractOutput, MycServiceConfig, MycSignerStateBackend,
-    MycTransportConfig, MycTransportDeliveryPolicy,
+    MycRuntimeAuditBackend, MycRuntimeContractOutput, MycSignerStateBackend, MycTransportConfig,
+    MycTransportDeliveryPolicy,
 };
 pub use config_v1::{
     MYC_CONFIG_DOCUMENT_MAX_UTF8_BYTES, MYC_CONFIG_SCHEMA, MYC_CONFIG_SCHEMA_VERSION,
@@ -95,4 +95,13 @@ pub use persistence::{
     verify_restored_state,
 };
 pub use policy::{MycConnectDecision, MycPolicyContext};
+pub use radroots_runtime_paths::{
+    INSTANCE_ID_MAX_BYTES, InstanceId, RadrootsHostEnvironment, RadrootsPathProfile,
+    RadrootsPathResolver, RadrootsPlatform, RadrootsServiceInstanceArtifacts, RuntimeContext,
+    RuntimeContextSource, ServiceId,
+};
+pub use runtime_context::{
+    MycRuntimeContext, MycRuntimeContextError, MycRuntimeContextErrorKind,
+    resolve_myc_runtime_context,
+};
 pub use transport::{MycNostrTransport, MycRelayPublishResult, MycTransportSnapshot};

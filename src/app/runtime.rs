@@ -202,7 +202,13 @@ impl MycRuntime {
         let signer_public = self.signer.signer_identity.to_public();
         let user_public = self.signer.user_identity.to_public();
         MycStartupSnapshot {
-            instance_name: self.config.service.instance_name.clone(),
+            instance_name: self
+                .config
+                .runtime_context()
+                .context()
+                .instance()
+                .as_str()
+                .to_owned(),
             log_filter: self.config.logging.filter.clone(),
             observability_enabled: self.config.observability.enabled,
             observability_bind_addr: self.config.observability.bind_addr,
@@ -1038,7 +1044,7 @@ impl MycRuntimePaths {
     }
 
     fn from_config(config: &MycConfig) -> Self {
-        let state_dir = config.paths.state_dir.clone();
+        let state_dir = config.paths.state_dir().to_path_buf();
         let audit_dir = Self::audit_dir_for_state_dir(&state_dir);
         Self {
             signer_identity_path: config.paths.signer_identity_path.clone(),
@@ -1306,7 +1312,7 @@ mod tests {
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
     use crate::host_identity::RadrootsIdentity;
@@ -1320,9 +1326,7 @@ mod tests {
 
     use super::{MycRuntime, startup_identity_path};
     use crate::audit::{MycOperationAuditKind, MycOperationAuditOutcome, MycOperationAuditRecord};
-    use crate::config::{
-        MycConfig, MycIdentityBackend, MycRuntimeAuditBackend, MycSignerStateBackend,
-    };
+    use crate::config::{MycIdentityBackend, MycRuntimeAuditBackend, MycSignerStateBackend};
     use crate::discovery::MycDiscoveryContext;
     use crate::error::MycError;
     use crate::outbox::{MycDeliveryOutboxKind, MycDeliveryOutboxRecord, MycDeliveryOutboxStatus};
@@ -1353,8 +1357,7 @@ mod tests {
     #[test]
     fn bootstrap_creates_runtime_directories() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = PathBuf::from(temp.path()).join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_path = temp.path().join("identity.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         write_test_identity(
@@ -1418,19 +1421,20 @@ mod tests {
 
     #[test]
     fn bootstrap_rejects_invalid_config() {
-        let mut config = MycConfig::default();
-        config.service.instance_name.clear();
+        let mut config = crate::config::test_config(Path::new("/tmp/radroots-myc-invalid"));
+        config.logging.filter.clear();
 
         let err = match MycRuntime::bootstrap(config) {
             Ok(_) => panic!("expected invalid config error"),
             Err(err) => err,
         };
-        assert!(err.to_string().contains("service.instance_name"));
+        assert!(err.to_string().contains("logging.filter"));
     }
 
     #[test]
     fn bootstrap_rejects_mismatched_persisted_signer_identity() {
         let temp = tempfile::tempdir().expect("tempdir");
+        let mut config = crate::config::test_config(temp.path());
         let identity_path = temp.path().join("identity.json");
         let user_path = temp.path().join("user.json");
         write_test_identity(
@@ -1447,15 +1451,13 @@ mod tests {
         )
         .expect("second identity");
         let store = Arc::new(RadrootsNostrFileSignerStore::new(
-            temp.path().join("state").join("signer-state.json"),
+            config.paths.state_dir().join("signer-state.json"),
         ));
         let manager = RadrootsNostrSignerManager::new(store).expect("manager");
         manager
             .set_signer_identity(store_identity.to_public())
             .expect("persist signer");
 
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
         config.paths.signer_identity_path = identity_path;
         config.paths.user_identity_path = user_path;
 
@@ -1469,8 +1471,7 @@ mod tests {
     #[test]
     fn bootstrap_keeps_signer_and_user_identities_distinct() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_path = temp.path().join("signer.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         write_test_identity(
@@ -1497,8 +1498,7 @@ mod tests {
     #[test]
     fn bootstrap_cleans_stale_trusted_authorized_sessions() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_path = temp.path().join("signer.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         config.policy.auth_url = Some("https://auth.example/challenge".to_owned());
@@ -1555,8 +1555,7 @@ mod tests {
     #[test]
     fn bootstrap_prepares_transport_when_enabled() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_path = temp.path().join("signer.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         config.transport.enabled = true;
@@ -1587,8 +1586,7 @@ mod tests {
             &helper_path,
             "1111111111111111111111111111111111111111111111111111111111111111",
         );
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_backend = MycIdentityBackend::ExternalCommand;
         config.paths.signer_identity_path = helper_path;
         config.paths.user_identity_path = temp.path().join("user.json");
@@ -1625,8 +1623,7 @@ mod tests {
             &helper_path,
             "6666666666666666666666666666666666666666666666666666666666666666",
         );
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_path = temp.path().join("signer.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         config.discovery.enabled = true;
@@ -1659,8 +1656,7 @@ mod tests {
     #[test]
     fn bootstrap_supports_sqlite_signer_state_backend() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_path = temp.path().join("signer.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         config.persistence.signer_state_backend = MycSignerStateBackend::Sqlite;
@@ -1688,6 +1684,7 @@ mod tests {
     #[test]
     fn bootstrap_rejects_mismatched_persisted_sqlite_signer_identity() {
         let temp = tempfile::tempdir().expect("tempdir");
+        let mut config = crate::config::test_config(temp.path());
         let identity_path = temp.path().join("identity.json");
         let user_path = temp.path().join("user.json");
         write_test_identity(
@@ -1705,7 +1702,7 @@ mod tests {
         .expect("second identity");
         let store = Arc::new(
             RadrootsNostrSqliteSignerStore::open(
-                temp.path().join("state").join("signer-state.sqlite"),
+                config.paths.state_dir().join("signer-state.sqlite"),
             )
             .expect("open sqlite store"),
         );
@@ -1714,8 +1711,6 @@ mod tests {
             .set_signer_identity(store_identity.to_public())
             .expect("persist signer");
 
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
         config.paths.signer_identity_path = identity_path;
         config.paths.user_identity_path = user_path;
         config.persistence.signer_state_backend = MycSignerStateBackend::Sqlite;
@@ -1730,8 +1725,7 @@ mod tests {
     #[test]
     fn bootstrap_supports_sqlite_operation_audit_backend() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_path = temp.path().join("signer.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         config.persistence.runtime_audit_backend = MycRuntimeAuditBackend::Sqlite;
@@ -1772,7 +1766,7 @@ mod tests {
 
     #[test]
     fn startup_identity_path_reporting_matches_backend_sources() {
-        let mut config = MycConfig::default();
+        let mut config = crate::config::test_config(Path::new("/tmp/radroots-myc-reporting"));
         config.paths.signer_identity_backend = MycIdentityBackend::HostVault;
         config.paths.signer_identity_keyring_account_id =
             Some("1111111111111111111111111111111111111111111111111111111111111111".to_owned());
@@ -1800,8 +1794,7 @@ mod tests {
     #[tokio::test]
     async fn startup_recovery_rejects_orphaned_signer_publish_workflow() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_path = temp.path().join("signer.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         write_test_identity(
@@ -1846,8 +1839,7 @@ mod tests {
     #[tokio::test]
     async fn startup_recovery_finalizes_published_connect_secret_workflow() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_path = temp.path().join("signer.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         write_test_identity(
@@ -1962,8 +1954,7 @@ mod tests {
     #[tokio::test]
     async fn startup_recovery_rejects_queued_job_with_missing_signer_workflow() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.path().join("state");
+        let mut config = crate::config::test_config(temp.path());
         config.paths.signer_identity_path = temp.path().join("signer.json");
         config.paths.user_identity_path = temp.path().join("user.json");
         write_test_identity(

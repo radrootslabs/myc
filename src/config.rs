@@ -1,38 +1,30 @@
 use std::collections::BTreeSet;
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::nostr_contract::RadrootsNostrRelayUrl;
-use crate::paths::{RadrootsPathResolver, RadrootsRuntimePathPolicyContract};
 use crate::signer::prelude::RadrootsNostrSignerApprovalRequirement;
 use nostr::PublicKey;
 use radroots_nostr_connect::permission::Permissions;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
+use crate::MycBootstrapProfileV1;
 use crate::error::MycError;
-use crate::paths::MycPathOverrideFlags;
-pub use crate::paths::{MycPathProfile, MycPathsConfig};
+pub use crate::paths::MycPathsConfig;
+use crate::runtime_context::MycRuntimeContext;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MycConfig {
-    pub service: MycServiceConfig,
     pub logging: MycLoggingConfig,
     pub custody: MycCustodyConfig,
-    pub paths: MycPathsConfig,
+    pub(crate) paths: MycPathsConfig,
     pub persistence: MycPersistenceConfig,
     pub audit: MycAuditConfig,
     pub observability: MycObservabilityConfig,
     pub discovery: MycDiscoveryConfig,
     pub policy: MycPolicyConfig,
     pub transport: MycTransportConfig,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct MycServiceConfig {
-    pub instance_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -160,8 +152,8 @@ pub struct MycIdentitySourceSpec {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MycRuntimeContractOutput {
-    pub active_profile: MycPathProfile,
-    pub allowed_profiles: Vec<MycPathProfile>,
+    pub active_profile: MycBootstrapProfileV1,
+    pub allowed_profiles: Vec<MycBootstrapProfileV1>,
     pub default_shared_secret_backend: MycIdentityBackend,
     pub allowed_shared_secret_backends: Vec<MycIdentityBackend>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -171,7 +163,12 @@ pub struct MycRuntimeContractOutput {
     pub path_overrides: MycRuntimePathOverrideContractOutput,
 }
 
-pub type MycRuntimePathOverrideContractOutput = RadrootsRuntimePathPolicyContract;
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MycRuntimePathOverrideContractOutput {
+    pub canonical_root_selection: String,
+    pub canonical_subordinate_path_override: String,
+    pub leaf_path_env_posture: String,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -197,25 +194,6 @@ pub struct MycPolicyConfig {
     pub connect_rate_limit_max_attempts: Option<usize>,
     pub auth_challenge_rate_limit_window_secs: Option<u64>,
     pub auth_challenge_rate_limit_max_attempts: Option<usize>,
-}
-
-impl Default for MycConfig {
-    fn default() -> Self {
-        Self::default_with_path_selection(
-            &RadrootsPathResolver::current(),
-            MycPathProfile::InteractiveUser,
-            None,
-        )
-        .expect("current process should resolve myc runtime paths")
-    }
-}
-
-impl Default for MycServiceConfig {
-    fn default() -> Self {
-        Self {
-            instance_name: "myc".to_owned(),
-        }
-    }
 }
 
 impl Default for MycLoggingConfig {
@@ -352,10 +330,10 @@ impl MycIdentityBackend {
     }
 }
 
-const MYC_ALLOWED_PROFILES: [MycPathProfile; 3] = [
-    MycPathProfile::InteractiveUser,
-    MycPathProfile::ServiceHost,
-    MycPathProfile::RepoLocal,
+const MYC_ALLOWED_PROFILES: [MycBootstrapProfileV1; 3] = [
+    MycBootstrapProfileV1::Interactive,
+    MycBootstrapProfileV1::ServiceHost,
+    MycBootstrapProfileV1::RepoLocal,
 ];
 const MYC_ALLOWED_SHARED_SECRET_BACKENDS: [MycIdentityBackend; 4] = [
     MycIdentityBackend::EncryptedFile,
@@ -371,7 +349,7 @@ const MYC_CANONICAL_SUBORDINATE_PATH_OVERRIDE: &str = "config_document_cli_only"
 const MYC_LEAF_PATH_ENV_POSTURE: &str = "forbidden";
 
 impl MycRuntimeContractOutput {
-    pub fn for_active_profile(active_profile: MycPathProfile) -> Self {
+    pub fn for_active_profile(active_profile: MycBootstrapProfileV1) -> Self {
         Self {
             active_profile,
             allowed_profiles: MYC_ALLOWED_PROFILES.to_vec(),
@@ -382,11 +360,12 @@ impl MycRuntimeContractOutput {
                 .map(str::to_owned)
                 .collect(),
             host_vault_policy: Some(MYC_HOST_VAULT_POLICY.to_owned()),
-            path_overrides: RadrootsRuntimePathPolicyContract::new(
-                MYC_CANONICAL_ROOT_SELECTION,
-                MYC_CANONICAL_SUBORDINATE_PATH_OVERRIDE,
-                MYC_LEAF_PATH_ENV_POSTURE,
-            ),
+            path_overrides: MycRuntimePathOverrideContractOutput {
+                canonical_root_selection: MYC_CANONICAL_ROOT_SELECTION.to_owned(),
+                canonical_subordinate_path_override: MYC_CANONICAL_SUBORDINATE_PATH_OVERRIDE
+                    .to_owned(),
+                leaf_path_env_posture: MYC_LEAF_PATH_ENV_POSTURE.to_owned(),
+            },
         }
     }
 }
@@ -410,7 +389,7 @@ impl MycRuntimeAuditBackend {
 }
 
 impl MycConfig {
-    pub fn allowed_profiles() -> Vec<MycPathProfile> {
+    pub fn allowed_profiles() -> Vec<MycBootstrapProfileV1> {
         MYC_ALLOWED_PROFILES.to_vec()
     }
 
@@ -434,37 +413,49 @@ impl MycConfig {
     }
 
     pub fn runtime_contract_output(&self) -> MycRuntimeContractOutput {
-        MycRuntimeContractOutput::for_active_profile(self.paths.profile)
+        MycRuntimeContractOutput::for_active_profile(self.paths.runtime_context().profile())
     }
 
-    fn default_with_path_selection(
-        resolver: &RadrootsPathResolver,
-        profile: MycPathProfile,
-        repo_local_root: Option<&Path>,
-    ) -> Result<Self, MycError> {
-        let mut config = Self {
-            service: MycServiceConfig::default(),
-            logging: MycLoggingConfig::default(),
+    #[must_use]
+    pub fn from_runtime_context(runtime_context: MycRuntimeContext) -> Self {
+        let logs_dir = runtime_context.context().paths().logs().to_path_buf();
+        let nip05_output_path = runtime_context
+            .context()
+            .paths()
+            .state()
+            .join("public/.well-known/nostr.json");
+        let logging = MycLoggingConfig {
+            output_dir: Some(logs_dir),
+            ..MycLoggingConfig::default()
+        };
+        let discovery = MycDiscoveryConfig {
+            nip05_output_path: Some(nip05_output_path),
+            ..MycDiscoveryConfig::default()
+        };
+        Self {
+            logging,
             custody: MycCustodyConfig::default(),
-            paths: MycPathsConfig::default_with_path_selection(resolver, profile, repo_local_root)?,
+            paths: MycPathsConfig::from_runtime_context(runtime_context),
             persistence: MycPersistenceConfig::default(),
             audit: MycAuditConfig::default(),
             observability: MycObservabilityConfig::default(),
-            discovery: MycDiscoveryConfig::default(),
+            discovery,
             policy: MycPolicyConfig::default(),
             transport: MycTransportConfig::default(),
-        };
-        crate::paths::apply_path_defaults(&mut config, resolver, &MycPathOverrideFlags::default())?;
-        Ok(config)
+        }
+    }
+
+    #[must_use]
+    pub fn runtime_context(&self) -> &MycRuntimeContext {
+        self.paths.runtime_context()
+    }
+
+    #[must_use]
+    pub fn paths(&self) -> &MycPathsConfig {
+        &self.paths
     }
 
     pub fn validate(&self) -> Result<(), MycError> {
-        if self.service.instance_name.trim().is_empty() {
-            return Err(MycError::InvalidConfig(
-                "service.instance_name must not be empty".to_owned(),
-            ));
-        }
-
         if self.logging.filter.trim().is_empty() {
             return Err(MycError::InvalidConfig(
                 "logging.filter must not be empty".to_owned(),
@@ -483,12 +474,6 @@ impl MycConfig {
         {
             return Err(MycError::InvalidConfig(
                 "logging.output_dir must not be empty when set".to_owned(),
-            ));
-        }
-
-        if self.paths.state_dir.as_os_str().is_empty() {
-            return Err(MycError::InvalidConfig(
-                "paths.state_dir must not be empty".to_owned(),
             ));
         }
 
@@ -647,6 +632,33 @@ impl MycConfig {
 
         Ok(())
     }
+}
+
+#[cfg(test)]
+pub(crate) fn test_config(repo_local_root: &std::path::Path) -> MycConfig {
+    use std::ffi::OsString;
+
+    use crate::{
+        RadrootsHostEnvironment, RadrootsPathResolver, RadrootsPlatform, parse_myc_cli_v1_from,
+        resolve_myc_runtime_context,
+    };
+
+    let invocation = parse_myc_cli_v1_from(vec![
+        OsString::from("myc"),
+        OsString::from("--profile"),
+        OsString::from("repo-local"),
+        OsString::from("--instance"),
+        OsString::from("test"),
+        OsString::from("--repo-local-root"),
+        repo_local_root.as_os_str().to_owned(),
+        OsString::from("run"),
+    ])
+    .expect("test CLI selection");
+    let resolver =
+        RadrootsPathResolver::new(RadrootsPlatform::Linux, RadrootsHostEnvironment::default());
+    let context =
+        resolve_myc_runtime_context(&resolver, &invocation).expect("test runtime context");
+    MycConfig::from_runtime_context(context)
 }
 
 fn validate_optional_rate_limit(
@@ -1031,45 +1043,66 @@ fn discovery_host_is_local(host: Option<&str>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::paths::{RadrootsHostEnvironment, RadrootsPathResolver, RadrootsPlatform};
-
     use super::*;
+    use crate::{
+        RadrootsHostEnvironment, RadrootsPathResolver, RadrootsPlatform, parse_myc_cli_v1_from,
+        resolve_myc_runtime_context,
+    };
 
-    fn linux_resolver(home: &str) -> RadrootsPathResolver {
-        RadrootsPathResolver::new(
-            RadrootsPlatform::Linux,
-            RadrootsHostEnvironment {
-                home_dir: Some(PathBuf::from(home)),
-                ..RadrootsHostEnvironment::default()
-            },
-        )
+    fn config_for(
+        resolver: &RadrootsPathResolver,
+        profile: &str,
+        instance: &str,
+        repo_local_root: Option<&str>,
+    ) -> MycConfig {
+        let mut arguments = vec!["myc", "--profile", profile, "--instance", instance];
+        if let Some(root) = repo_local_root {
+            arguments.extend(["--repo-local-root", root]);
+        }
+        arguments.push("run");
+        let invocation = parse_myc_cli_v1_from(arguments).expect("CLI selection");
+        let context = resolve_myc_runtime_context(resolver, &invocation).expect("runtime context");
+        MycConfig::from_runtime_context(context)
+    }
+
+    fn default_config() -> MycConfig {
+        super::test_config(std::path::Path::new("/repo/.local/radroots"))
     }
 
     #[test]
-    fn default_config_is_stable() {
-        let resolver = linux_resolver("/home/treesap");
-        let config = MycConfig::default_with_path_selection(
-            &resolver,
-            MycPathProfile::InteractiveUser,
-            None,
-        )
-        .expect("default config");
-        assert_eq!(config.service.instance_name, "myc");
+    fn interactive_config_is_context_derived() {
+        let resolver = RadrootsPathResolver::new(
+            RadrootsPlatform::Linux,
+            RadrootsHostEnvironment {
+                home_dir: Some(PathBuf::from("/home/treesap")),
+                xdg_runtime_dir: Some(PathBuf::from("/run/user/1000")),
+                ..RadrootsHostEnvironment::default()
+            },
+        );
+        let config = config_for(&resolver, "interactive", "primary", None);
         assert_eq!(config.logging.filter, "info,myc=info");
-        assert_eq!(config.paths.profile, MycPathProfile::InteractiveUser);
-        assert_eq!(config.paths.repo_local_root, None);
         assert_eq!(
-            config.paths.run_dir,
-            PathBuf::from("/home/treesap/.radroots/run/services/myc")
+            config.runtime_context().profile(),
+            MycBootstrapProfileV1::Interactive
+        );
+        assert_eq!(
+            config.runtime_context().context().instance().as_str(),
+            "primary"
+        );
+        assert_eq!(
+            config.paths.run_dir(),
+            PathBuf::from("/run/user/1000/radroots/services/myc/primary")
         );
         assert_eq!(
             config.logging.output_dir,
-            Some(PathBuf::from("/home/treesap/.radroots/logs/services/myc"))
+            Some(PathBuf::from(
+                "/home/treesap/.local/state/radroots/logs/services/myc/primary"
+            ))
         );
         assert!(config.logging.stdout);
         assert_eq!(
-            config.paths.state_dir,
-            PathBuf::from("/home/treesap/.radroots/data/services/myc/state")
+            config.paths.state_dir(),
+            PathBuf::from("/home/treesap/.local/share/radroots/services/myc/primary")
         );
         assert_eq!(
             config.paths.signer_identity_backend,
@@ -1077,7 +1110,9 @@ mod tests {
         );
         assert_eq!(
             config.paths.signer_identity_path,
-            PathBuf::from("/home/treesap/.radroots/secrets/services/myc/signer-identity.json")
+            PathBuf::from(
+                "/home/treesap/.config/radroots/secrets/services/myc/primary/signer-identity.json"
+            )
         );
         assert_eq!(config.paths.signer_identity_keyring_account_id, None);
         assert_eq!(
@@ -1091,7 +1126,9 @@ mod tests {
         );
         assert_eq!(
             config.paths.user_identity_path,
-            PathBuf::from("/home/treesap/.radroots/secrets/services/myc/user-identity.json")
+            PathBuf::from(
+                "/home/treesap/.config/radroots/secrets/services/myc/primary/user-identity.json"
+            )
         );
         assert_eq!(config.paths.user_identity_keyring_account_id, None);
         assert_eq!(
@@ -1144,7 +1181,7 @@ mod tests {
         assert_eq!(
             config.discovery.nip05_output_path,
             Some(PathBuf::from(
-                "/home/treesap/.radroots/data/services/myc/public/.well-known/nostr.json"
+                "/home/treesap/.local/share/radroots/services/myc/primary/public/.well-known/nostr.json"
             ))
         );
         assert!(!config.transport.enabled);
@@ -1162,82 +1199,87 @@ mod tests {
 
     #[test]
     fn service_host_profile_uses_canonical_defaults() {
-        let resolver = linux_resolver("/home/treesap");
-        let config =
-            MycConfig::default_with_path_selection(&resolver, MycPathProfile::ServiceHost, None)
-                .expect("service-host config");
+        let resolver =
+            RadrootsPathResolver::new(RadrootsPlatform::Linux, RadrootsHostEnvironment::default());
+        let config = config_for(&resolver, "service-host", "primary", None);
 
-        assert_eq!(config.paths.profile, MycPathProfile::ServiceHost);
+        assert_eq!(
+            config.runtime_context().profile(),
+            MycBootstrapProfileV1::ServiceHost
+        );
         assert_eq!(
             config.logging.output_dir,
-            Some(PathBuf::from("/var/log/radroots/services/myc"))
+            Some(PathBuf::from("/var/log/radroots/services/myc/primary"))
         );
         assert_eq!(
-            config.paths.run_dir,
-            PathBuf::from("/run/radroots/services/myc")
+            config.paths.run_dir(),
+            PathBuf::from("/run/radroots/services/myc/primary")
         );
         assert_eq!(
-            config.paths.state_dir,
-            PathBuf::from("/var/lib/radroots/services/myc/state")
+            config.paths.state_dir(),
+            PathBuf::from("/var/lib/radroots/services/myc/primary")
         );
         assert_eq!(
             config.paths.signer_identity_path,
-            PathBuf::from("/etc/radroots/secrets/services/myc/signer-identity.json")
+            PathBuf::from("/etc/radroots/secrets/services/myc/primary/signer-identity.json")
         );
         assert_eq!(
             config.paths.user_identity_path,
-            PathBuf::from("/etc/radroots/secrets/services/myc/user-identity.json")
+            PathBuf::from("/etc/radroots/secrets/services/myc/primary/user-identity.json")
         );
         assert_eq!(
             config.discovery.nip05_output_path,
             Some(PathBuf::from(
-                "/var/lib/radroots/services/myc/public/.well-known/nostr.json"
+                "/var/lib/radroots/services/myc/primary/public/.well-known/nostr.json"
             ))
         );
     }
 
     #[test]
     fn repo_local_profile_uses_explicit_repo_local_root() {
-        let resolver = linux_resolver("/home/treesap");
+        let resolver =
+            RadrootsPathResolver::new(RadrootsPlatform::Linux, RadrootsHostEnvironment::default());
         let repo_local_root = PathBuf::from("/repo/.local/radroots/dev/myc");
-        let config = MycConfig::default_with_path_selection(
+        let config = config_for(
             &resolver,
-            MycPathProfile::RepoLocal,
-            Some(repo_local_root.as_path()),
-        )
-        .expect("repo-local config");
+            "repo-local",
+            "primary",
+            Some("/repo/.local/radroots/dev/myc"),
+        );
 
-        assert_eq!(config.paths.profile, MycPathProfile::RepoLocal);
-        assert_eq!(config.paths.repo_local_root, Some(repo_local_root.clone()));
+        assert_eq!(
+            config.runtime_context().profile(),
+            MycBootstrapProfileV1::RepoLocal
+        );
         assert_eq!(
             config.logging.output_dir,
-            Some(repo_local_root.join("logs/services/myc"))
+            Some(repo_local_root.join("logs/services/myc/primary"))
         );
         assert_eq!(
-            config.paths.run_dir,
-            repo_local_root.join("run/services/myc")
+            config.paths.run_dir(),
+            repo_local_root.join("run/services/myc/primary")
         );
         assert_eq!(
-            config.paths.state_dir,
-            repo_local_root.join("data/services/myc/state")
+            config.paths.state_dir(),
+            repo_local_root.join("data/services/myc/primary")
         );
         assert_eq!(
             config.paths.signer_identity_path,
-            repo_local_root.join("secrets/services/myc/signer-identity.json")
+            repo_local_root.join("secrets/services/myc/primary/signer-identity.json")
         );
         assert_eq!(
             config.paths.user_identity_path,
-            repo_local_root.join("secrets/services/myc/user-identity.json")
+            repo_local_root.join("secrets/services/myc/primary/user-identity.json")
         );
         assert_eq!(
             config.discovery.nip05_output_path,
-            Some(repo_local_root.join("data/services/myc/public/.well-known/nostr.json"))
+            Some(repo_local_root.join("data/services/myc/primary/public/.well-known/nostr.json"))
         );
     }
 
     #[test]
     fn validate_rejects_enabled_transport_without_relays() {
-        let mut config = MycConfig::default();
+        let mut config = default_config();
         config.transport.enabled = true;
 
         let err = config.validate().expect_err("missing relays");
@@ -1246,7 +1288,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_zero_audit_read_limit() {
-        let mut config = MycConfig::default();
+        let mut config = default_config();
         config.audit.default_read_limit = 0;
 
         let err = config.validate().expect_err("invalid audit read limit");
@@ -1255,7 +1297,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_zero_external_command_timeout() {
-        let mut config = MycConfig::default();
+        let mut config = default_config();
         config.custody.external_command_timeout_secs = 0;
 
         let err = config.validate().expect_err("invalid custody timeout");
@@ -1267,7 +1309,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_non_loopback_observability_bind_addr() {
-        let mut config = MycConfig::default();
+        let mut config = default_config();
         config.observability.enabled = true;
         config.observability.bind_addr = "0.0.0.0:9460"
             .parse()
@@ -1284,7 +1326,7 @@ mod tests {
 
     #[test]
     fn discovery_validation_requires_domain_and_relays_when_enabled() {
-        let mut config = MycConfig::default();
+        let mut config = default_config();
         config.discovery.enabled = true;
         config.transport.enabled = true;
         config.transport.relays = vec!["wss://relay.example.com".to_owned()];
@@ -1300,7 +1342,7 @@ mod tests {
 
     #[test]
     fn discovery_validation_allows_localhost_http_nostrconnect_template() {
-        let mut config = MycConfig::default();
+        let mut config = default_config();
         config.discovery.enabled = true;
         config.discovery.domain = Some("localhost".to_owned());
         config.discovery.public_relays = vec!["ws://localhost:8080".to_owned()];
@@ -1312,7 +1354,7 @@ mod tests {
 
     #[test]
     fn discovery_validation_rejects_invalid_nostrconnect_template() {
-        let mut config = MycConfig::default();
+        let mut config = default_config();
         config.discovery.enabled = true;
         config.discovery.domain = Some("myc.example.com".to_owned());
         config.discovery.public_relays = vec!["wss://relay.example.com".to_owned()];
@@ -1327,7 +1369,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_invalid_delivery_policy_settings() {
-        let mut config = MycConfig::default();
+        let mut config = default_config();
         config.transport.enabled = true;
         config.transport.relays = vec!["wss://relay.example.com".to_owned()];
         config.transport.delivery_policy = MycTransportDeliveryPolicy::Quorum;
@@ -1353,7 +1395,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_invalid_publish_retry_settings() {
-        let mut config = MycConfig::default();
+        let mut config = default_config();
         config.transport.publish_max_attempts = 0;
         let err = config.validate().expect_err("zero attempts");
         assert!(err.to_string().contains("publish_max_attempts"));
@@ -1377,7 +1419,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_overlapping_policy_client_lists() {
-        let mut config = MycConfig::default();
+        let mut config = default_config();
         config.policy.trusted_client_pubkeys =
             vec!["1111111111111111111111111111111111111111111111111111111111111111".to_owned()];
         config.policy.denied_client_pubkeys =
@@ -1391,7 +1433,7 @@ mod tests {
 
     #[test]
     fn validate_requires_auth_url_for_auth_ttl_policy() {
-        let mut config = MycConfig::default();
+        let mut config = default_config();
         config.policy.auth_authorized_ttl_secs = Some(60);
 
         let err = config.validate().expect_err("missing auth url");
@@ -1400,7 +1442,7 @@ mod tests {
 
     #[test]
     fn validate_requires_complete_rate_limit_pairs() {
-        let mut config = MycConfig::default();
+        let mut config = default_config();
         config.policy.connect_rate_limit_window_secs = Some(60);
 
         let err = config
@@ -1408,7 +1450,7 @@ mod tests {
             .expect_err("incomplete connect rate limit");
         assert!(err.to_string().contains("policy.connect_rate_limit"));
 
-        let mut config = MycConfig::default();
+        let mut config = default_config();
         config.policy.auth_challenge_rate_limit_max_attempts = Some(2);
 
         let err = config
@@ -1419,10 +1461,10 @@ mod tests {
 
     #[test]
     fn runtime_contract_output_matches_shared_runtime_contract() {
-        let config = MycConfig::default();
+        let config = default_config();
         let contract = config.runtime_contract_output();
 
-        assert_eq!(contract.active_profile, MycPathProfile::InteractiveUser);
+        assert_eq!(contract.active_profile, MycBootstrapProfileV1::RepoLocal);
         assert_eq!(contract.allowed_profiles, MycConfig::allowed_profiles());
         assert_eq!(
             contract.default_shared_secret_backend,

@@ -10,6 +10,8 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
 use tokio::time::{sleep, timeout};
 
+mod support;
+
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 const HTTP_READY_TIMEOUT: Duration = Duration::from_secs(15);
@@ -127,19 +129,18 @@ where
 {
     let temp = tempfile::tempdir().expect("tempdir").keep();
     let bind_addr = free_loopback_addr();
-    let mut config = MycConfig::default();
-    config.paths.state_dir = PathBuf::from(&temp).join("state");
-    config.paths.signer_identity_path = PathBuf::from(&temp).join("signer.json");
-    config.paths.user_identity_path = PathBuf::from(&temp).join("user.json");
+    let mut config = support::repo_local_config(PathBuf::from(&temp).as_path());
     config.transport.connect_timeout_secs = 1;
     config.observability.enabled = true;
     config.observability.bind_addr = bind_addr;
+    let signer_identity_path = config.paths().signer_identity_path().to_path_buf();
+    let user_identity_path = config.paths().user_identity_path().to_path_buf();
     write_test_identity(
-        &config.paths.signer_identity_path,
+        &signer_identity_path,
         "1111111111111111111111111111111111111111111111111111111111111111",
     );
     write_test_identity(
-        &config.paths.user_identity_path,
+        &user_identity_path,
         "2222222222222222222222222222222222222222222222222222222222222222",
     );
     configure(&mut config);

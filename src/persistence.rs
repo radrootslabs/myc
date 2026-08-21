@@ -252,10 +252,10 @@ pub fn import_json_to_sqlite(
 ) -> Result<MycPersistenceImportJsonToSqliteOutput, MycError> {
     config.validate()?;
     let selection = selection.resolve(config)?;
-    let state_dir = &config.paths.state_dir;
+    let state_dir = config.paths.state_dir();
     let audit_dir = MycRuntimePaths::audit_dir_for_state_dir(state_dir);
     fs::create_dir_all(state_dir).map_err(|source| MycError::CreateDir {
-        path: state_dir.clone(),
+        path: state_dir.to_path_buf(),
         source,
     })?;
     fs::create_dir_all(&audit_dir).map_err(|source| MycError::CreateDir {
@@ -285,7 +285,7 @@ pub fn backup_persistence(
 
     let output_dir = output_dir.as_ref().to_path_buf();
     let backup_manifest_path = output_dir.join(MYC_PERSISTENCE_BACKUP_MANIFEST_FILE_NAME);
-    let state_dir = &config.paths.state_dir;
+    let state_dir = config.paths.state_dir();
     let audit_dir = MycRuntimePaths::audit_dir_for_state_dir(state_dir);
     let signer_state_path = MycRuntimePaths::signer_state_path_for_backend(
         state_dir,
@@ -350,7 +350,7 @@ pub fn backup_persistence(
         backup_dir: output_dir.clone(),
         manifest_path: backup_manifest_path,
         state_dir: MycPersistenceBackupStateOutput {
-            source_path: state_dir.clone(),
+            source_path: state_dir.to_path_buf(),
             destination_path: backup_state_dir,
             file_count: state_files.len(),
         },
@@ -380,7 +380,7 @@ pub fn restore_backup(
         )));
     }
 
-    ensure_restore_state_destination_clear(&config.paths.state_dir)?;
+    ensure_restore_state_destination_clear(config.paths.state_dir())?;
     let signer_identity_reference = restore_identity_reference(
         &backup_dir,
         &manifest.signer_identity_reference,
@@ -404,14 +404,14 @@ pub fn restore_backup(
     };
 
     let restored_state_files =
-        copy_dir_recursive_collect(&state_source_dir, &config.paths.state_dir)?;
+        copy_dir_recursive_collect(&state_source_dir, config.paths.state_dir())?;
 
     Ok(MycPersistenceRestoreOutput {
         backup_dir: backup_dir.clone(),
         manifest_path: backup_manifest_path,
         state_dir: MycPersistenceRestoreStateOutput {
             source_path: state_source_dir,
-            destination_path: config.paths.state_dir.clone(),
+            destination_path: config.paths.state_dir().to_path_buf(),
             file_count: restored_state_files.len(),
         },
         signer_identity_reference,
@@ -425,7 +425,7 @@ pub fn verify_restored_state(
 ) -> Result<MycPersistenceVerifyRestoreOutput, MycError> {
     config.validate()?;
 
-    let state_dir = &config.paths.state_dir;
+    let state_dir = config.paths.state_dir();
     let audit_dir = MycRuntimePaths::audit_dir_for_state_dir(state_dir);
     let signer_state_path = MycRuntimePaths::signer_state_path_for_backend(
         state_dir,
@@ -550,11 +550,11 @@ fn import_signer_state_json_to_sqlite(
     config: &MycConfig,
 ) -> Result<MycSignerStateImportOutput, MycError> {
     let source_path = MycRuntimePaths::signer_state_path_for_backend(
-        &config.paths.state_dir,
+        config.paths.state_dir(),
         MycSignerStateBackend::JsonFile,
     );
     let destination_path = MycRuntimePaths::signer_state_path_for_backend(
-        &config.paths.state_dir,
+        config.paths.state_dir(),
         MycSignerStateBackend::Sqlite,
     );
     let source_store = RadrootsNostrFileSignerStore::new(&source_path);
@@ -1519,7 +1519,8 @@ mod tests {
     }
 
     fn load_json_signer_state(temp: &Path) -> RadrootsNostrSignerStoreState {
-        RadrootsNostrFileSignerStore::new(temp.join("state").join("signer-state.json"))
+        let config = crate::config::test_config(temp);
+        RadrootsNostrFileSignerStore::new(config.paths.state_dir().join("signer-state.json"))
             .load()
             .expect("load signer state")
     }
@@ -1535,8 +1536,7 @@ mod tests {
     }
 
     fn base_config(temp: &Path) -> MycConfig {
-        let mut config = MycConfig::default();
-        config.paths.state_dir = temp.join("state");
+        let mut config = crate::config::test_config(temp);
         config.paths.signer_identity_path = temp.join("signer.json");
         config.paths.user_identity_path = temp.join("user.json");
         write_identity(&config.paths.signer_identity_path, SIGNER_SECRET_KEY);
@@ -1915,13 +1915,14 @@ mod tests {
         sqlite_config.persistence.signer_state_backend = MycSignerStateBackend::Sqlite;
 
         let sqlite_store = RadrootsNostrSqliteSignerStore::open(
-            temp.path().join("state").join("signer-state.sqlite"),
+            sqlite_config.paths.state_dir().join("signer-state.sqlite"),
         )
         .expect("sqlite store");
-        let existing_state =
-            RadrootsNostrFileSignerStore::new(temp.path().join("state").join("signer-state.json"))
-                .load()
-                .expect("load source state");
+        let existing_state = RadrootsNostrFileSignerStore::new(
+            sqlite_config.paths.state_dir().join("signer-state.json"),
+        )
+        .load()
+        .expect("load source state");
         sqlite_store
             .save(&existing_state)
             .expect("save sqlite state");
@@ -1953,7 +1954,7 @@ mod tests {
         sqlite_config.persistence.runtime_audit_backend = MycRuntimeAuditBackend::Sqlite;
 
         let sqlite_audit_store = MycSqliteOperationAuditStore::open(
-            temp.path().join("state").join("audit"),
+            sqlite_config.paths.state_dir().join("audit"),
             sqlite_config.audit.clone(),
         )
         .expect("sqlite audit store");
