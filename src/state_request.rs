@@ -247,6 +247,12 @@ redacted_digest!(MycSignerRequestDigest);
 redacted_digest!(MycSignerOperationId);
 redacted_digest!(MycSignerCorrelationId);
 
+impl MycSignerOperationId {
+    pub(crate) const fn from_persisted(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+}
+
 /// One-use entropy evidence for a new logical signer operation.
 ///
 /// The runtime obtains these bytes from its injected entropy source. Admission
@@ -332,7 +338,7 @@ impl MycSignerRequestMethod {
         }
     }
 
-    fn parse(value: &str) -> Option<Self> {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         match value {
             "connect" => Some(Self::Connect),
             "get_public_key" => Some(Self::GetPublicKey),

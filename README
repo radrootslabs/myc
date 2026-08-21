@@ -47,17 +47,18 @@ without changing the canonical common artifact inventory.
 
 Create-new initialization reserves the shared schema-v1 metadata and migration
 ledger, retains exclusive writer authority, applies the exact Myc schema-v2
-and schema-v3 migrations, binds the normalized configuration, expected
+through schema-v4 migrations, binds the normalized configuration, expected
 identity roles, and policy versions through a sealed typed repository, and
 explicitly closes the host before reporting success. Existing writable open can
-resume the exact v1 or v2 prefix; read-only inspection requires the current
+resume the exact v1, v2, or v3 prefix; read-only inspection requires the current
 catalog and exact immutable Myc binding.
 
 The public Myc repository exposes no raw pool, connection, transaction-control
 handle, path, or SQL. Binding and request-admission mutations execute only
 inside the shared `ServiceSqliteTransaction` runner. Provider and relay work
 cannot occur inside that transaction boundary. The v2 binding table, v3
-request/dedup tables, and their update guards are checksum-pinned service-owned
+request/dedup tables, and v4 connection, permission, request-decision, and
+authorization-challenge tables and guards are checksum-pinned service-owned
 schema objects; later workflow tables remain owned by their ordered repository
 steps.
 
@@ -71,6 +72,18 @@ different normalized content records a conflict without retaining the
 decrypted request bytes. Replay and conflict counters are bounded and
 survive explicit close and reopen; retention remains owned by its later state
 checkpoint.
+
+Connection admission consumes an already-admitted `connect` operation and an
+explicit policy generation. Trusted admission creates an active connection;
+explicit approval creates a pending connection that can transition once to an
+operator-approved or operator-denied terminal decision; direct policy denial
+records a durable decision without creating a connection or approval workflow.
+Requested and granted permissions are closed, bounded, and independently
+bound. Authorization challenges are issued only for a non-connect operation
+bound to an active connection, use an operator-owned canonical URL plus
+injected entropy and time, and transition once to authorized or expired.
+Exact retries return the original durable identity or terminal state, including
+after explicit close and reopen.
 
 Writable hosts expose Myc-bound online-backup and active-integrity operations.
 Backup verification retains the exact admitted member inode, and

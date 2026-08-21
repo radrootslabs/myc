@@ -26,6 +26,7 @@ pub mod signer;
 mod signing_adapter;
 pub mod sql;
 mod state_catalog;
+mod state_connection;
 mod state_host;
 mod state_maintenance;
 mod state_metadata;
@@ -116,8 +117,21 @@ pub use state_catalog::{
     MYC_STATE_SCHEMA_VERSION_1_SHA256, MYC_STATE_SCHEMA_VERSION_2_MIGRATION_SHA256,
     MYC_STATE_SCHEMA_VERSION_2_OBJECT_COUNT, MYC_STATE_SCHEMA_VERSION_2_SHA256,
     MYC_STATE_SCHEMA_VERSION_3_MIGRATION_SHA256, MYC_STATE_SCHEMA_VERSION_3_OBJECT_COUNT,
-    MYC_STATE_SCHEMA_VERSION_3_SHA256, MycStateCatalogError, MycStateCatalogErrorKind,
-    myc_migration_catalog, myc_schema_catalog, validate_myc_state_catalogs,
+    MYC_STATE_SCHEMA_VERSION_3_SHA256, MYC_STATE_SCHEMA_VERSION_4_MIGRATION_SHA256,
+    MYC_STATE_SCHEMA_VERSION_4_OBJECT_COUNT, MYC_STATE_SCHEMA_VERSION_4_SHA256,
+    MycStateCatalogError, MycStateCatalogErrorKind, myc_migration_catalog, myc_schema_catalog,
+    validate_myc_state_catalogs,
+};
+pub use state_connection::{
+    MYC_AUTHORIZATION_CHALLENGE_URL_MAX_BYTES, MYC_CONNECTION_PERMISSION_MAX_COUNT,
+    MycAuthorizationChallengeAdmission, MycAuthorizationChallengeId,
+    MycAuthorizationChallengeNonce, MycAuthorizationChallengeRecord,
+    MycAuthorizationChallengeRequest, MycAuthorizationChallengeState, MycAuthorizationChallengeUrl,
+    MycConnectionAdmission, MycConnectionAdmissionPolicy, MycConnectionAdmissionRequest,
+    MycConnectionDecision, MycConnectionDecisionRecord, MycConnectionId, MycConnectionNonce,
+    MycConnectionOperatorDecision, MycConnectionPermission, MycConnectionPermissionSet,
+    MycConnectionPolicyGeneration, MycConnectionRecord, MycConnectionStateError,
+    MycConnectionStateErrorKind, MycConnectionStatus, MycConnectionTimeUnixMs,
 };
 pub use state_host::{
     MycStateHost, MycStateHostError, MycStateHostErrorKind, MycStateHostMode, initialize_myc_state,

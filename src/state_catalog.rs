@@ -12,7 +12,7 @@ use radroots_service_sqlite::{
 pub const MYC_STATE_BASE_SCHEMA_VERSION: u32 = 1;
 
 /// The newest governed Myc state schema understood by this binary.
-pub const MYC_STATE_SCHEMA_VERSION: u32 = 3;
+pub const MYC_STATE_SCHEMA_VERSION: u32 = 4;
 
 /// The shared metadata and migration-ledger objects present at schema v1.
 pub const MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT: u32 = 6;
@@ -22,6 +22,9 @@ pub const MYC_STATE_SCHEMA_VERSION_2_OBJECT_COUNT: u32 = 9;
 
 /// The shared objects plus Myc metadata and request-admission objects at schema v3.
 pub const MYC_STATE_SCHEMA_VERSION_3_OBJECT_COUNT: u32 = 13;
+
+/// The shared objects plus Myc metadata, request, and connection objects at schema v4.
+pub const MYC_STATE_SCHEMA_VERSION_4_OBJECT_COUNT: u32 = 25;
 
 /// SHA-256 identity of the exact schema-v1 object snapshot.
 pub const MYC_STATE_SCHEMA_VERSION_1_SHA256: [u8; 32] = [
@@ -37,14 +40,14 @@ pub const MYC_STATE_SCHEMA_VERSION_2_SHA256: [u8; 32] = [
 
 /// SHA-256 identity of the ordered Myc migration catalog.
 pub const MYC_MIGRATION_CATALOG_SHA256: [u8; 32] = [
-    0x3d, 0x79, 0xb7, 0x19, 0xea, 0x3f, 0xe4, 0x63, 0xe2, 0x66, 0xf5, 0xed, 0x0d, 0x1f, 0x09, 0x1e,
-    0x3c, 0x33, 0x17, 0x7c, 0x17, 0x82, 0x0d, 0x21, 0xbd, 0x85, 0x96, 0xdf, 0xbd, 0x31, 0xaa, 0x9e,
+    0x45, 0x3d, 0x99, 0xf4, 0xc1, 0x9c, 0x09, 0x4c, 0x59, 0x2f, 0x1a, 0x3f, 0xe7, 0xe2, 0x8e, 0x82,
+    0xc1, 0xde, 0xa6, 0x74, 0x51, 0x4a, 0x9e, 0x7d, 0x06, 0x3b, 0xc4, 0x66, 0xc2, 0x0b, 0xd4, 0xbd,
 ];
 
 /// SHA-256 identity of the schema catalog bound to the migration catalog.
 pub const MYC_STATE_SCHEMA_CATALOG_SHA256: [u8; 32] = [
-    0x26, 0x55, 0x64, 0xd0, 0x95, 0x67, 0x72, 0x4f, 0xac, 0x62, 0x1d, 0x1e, 0x00, 0xc3, 0x7d, 0xbc,
-    0xcb, 0xe3, 0xcc, 0x24, 0xa9, 0xfa, 0xb0, 0x0e, 0x59, 0xae, 0x70, 0xc6, 0xfe, 0x89, 0x87, 0x2b,
+    0xa4, 0x7d, 0x9f, 0x0a, 0xf8, 0x04, 0x20, 0x2b, 0xfa, 0x07, 0x26, 0x8e, 0x08, 0xfb, 0x48, 0x4d,
+    0xed, 0x59, 0x0b, 0x78, 0x5c, 0xc4, 0x2a, 0x01, 0x09, 0x4d, 0x1a, 0x8b, 0x9f, 0x37, 0xee, 0xca,
 ];
 
 /// SHA-256 identity of the schema-v2 migration content.
@@ -63,6 +66,18 @@ pub const MYC_STATE_SCHEMA_VERSION_3_MIGRATION_SHA256: [u8; 32] = [
 pub const MYC_STATE_SCHEMA_VERSION_3_SHA256: [u8; 32] = [
     0x57, 0x2f, 0xe6, 0xa4, 0xd3, 0x6c, 0x04, 0x76, 0xec, 0x40, 0x53, 0x6f, 0x48, 0x02, 0x8e, 0x15,
     0x58, 0x48, 0x8f, 0xb8, 0xab, 0xeb, 0xa0, 0xa3, 0x4b, 0xa6, 0x9b, 0x4b, 0x70, 0x80, 0xba, 0x08,
+];
+
+/// SHA-256 identity of the schema-v4 migration content.
+pub const MYC_STATE_SCHEMA_VERSION_4_MIGRATION_SHA256: [u8; 32] = [
+    0x93, 0x9c, 0x0e, 0xd0, 0x7c, 0xd1, 0x5c, 0xc0, 0xc7, 0x94, 0xbf, 0x6c, 0x2a, 0xf7, 0x19, 0x22,
+    0x61, 0x40, 0x93, 0x05, 0xc2, 0x87, 0x6f, 0x3b, 0xe3, 0x63, 0xe8, 0xe4, 0xfe, 0x4a, 0x1a, 0xbb,
+];
+
+/// SHA-256 identity of the schema-v4 object snapshot.
+pub const MYC_STATE_SCHEMA_VERSION_4_SHA256: [u8; 32] = [
+    0x47, 0x98, 0x63, 0xd3, 0x7d, 0x91, 0xe6, 0xc2, 0x69, 0xfa, 0x35, 0x73, 0xdb, 0x6c, 0x2e, 0x76,
+    0x7c, 0xdd, 0x3b, 0x24, 0xa9, 0x3a, 0xb4, 0x82, 0xd7, 0x74, 0xbc, 0xec, 0x02, 0x18, 0xc1, 0x74,
 ];
 
 /// SHA-256 identity of the Myc metadata table definition.
@@ -269,6 +284,338 @@ const CREATE_NIP46_REQUEST_ADMISSION_MIGRATION_SQL: &str = concat!(
     nip46_request_dedup_guard_update_sql!(),
 );
 
+macro_rules! connections_table_sql {
+    () => {
+        r#"CREATE TABLE connections (
+    connection_id BLOB NOT NULL PRIMARY KEY CHECK (length(connection_id) = 32),
+    connection_nonce BLOB NOT NULL CHECK (length(connection_nonce) = 32),
+    client_public_key TEXT NOT NULL
+        CHECK (length(CAST(client_public_key AS BLOB)) = 64)
+        CHECK (client_public_key NOT GLOB '*[^0-9a-f]*'),
+    requested_permissions_sha256 BLOB NOT NULL
+        CHECK (length(requested_permissions_sha256) = 32),
+    policy_generation INTEGER NOT NULL
+        CHECK (policy_generation BETWEEN 1 AND 9223372036854775807),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'active', 'denied', 'expired')),
+    created_at_unix_ms INTEGER NOT NULL
+        CHECK (created_at_unix_ms BETWEEN 1 AND 9223372036854775807),
+    updated_at_unix_ms INTEGER NOT NULL
+        CHECK (updated_at_unix_ms BETWEEN created_at_unix_ms AND 9223372036854775807),
+    authorized_until_unix_ms INTEGER
+        CHECK (authorized_until_unix_ms IS NULL OR
+            authorized_until_unix_ms BETWEEN created_at_unix_ms + 1 AND 9223372036854775807),
+    CHECK ((status = 'active') OR authorized_until_unix_ms IS NULL)
+) STRICT"#
+    };
+}
+
+macro_rules! connection_permissions_table_sql {
+    () => {
+        r#"CREATE TABLE connection_permissions (
+    connection_id BLOB NOT NULL CHECK (length(connection_id) = 32)
+        REFERENCES connections(connection_id),
+    permission_scope TEXT NOT NULL CHECK (permission_scope IN ('requested', 'granted')),
+    permission_code TEXT NOT NULL
+        CHECK (length(CAST(permission_code AS BLOB)) BETWEEN 1 AND 64),
+    PRIMARY KEY (connection_id, permission_scope, permission_code)
+) STRICT"#
+    };
+}
+
+macro_rules! nip46_request_decisions_table_sql {
+    () => {
+        r#"CREATE TABLE nip46_request_decisions (
+    operation_id BLOB NOT NULL PRIMARY KEY CHECK (length(operation_id) = 32)
+        REFERENCES nip46_requests(operation_id),
+    connection_id BLOB CHECK (connection_id IS NULL OR length(connection_id) = 32)
+        REFERENCES connections(connection_id),
+    decision TEXT NOT NULL
+        CHECK (decision IN ('pending_approval', 'challenged', 'allowed', 'denied')),
+    reason_code TEXT NOT NULL CHECK (reason_code IN (
+        'explicit_approval_required',
+        'trusted_client',
+        'policy_denied',
+        'operator_approved',
+        'operator_denied',
+        'authorization_challenge_required',
+        'authorization_challenge_authorized',
+        'authorization_challenge_expired'
+    )),
+    policy_generation INTEGER NOT NULL
+        CHECK (policy_generation BETWEEN 1 AND 9223372036854775807),
+    requested_permissions_sha256 BLOB NOT NULL
+        CHECK (length(requested_permissions_sha256) = 32),
+    challenge_id BLOB UNIQUE CHECK (challenge_id IS NULL OR length(challenge_id) = 32)
+        REFERENCES connection_auth_challenges(challenge_id),
+    decided_at_unix_ms INTEGER NOT NULL
+        CHECK (decided_at_unix_ms BETWEEN 1 AND 9223372036854775807),
+    CHECK (
+        (decision = 'denied' AND reason_code = 'policy_denied'
+            AND connection_id IS NULL AND challenge_id IS NULL)
+        OR (decision = 'pending_approval' AND reason_code = 'explicit_approval_required'
+            AND connection_id IS NOT NULL AND challenge_id IS NULL)
+        OR (decision = 'allowed' AND reason_code IN ('trusted_client', 'operator_approved')
+            AND connection_id IS NOT NULL AND challenge_id IS NULL)
+        OR (decision = 'denied' AND reason_code = 'operator_denied'
+            AND connection_id IS NOT NULL AND challenge_id IS NULL)
+        OR (decision = 'challenged' AND reason_code = 'authorization_challenge_required'
+            AND connection_id IS NOT NULL AND challenge_id IS NOT NULL)
+        OR (decision = 'allowed' AND reason_code = 'authorization_challenge_authorized'
+            AND connection_id IS NOT NULL AND challenge_id IS NOT NULL)
+        OR (decision = 'denied' AND reason_code = 'authorization_challenge_expired'
+            AND connection_id IS NOT NULL AND challenge_id IS NOT NULL)
+    )
+) STRICT"#
+    };
+}
+
+macro_rules! connection_auth_challenges_table_sql {
+    () => {
+        r#"CREATE TABLE connection_auth_challenges (
+    challenge_id BLOB NOT NULL PRIMARY KEY CHECK (length(challenge_id) = 32),
+    challenge_nonce BLOB NOT NULL CHECK (length(challenge_nonce) = 32),
+    connection_id BLOB NOT NULL CHECK (length(connection_id) = 32)
+        REFERENCES connections(connection_id),
+    operation_id BLOB NOT NULL UNIQUE CHECK (length(operation_id) = 32)
+        REFERENCES nip46_requests(operation_id),
+    policy_generation INTEGER NOT NULL
+        CHECK (policy_generation BETWEEN 1 AND 9223372036854775807),
+    challenge_url TEXT NOT NULL
+        CHECK (length(CAST(challenge_url AS BLOB)) BETWEEN 1 AND 2048),
+    state TEXT NOT NULL CHECK (state IN ('pending', 'authorized', 'expired')),
+    issued_at_unix_ms INTEGER NOT NULL
+        CHECK (issued_at_unix_ms BETWEEN 1 AND 9223372036854775807),
+    expires_at_unix_ms INTEGER NOT NULL
+        CHECK (expires_at_unix_ms BETWEEN issued_at_unix_ms + 1 AND 9223372036854775807),
+    resolved_at_unix_ms INTEGER
+        CHECK (resolved_at_unix_ms IS NULL OR
+            resolved_at_unix_ms BETWEEN issued_at_unix_ms AND 9223372036854775807),
+    CHECK ((state = 'pending' AND resolved_at_unix_ms IS NULL)
+        OR (state IN ('authorized', 'expired') AND resolved_at_unix_ms IS NOT NULL))
+) STRICT"#
+    };
+}
+
+macro_rules! connections_guard_update_sql {
+    () => {
+        r#"CREATE TRIGGER connections_guard_update
+BEFORE UPDATE ON connections
+WHEN NEW.connection_id != OLD.connection_id
+    OR NEW.connection_nonce != OLD.connection_nonce
+    OR NEW.client_public_key != OLD.client_public_key
+    OR NEW.requested_permissions_sha256 != OLD.requested_permissions_sha256
+    OR NEW.policy_generation != OLD.policy_generation
+    OR NEW.created_at_unix_ms != OLD.created_at_unix_ms
+    OR NEW.updated_at_unix_ms < OLD.updated_at_unix_ms
+    OR NOT (
+        (OLD.status = 'pending' AND NEW.status = 'active'
+            AND (NEW.authorized_until_unix_ms IS NULL
+                OR NEW.authorized_until_unix_ms > NEW.updated_at_unix_ms))
+        OR (OLD.status = 'pending' AND NEW.status = 'denied'
+            AND NEW.authorized_until_unix_ms IS NULL)
+        OR (OLD.status = 'active' AND NEW.status = 'expired'
+            AND NEW.authorized_until_unix_ms IS NULL)
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'connection transition is invalid');
+END"#
+    };
+}
+
+macro_rules! connections_no_delete_sql {
+    () => {
+        r#"CREATE TRIGGER connections_no_delete
+BEFORE DELETE ON connections
+BEGIN
+    SELECT RAISE(ABORT, 'connection evidence is retained');
+END"#
+    };
+}
+
+macro_rules! connection_permissions_no_update_sql {
+    () => {
+        r#"CREATE TRIGGER connection_permissions_no_update
+BEFORE UPDATE ON connection_permissions
+BEGIN
+    SELECT RAISE(ABORT, 'connection permission evidence is immutable');
+END"#
+    };
+}
+
+macro_rules! connection_permissions_no_delete_sql {
+    () => {
+        r#"CREATE TRIGGER connection_permissions_no_delete
+BEFORE DELETE ON connection_permissions
+BEGIN
+    SELECT RAISE(ABORT, 'connection permission evidence is retained');
+END"#
+    };
+}
+
+macro_rules! nip46_request_decisions_guard_update_sql {
+    () => {
+        r#"CREATE TRIGGER nip46_request_decisions_guard_update
+BEFORE UPDATE ON nip46_request_decisions
+WHEN NEW.operation_id != OLD.operation_id
+    OR NEW.connection_id IS NOT OLD.connection_id
+    OR NEW.policy_generation != OLD.policy_generation
+    OR NEW.requested_permissions_sha256 != OLD.requested_permissions_sha256
+    OR NEW.challenge_id IS NOT OLD.challenge_id
+    OR NEW.decided_at_unix_ms < OLD.decided_at_unix_ms
+    OR NOT (
+        (OLD.decision = 'pending_approval' AND NEW.decision = 'allowed'
+            AND NEW.reason_code = 'operator_approved')
+        OR (OLD.decision = 'pending_approval' AND NEW.decision = 'denied'
+            AND NEW.reason_code = 'operator_denied')
+        OR (OLD.decision = 'challenged' AND NEW.decision = 'allowed'
+            AND NEW.reason_code = 'authorization_challenge_authorized')
+        OR (OLD.decision = 'challenged' AND NEW.decision = 'denied'
+            AND NEW.reason_code = 'authorization_challenge_expired')
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'request decision transition is invalid');
+END"#
+    };
+}
+
+macro_rules! nip46_request_decisions_no_delete_sql {
+    () => {
+        r#"CREATE TRIGGER nip46_request_decisions_no_delete
+BEFORE DELETE ON nip46_request_decisions
+BEGIN
+    SELECT RAISE(ABORT, 'request decision evidence is retained');
+END"#
+    };
+}
+
+macro_rules! connection_auth_challenges_guard_update_sql {
+    () => {
+        r#"CREATE TRIGGER connection_auth_challenges_guard_update
+BEFORE UPDATE ON connection_auth_challenges
+WHEN NEW.challenge_id != OLD.challenge_id
+    OR NEW.challenge_nonce != OLD.challenge_nonce
+    OR NEW.connection_id != OLD.connection_id
+    OR NEW.operation_id != OLD.operation_id
+    OR NEW.policy_generation != OLD.policy_generation
+    OR NEW.challenge_url != OLD.challenge_url
+    OR NEW.issued_at_unix_ms != OLD.issued_at_unix_ms
+    OR NEW.expires_at_unix_ms != OLD.expires_at_unix_ms
+    OR NOT (OLD.state = 'pending'
+        AND NEW.state IN ('authorized', 'expired')
+        AND NEW.resolved_at_unix_ms IS NOT NULL
+        AND NEW.resolved_at_unix_ms >= OLD.issued_at_unix_ms)
+BEGIN
+    SELECT RAISE(ABORT, 'authorization challenge transition is invalid');
+END"#
+    };
+}
+
+macro_rules! connection_auth_challenges_no_delete_sql {
+    () => {
+        r#"CREATE TRIGGER connection_auth_challenges_no_delete
+BEFORE DELETE ON connection_auth_challenges
+BEGIN
+    SELECT RAISE(ABORT, 'authorization challenge evidence is retained');
+END"#
+    };
+}
+
+const CREATE_CONNECTIONS_TABLE_SQL: &str = connections_table_sql!();
+const CREATE_CONNECTION_PERMISSIONS_TABLE_SQL: &str = connection_permissions_table_sql!();
+const CREATE_NIP46_REQUEST_DECISIONS_TABLE_SQL: &str = nip46_request_decisions_table_sql!();
+const CREATE_CONNECTION_AUTH_CHALLENGES_TABLE_SQL: &str = connection_auth_challenges_table_sql!();
+const CREATE_CONNECTIONS_GUARD_UPDATE_SQL: &str = connections_guard_update_sql!();
+const CREATE_CONNECTIONS_NO_DELETE_SQL: &str = connections_no_delete_sql!();
+const CREATE_CONNECTION_PERMISSIONS_NO_UPDATE_SQL: &str = connection_permissions_no_update_sql!();
+const CREATE_CONNECTION_PERMISSIONS_NO_DELETE_SQL: &str = connection_permissions_no_delete_sql!();
+const CREATE_NIP46_REQUEST_DECISIONS_GUARD_UPDATE_SQL: &str =
+    nip46_request_decisions_guard_update_sql!();
+const CREATE_NIP46_REQUEST_DECISIONS_NO_DELETE_SQL: &str = nip46_request_decisions_no_delete_sql!();
+const CREATE_CONNECTION_AUTH_CHALLENGES_GUARD_UPDATE_SQL: &str =
+    connection_auth_challenges_guard_update_sql!();
+const CREATE_CONNECTION_AUTH_CHALLENGES_NO_DELETE_SQL: &str =
+    connection_auth_challenges_no_delete_sql!();
+
+const CREATE_CONNECTION_STATE_MIGRATION_SQL: &str = concat!(
+    "DROP TRIGGER myc_state_metadata_no_update;\n",
+    "UPDATE myc_state_metadata SET state_contract_version = CASE ",
+    "WHEN state_contract_version = 3 THEN 4 ELSE 0 END WHERE singleton = 1;\n",
+    myc_state_metadata_no_update_sql!(),
+    ";\n",
+    connections_table_sql!(),
+    ";\n",
+    connection_permissions_table_sql!(),
+    ";\n",
+    nip46_request_decisions_table_sql!(),
+    ";\n",
+    connection_auth_challenges_table_sql!(),
+    ";\n",
+    connections_guard_update_sql!(),
+    ";\n",
+    connections_no_delete_sql!(),
+    ";\n",
+    connection_permissions_no_update_sql!(),
+    ";\n",
+    connection_permissions_no_delete_sql!(),
+    ";\n",
+    nip46_request_decisions_guard_update_sql!(),
+    ";\n",
+    nip46_request_decisions_no_delete_sql!(),
+    ";\n",
+    connection_auth_challenges_guard_update_sql!(),
+    ";\n",
+    connection_auth_challenges_no_delete_sql!(),
+);
+
+const CONNECTIONS_TABLE_SHA256: [u8; 32] = [
+    0x72, 0xd5, 0xd8, 0xba, 0x24, 0x68, 0x9c, 0x93, 0x34, 0xb3, 0x8f, 0xbf, 0x64, 0x21, 0xe1, 0x65,
+    0xfd, 0xc3, 0x80, 0x46, 0xf1, 0x3f, 0x56, 0x49, 0x3a, 0xef, 0xd7, 0x42, 0xc4, 0xe6, 0x49, 0x85,
+];
+const CONNECTION_PERMISSIONS_TABLE_SHA256: [u8; 32] = [
+    0xc0, 0x84, 0xe6, 0x03, 0xa3, 0xb8, 0xa3, 0x78, 0xeb, 0x58, 0x00, 0x6f, 0x1c, 0x1c, 0xdd, 0x76,
+    0x7f, 0x67, 0xc7, 0xf4, 0xc8, 0x9d, 0x4c, 0x58, 0x02, 0x57, 0x2d, 0xca, 0x1e, 0x7d, 0x83, 0x02,
+];
+const NIP46_REQUEST_DECISIONS_TABLE_SHA256: [u8; 32] = [
+    0xe8, 0x53, 0x1d, 0xed, 0xad, 0x22, 0xfd, 0xfe, 0x96, 0xd4, 0x17, 0x04, 0xea, 0x05, 0x6d, 0xf1,
+    0x2f, 0xc2, 0x99, 0xac, 0x1a, 0xbf, 0x73, 0xff, 0xcc, 0x6f, 0x2c, 0x5f, 0xdc, 0x27, 0xd9, 0x80,
+];
+const CONNECTION_AUTH_CHALLENGES_TABLE_SHA256: [u8; 32] = [
+    0x65, 0x09, 0x11, 0x3c, 0x4b, 0xfa, 0x30, 0x16, 0x7e, 0x0b, 0xc8, 0xf6, 0x67, 0xf5, 0x38, 0xc5,
+    0x5a, 0xd9, 0x4e, 0x0e, 0xb7, 0x18, 0x22, 0x94, 0x73, 0xea, 0x11, 0x74, 0x9c, 0x8e, 0xa4, 0x37,
+];
+const CONNECTIONS_GUARD_UPDATE_SHA256: [u8; 32] = [
+    0x66, 0x61, 0xb0, 0xc6, 0x78, 0x3a, 0x0d, 0x4a, 0x01, 0xb9, 0x7e, 0x7e, 0xd0, 0x8e, 0x2b, 0x6e,
+    0xdb, 0xd5, 0x3a, 0x28, 0x56, 0x11, 0x88, 0x80, 0x16, 0xf3, 0x2e, 0x5a, 0x42, 0xf0, 0xf9, 0xfe,
+];
+const CONNECTIONS_NO_DELETE_SHA256: [u8; 32] = [
+    0xb0, 0xcf, 0x50, 0x22, 0x23, 0x2a, 0xab, 0x23, 0x62, 0x1f, 0xfc, 0x54, 0x8c, 0xc5, 0x88, 0xdb,
+    0x8c, 0x6e, 0x4a, 0xe0, 0x91, 0x48, 0x0d, 0xda, 0xc8, 0x79, 0x4b, 0x6c, 0x0c, 0x06, 0x3f, 0xaa,
+];
+const CONNECTION_PERMISSIONS_NO_UPDATE_SHA256: [u8; 32] = [
+    0x5e, 0x11, 0x4c, 0xa4, 0x28, 0x69, 0x0e, 0xa7, 0x64, 0x3d, 0x67, 0xbc, 0x30, 0x0f, 0x3f, 0xf1,
+    0xe9, 0x7e, 0xfe, 0x2f, 0x8d, 0xbd, 0x7b, 0x79, 0x47, 0x18, 0x56, 0x3d, 0xb6, 0x64, 0x70, 0x1f,
+];
+const CONNECTION_PERMISSIONS_NO_DELETE_SHA256: [u8; 32] = [
+    0xd0, 0x27, 0x41, 0x8e, 0x03, 0x72, 0x87, 0x09, 0x16, 0x49, 0x1d, 0x83, 0x28, 0x98, 0xb9, 0x47,
+    0xe1, 0x1f, 0xf8, 0xe6, 0x57, 0xbd, 0x89, 0x2c, 0x90, 0xa5, 0x5c, 0x30, 0x51, 0xfe, 0x2b, 0xd7,
+];
+const NIP46_REQUEST_DECISIONS_GUARD_UPDATE_SHA256: [u8; 32] = [
+    0x1b, 0xf7, 0xe9, 0xb9, 0x52, 0x64, 0x95, 0x6b, 0x43, 0xf2, 0xc8, 0xdd, 0x73, 0x82, 0xc8, 0xbf,
+    0x0a, 0xc3, 0xcc, 0x91, 0xa2, 0x95, 0xd7, 0xe2, 0x25, 0xc1, 0xcb, 0xc2, 0xc3, 0xa8, 0x1b, 0x26,
+];
+const NIP46_REQUEST_DECISIONS_NO_DELETE_SHA256: [u8; 32] = [
+    0xab, 0xd0, 0x76, 0xca, 0xe9, 0x17, 0x53, 0x6d, 0xdc, 0x9d, 0x03, 0x23, 0x1e, 0xc4, 0xdc, 0xc8,
+    0xab, 0x8e, 0x7a, 0xc4, 0x23, 0x4e, 0x64, 0x39, 0xaa, 0x58, 0x8b, 0x54, 0x15, 0x7a, 0x2d, 0x34,
+];
+const CONNECTION_AUTH_CHALLENGES_GUARD_UPDATE_SHA256: [u8; 32] = [
+    0xb3, 0x24, 0x1e, 0x29, 0x5b, 0x29, 0x68, 0x9b, 0x73, 0x72, 0x5d, 0xe2, 0xce, 0x7c, 0x8c, 0x2b,
+    0x85, 0xd0, 0xd2, 0xe1, 0xd8, 0xd0, 0x24, 0x6d, 0x35, 0x68, 0x23, 0x2b, 0x9e, 0x87, 0xe4, 0xa8,
+];
+const CONNECTION_AUTH_CHALLENGES_NO_DELETE_SHA256: [u8; 32] = [
+    0xf3, 0xf8, 0xd1, 0x48, 0xbc, 0xde, 0x89, 0xd3, 0x34, 0xcd, 0xde, 0x51, 0x4b, 0x83, 0xa2, 0x19,
+    0x16, 0xe5, 0xd6, 0x72, 0xb7, 0xc3, 0x1e, 0x59, 0xcb, 0xdf, 0x3a, 0x3c, 0x33, 0x80, 0x21, 0x4f,
+];
+
 /// Stable classes for invalid embedded Myc catalog definitions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MycStateCatalogErrorKind {
@@ -354,10 +701,17 @@ pub fn myc_migration_catalog() -> Result<MigrationCatalog, MycStateCatalogError>
         MigrationChecksum::from_bytes(MYC_STATE_SCHEMA_VERSION_3_MIGRATION_SHA256),
     )
     .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
-    let catalog = MigrationCatalog::new([metadata, requests])
+    let connections = MigrationDescriptor::sql(
+        4,
+        "create_connection_authorization_state",
+        CREATE_CONNECTION_STATE_MIGRATION_SQL,
+        MigrationChecksum::from_bytes(MYC_STATE_SCHEMA_VERSION_4_MIGRATION_SHA256),
+    )
+    .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
+    let catalog = MigrationCatalog::new([metadata, requests, connections])
         .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
     if catalog.current_version() != MYC_STATE_SCHEMA_VERSION
-        || catalog.descriptors().len() != 2
+        || catalog.descriptors().len() != 3
         || catalog.digest().as_bytes() != &MYC_MIGRATION_CATALOG_SHA256
     {
         return Err(MycStateCatalogError::new(
@@ -388,8 +742,17 @@ pub fn myc_schema_catalog() -> Result<SchemaCatalog, MycStateCatalogError> {
         SchemaDigest::from_bytes(MYC_STATE_SCHEMA_VERSION_3_SHA256),
     )
     .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
-    let catalog = SchemaCatalog::new(&migrations, [version_one, version_two, version_three])
-        .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
+    let version_four = SchemaVersionCatalog::new(
+        4,
+        myc_state_connection_objects()?,
+        SchemaDigest::from_bytes(MYC_STATE_SCHEMA_VERSION_4_SHA256),
+    )
+    .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
+    let catalog = SchemaCatalog::new(
+        &migrations,
+        [version_one, version_two, version_three, version_four],
+    )
+    .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
     validate_myc_state_catalogs(&migrations, &catalog)?;
     Ok(catalog)
 }
@@ -463,6 +826,115 @@ fn myc_state_request_objects() -> Result<[SchemaObject; 7], MycStateCatalogError
     ])
 }
 
+fn myc_state_connection_objects() -> Result<[SchemaObject; 19], MycStateCatalogError> {
+    let [
+        metadata_table,
+        metadata_update,
+        metadata_delete,
+        request_table,
+        request_dedup,
+        request_update,
+        request_dedup_update,
+    ] = myc_state_request_objects()?;
+    let object = |kind, name, table, sql, digest| {
+        SchemaObject::new(kind, name, table, sql, SchemaDigest::from_bytes(digest))
+            .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))
+    };
+    Ok([
+        metadata_table,
+        metadata_update,
+        metadata_delete,
+        request_table,
+        request_dedup,
+        request_update,
+        request_dedup_update,
+        object(
+            SchemaObjectKind::Table,
+            "connections",
+            "connections",
+            CREATE_CONNECTIONS_TABLE_SQL,
+            CONNECTIONS_TABLE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Table,
+            "connection_permissions",
+            "connection_permissions",
+            CREATE_CONNECTION_PERMISSIONS_TABLE_SQL,
+            CONNECTION_PERMISSIONS_TABLE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Table,
+            "nip46_request_decisions",
+            "nip46_request_decisions",
+            CREATE_NIP46_REQUEST_DECISIONS_TABLE_SQL,
+            NIP46_REQUEST_DECISIONS_TABLE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Table,
+            "connection_auth_challenges",
+            "connection_auth_challenges",
+            CREATE_CONNECTION_AUTH_CHALLENGES_TABLE_SQL,
+            CONNECTION_AUTH_CHALLENGES_TABLE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "connections_guard_update",
+            "connections",
+            CREATE_CONNECTIONS_GUARD_UPDATE_SQL,
+            CONNECTIONS_GUARD_UPDATE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "connections_no_delete",
+            "connections",
+            CREATE_CONNECTIONS_NO_DELETE_SQL,
+            CONNECTIONS_NO_DELETE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "connection_permissions_no_update",
+            "connection_permissions",
+            CREATE_CONNECTION_PERMISSIONS_NO_UPDATE_SQL,
+            CONNECTION_PERMISSIONS_NO_UPDATE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "connection_permissions_no_delete",
+            "connection_permissions",
+            CREATE_CONNECTION_PERMISSIONS_NO_DELETE_SQL,
+            CONNECTION_PERMISSIONS_NO_DELETE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "nip46_request_decisions_guard_update",
+            "nip46_request_decisions",
+            CREATE_NIP46_REQUEST_DECISIONS_GUARD_UPDATE_SQL,
+            NIP46_REQUEST_DECISIONS_GUARD_UPDATE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "nip46_request_decisions_no_delete",
+            "nip46_request_decisions",
+            CREATE_NIP46_REQUEST_DECISIONS_NO_DELETE_SQL,
+            NIP46_REQUEST_DECISIONS_NO_DELETE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "connection_auth_challenges_guard_update",
+            "connection_auth_challenges",
+            CREATE_CONNECTION_AUTH_CHALLENGES_GUARD_UPDATE_SQL,
+            CONNECTION_AUTH_CHALLENGES_GUARD_UPDATE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "connection_auth_challenges_no_delete",
+            "connection_auth_challenges",
+            CREATE_CONNECTION_AUTH_CHALLENGES_NO_DELETE_SQL,
+            CONNECTION_AUTH_CHALLENGES_NO_DELETE_SHA256,
+        )?,
+    ])
+}
+
 /// Independently validates exact catalog versions, counts, and digests.
 pub fn validate_myc_state_catalogs(
     migrations: &MigrationCatalog,
@@ -471,16 +943,19 @@ pub fn validate_myc_state_catalogs(
     let versions = schema.versions();
     let descriptors = migrations.descriptors();
     let valid = migrations.current_version() == MYC_STATE_SCHEMA_VERSION
-        && descriptors.len() == 2
+        && descriptors.len() == 3
         && descriptors[0].target_version() == 2
         && descriptors[0].name().as_str() == "create_myc_state_metadata"
         && descriptors[0].checksum().as_bytes() == &MYC_STATE_SCHEMA_VERSION_2_MIGRATION_SHA256
         && descriptors[1].target_version() == 3
         && descriptors[1].name().as_str() == "create_nip46_request_admission"
         && descriptors[1].checksum().as_bytes() == &MYC_STATE_SCHEMA_VERSION_3_MIGRATION_SHA256
+        && descriptors[2].target_version() == 4
+        && descriptors[2].name().as_str() == "create_connection_authorization_state"
+        && descriptors[2].checksum().as_bytes() == &MYC_STATE_SCHEMA_VERSION_4_MIGRATION_SHA256
         && migrations.digest().as_bytes() == &MYC_MIGRATION_CATALOG_SHA256
         && schema.migration_catalog_digest() == migrations.digest()
-        && versions.len() == 3
+        && versions.len() == 4
         && versions[0].version() == MYC_STATE_BASE_SCHEMA_VERSION
         && versions[0].object_count() == MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT
         && versions[0].digest().as_bytes() == &MYC_STATE_SCHEMA_VERSION_1_SHA256
@@ -490,6 +965,9 @@ pub fn validate_myc_state_catalogs(
         && versions[2].version() == 3
         && versions[2].object_count() == MYC_STATE_SCHEMA_VERSION_3_OBJECT_COUNT
         && versions[2].digest().as_bytes() == &MYC_STATE_SCHEMA_VERSION_3_SHA256
+        && versions[3].version() == 4
+        && versions[3].object_count() == MYC_STATE_SCHEMA_VERSION_4_OBJECT_COUNT
+        && versions[3].digest().as_bytes() == &MYC_STATE_SCHEMA_VERSION_4_SHA256
         && schema.digest().as_bytes() == &MYC_STATE_SCHEMA_CATALOG_SHA256;
     if valid {
         Ok(())

@@ -458,7 +458,7 @@ async fn concurrent_identical_admission_creates_one_request_and_bounded_replay_e
 }
 
 #[tokio::test]
-async fn exact_schema_v2_state_advances_to_v3_before_request_admission() {
+async fn exact_schema_v3_state_advances_to_v4_before_request_admission() {
     let directory = tempfile::tempdir().expect("temporary root");
     let runtime = runtime(directory.path());
     prepare_state_directory(&runtime);
@@ -500,18 +500,26 @@ async fn exact_schema_v2_state_advances_to_v3_before_request_admission() {
         "DROP TRIGGER radroots_service_metadata_guard_update",
         "DROP TRIGGER myc_state_metadata_no_update",
         "DROP TRIGGER schema_migrations_no_delete",
-        "DROP TRIGGER nip46_request_dedup_guard_update",
-        "DROP TRIGGER nip46_requests_no_update",
-        "DROP TABLE nip46_request_dedup",
-        "DROP TABLE nip46_requests",
-        "UPDATE radroots_service_metadata SET state_schema_version = 2 WHERE singleton = 1",
-        "UPDATE myc_state_metadata SET state_contract_version = 2 WHERE singleton = 1",
-        "DELETE FROM schema_migrations WHERE version = 3",
+        "DROP TRIGGER connection_auth_challenges_no_delete",
+        "DROP TRIGGER connection_auth_challenges_guard_update",
+        "DROP TRIGGER nip46_request_decisions_no_delete",
+        "DROP TRIGGER nip46_request_decisions_guard_update",
+        "DROP TRIGGER connection_permissions_no_delete",
+        "DROP TRIGGER connection_permissions_no_update",
+        "DROP TRIGGER connections_no_delete",
+        "DROP TRIGGER connections_guard_update",
+        "DROP TABLE nip46_request_decisions",
+        "DROP TABLE connection_auth_challenges",
+        "DROP TABLE connection_permissions",
+        "DROP TABLE connections",
+        "UPDATE radroots_service_metadata SET state_schema_version = 3 WHERE singleton = 1",
+        "UPDATE myc_state_metadata SET state_contract_version = 3 WHERE singleton = 1",
+        "DELETE FROM schema_migrations WHERE version = 4",
     ] {
         sqlx::query(sql)
             .execute(&mut connection)
             .await
-            .expect("construct exact schema-v2 fixture");
+            .expect("construct exact schema-v3 fixture");
     }
     for sql in [&shared_update, &myc_update, &migration_delete] {
         sqlx::raw_sql(sqlx::AssertSqlSafe(sql.as_str()))
@@ -523,14 +531,14 @@ async fn exact_schema_v2_state_advances_to_v3_before_request_admission() {
 
     let host = open_myc_state_read_write(&runtime, &metadata, applied_at, &build)
         .await
-        .expect("schema-v2 upgrade");
+        .expect("schema-v3 upgrade");
     let admitted = host
         .repository()
         .admit_signer_request(&request(
-            "request-after-v2",
+            "request-after-v3",
             0x66,
             MycSignerRequestMethod::Ping,
-            b"after-v2",
+            b"after-v3",
             0x66,
             300,
         ))

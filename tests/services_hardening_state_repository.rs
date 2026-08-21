@@ -119,7 +119,7 @@ async fn initialization_migrates_and_binds_exact_metadata_before_inspection() {
         .fetch_all(&mut connection)
         .await
         .expect("migration rows");
-    assert_eq!(migrations.len(), 2);
+    assert_eq!(migrations.len(), 3);
     assert_eq!(migrations[0].get::<i64, _>(0), 2);
     assert_eq!(
         migrations[0].get::<String, _>(1),
@@ -129,6 +129,11 @@ async fn initialization_migrates_and_binds_exact_metadata_before_inspection() {
     assert_eq!(
         migrations[1].get::<String, _>(1),
         "create_nip46_request_admission"
+    );
+    assert_eq!(migrations[2].get::<i64, _>(0), 4);
+    assert_eq!(
+        migrations[2].get::<String, _>(1),
+        "create_connection_authorization_state"
     );
     let binding = sqlx::query(
         "SELECT normalized_config_sha256, transport_public_key, user_public_key, \
@@ -160,7 +165,10 @@ async fn initialization_migrates_and_binds_exact_metadata_before_inspection() {
             .as_hex()
     );
     assert_eq!(binding.get::<i64, _>(4), 1);
-    assert_eq!(binding.get::<i64, _>(5), 3);
+    assert_eq!(
+        binding.get::<i64, _>(5),
+        i64::from(MYC_STATE_SCHEMA_VERSION)
+    );
     assert_eq!(binding.get::<i64, _>(6), 1);
     assert_eq!(binding.get::<i64, _>(7), 1);
     connection.close().await.expect("test connection close");

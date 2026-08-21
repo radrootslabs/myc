@@ -11,11 +11,11 @@ use std::{
 };
 
 use myc::{
-    MycConfigProfile, MycStateHostErrorKind, MycStateMaintenanceErrorKind, MycStateMetadata,
-    RadrootsHostEnvironment, RadrootsPathResolver, RadrootsPlatform, finalize_myc_state_restore,
-    initialize_myc_state, open_myc_state_inspection, open_myc_state_read_write,
-    parse_myc_cli_v1_from, parse_myc_config_v1, resolve_myc_runtime_context,
-    stage_myc_state_restore, verify_myc_state_backup,
+    MYC_STATE_SCHEMA_VERSION, MycConfigProfile, MycStateHostErrorKind,
+    MycStateMaintenanceErrorKind, MycStateMetadata, RadrootsHostEnvironment, RadrootsPathResolver,
+    RadrootsPlatform, finalize_myc_state_restore, initialize_myc_state, open_myc_state_inspection,
+    open_myc_state_read_write, parse_myc_cli_v1_from, parse_myc_config_v1,
+    resolve_myc_runtime_context, stage_myc_state_restore, verify_myc_state_backup,
 };
 use radroots_service_sqlite::{
     BackupCreatedAtUnixMs, IntegrityCheckOutcome, IntegrityCheckedAtUnixMs,
@@ -175,7 +175,10 @@ async fn backup_integrity_and_offline_restore_obey_one_exact_myc_authority() {
         .expect("online backup");
     assert_eq!(manifest.service().as_str(), "myc");
     assert_eq!(manifest.instance().as_str(), "primary");
-    assert_eq!(manifest.state_schema_version().get(), 3);
+    assert_eq!(
+        manifest.state_schema_version().get(),
+        MYC_STATE_SCHEMA_VERSION
+    );
     assert!(!manifest.protected_material_included());
     let members = fs::read_dir(&bundle)
         .expect("backup directory")
@@ -281,7 +284,10 @@ async fn backup_integrity_and_offline_restore_obey_one_exact_myc_authority() {
         format!("{verified:?}"),
         "MycVerifiedStateBackup([redacted])"
     );
-    assert_eq!(verified.database_metadata().state_schema_version().get(), 3);
+    assert_eq!(
+        verified.database_metadata().state_schema_version().get(),
+        MYC_STATE_SCHEMA_VERSION
+    );
     let staged = stage_myc_state_restore(&runtime, &metadata, verified)
         .await
         .expect("offline staging");
