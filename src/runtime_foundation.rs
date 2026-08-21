@@ -237,7 +237,7 @@ enum MycRuntimeProvider {
     },
     LocalSigner {
         role: MycProviderRole,
-        _client: MycLocalSignerClient,
+        _client: Box<MycLocalSignerClient>,
     },
 }
 
@@ -446,7 +446,7 @@ async fn compose_runtime_components(
                 })?;
                 providers[index] = Some(MycRuntimeProvider::LocalSigner {
                     role,
-                    _client: client,
+                    _client: Box::new(client),
                 });
             }
         }
