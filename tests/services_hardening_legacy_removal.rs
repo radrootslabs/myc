@@ -5,6 +5,7 @@ use std::process::Command;
 
 const LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const MAIN_SOURCE: &str = include_str!("../src/main.rs");
+const MANIFEST: &str = include_str!("../Cargo.toml");
 const ACTIVE_STATE_SOURCES: &[&str] = &[
     include_str!("../src/state_catalog.rs"),
     include_str!("../src/state_connection.rs"),
@@ -130,6 +131,85 @@ fn active_state_tree_has_one_shared_database_and_no_legacy_backend() {
         assert!(
             !active_state.contains(forbidden),
             "legacy state authority remains: {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn obsolete_provider_sources_and_dependencies_are_absent() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for relative in [
+        "src/accounts.rs",
+        "src/custody.rs",
+        "src/error.rs",
+        "src/host_identity.rs",
+        "src/identity_files.rs",
+        "src/logging.rs",
+        "src/nostr_contract.rs",
+        "src/policy.rs",
+        "src/signing_adapter.rs",
+        "src/signer/backend.rs",
+        "src/signer/capability.rs",
+        "src/signer/error.rs",
+        "src/signer/evaluation.rs",
+        "src/signer/manager.rs",
+        "src/signer/mod.rs",
+        "src/signer/model.rs",
+        "src/signer/nip46.rs",
+        "src/signer/test_fixtures.rs",
+        "src/signer/test_support.rs",
+    ] {
+        assert!(
+            !root.join(relative).exists(),
+            "obsolete provider source remains: {relative}"
+        );
+    }
+
+    let manifest: toml::Value = toml::from_str(MANIFEST).expect("Cargo manifest");
+    let dependencies = manifest["dependencies"]
+        .as_table()
+        .expect("dependencies table");
+    for forbidden in [
+        "axum",
+        "keyring",
+        "nostr-sdk",
+        "radroots_identity",
+        "radroots_event",
+        "radroots_signing",
+        "rand",
+        "thiserror",
+        "tracing",
+        "tracing-appender",
+        "tracing-subscriber",
+        "uuid",
+    ] {
+        assert!(
+            !dependencies.contains_key(forbidden),
+            "obsolete provider dependency remains: {forbidden}"
+        );
+    }
+    let secrets_features = dependencies["radroots_secrets"]["features"]
+        .as_array()
+        .expect("radroots_secrets features");
+    assert_eq!(secrets_features, &[toml::Value::String("std".to_owned())]);
+    let tokio_features = dependencies["tokio"]["features"]
+        .as_array()
+        .expect("Tokio features");
+    assert!(
+        !tokio_features
+            .iter()
+            .any(|feature| feature.as_str() == Some("process"))
+    );
+    assert!(!dependencies.contains_key("tempfile"));
+
+    let dev_dependencies = manifest["dev-dependencies"]
+        .as_table()
+        .expect("dev-dependencies table");
+    assert!(dev_dependencies.contains_key("tempfile"));
+    for forbidden in ["futures-util", "serial_test", "tokio-tungstenite"] {
+        assert!(
+            !dev_dependencies.contains_key(forbidden),
+            "obsolete development dependency remains: {forbidden}"
         );
     }
 }

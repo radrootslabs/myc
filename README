@@ -131,6 +131,14 @@ known. NIP-44 v2 plaintext is admitted only through its exact 65,408-byte
 implementation ceiling. Verified output remains sealed and redacted, and
 neither verification nor signing constitutes publication.
 
+The obsolete prototype provider tree has been removed. Myc ships no account
+keyring, managed-account selector, plaintext or adjacent-key file adapter,
+child-process signer, implicit host identity, generic remote-session signer,
+or legacy logging/client wrapper. Its removed production dependencies and
+Tokio process capability are absent from the locked graph; the active typed
+provider contract, encrypted envelope, credential resolver, local-signer
+transport, and independent verifier are the only provider boundaries.
+
 Signer-request admission validates bounded client, request, event, method,
 canonical request, injected operation entropy, and injected time evidence
 before storage. Stable domain-separated operation and correlation identities

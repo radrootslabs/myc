@@ -22,7 +22,7 @@ fn service_host_is_the_exact_default_feature_profile() {
     assert!(MANIFEST.contains("[features]\ndefault = [\"service-host\"]\nservice-host = []"));
     assert!(!MANIFEST.contains("getrandom = \"0.2\""));
     assert!(MANIFEST.contains(
-        "tokio = { version = \"1.48\", default-features = false, features = [\"io-util\", \"macros\", \"net\", \"process\", \"rt-multi-thread\", \"sync\", \"time\"] }"
+        "tokio = { version = \"1.48\", default-features = false, features = [\"io-util\", \"macros\", \"net\", \"rt-multi-thread\", \"sync\", \"time\"] }"
     ));
 }
 

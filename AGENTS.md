@@ -71,6 +71,12 @@
   exact canonical bytes, and returns only a sealed redacted result.
   Verification is not publication and performs no provider execution or
   database mutation.
+- Step 136 removes the orphaned prototype provider tree and its keyring,
+  managed-account, plaintext/adjacent-key, child-process, implicit-identity,
+  generic remote-session, legacy logging/client, and unused dependency
+  surfaces. Do not restore those files, dependencies, or Tokio process
+  capability; `radroots_nostr_connect` remains only as the active NIP-46
+  protocol dependency.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.
