@@ -2432,6 +2432,9 @@ async fn live_listener_works_with_sqlite_signer_state_and_runtime_audit() -> Tes
     assert_eq!(outbox_records[0].status, MycDeliveryOutboxStatus::Failed);
     assert_eq!(outbox_records[1].status, MycDeliveryOutboxStatus::Finalized);
 
+    let _ = shutdown_tx.send(());
+    listener_task.await??;
+
     let restarted_runtime = MycRuntime::bootstrap(runtime.config().clone())?;
     assert_eq!(
         restarted_runtime
@@ -2482,8 +2485,6 @@ async fn live_listener_works_with_sqlite_signer_state_and_runtime_audit() -> Tes
         Some("SQLite Client")
     );
 
-    let _ = shutdown_tx.send(());
-    listener_task.await??;
     Ok(())
 }
 

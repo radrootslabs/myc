@@ -60,6 +60,16 @@ that transaction boundary. The v2 binding table and its update/delete guards
 are checksum-pinned service-owned schema objects; later workflow tables remain
 owned by their ordered repository steps.
 
+Writable hosts expose Myc-bound online-backup and active-integrity operations.
+Backup verification retains the exact admitted member inode, and
+offline staging derives the same runtime paths, database identity, migration
+catalog, and schema catalog from sealed Myc evidence. Finalization returns no
+open host; the next writable open alone reconciles durable recovery evidence.
+Read-only hosts cannot capture backups, and any live host prevents offline
+restore authority. Cancellation, explicit close, and cleanup behavior remain
+owned by the source-locked shared SQLx host; Myc maps every public failure to a
+stable source-free classification.
+
 ## NIP-46 runtime contract
 
 Myc listens for encrypted kind-24133 requests on the exact configured relay

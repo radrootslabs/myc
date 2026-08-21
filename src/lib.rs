@@ -27,6 +27,7 @@ mod signing_adapter;
 pub mod sql;
 mod state_catalog;
 mod state_host;
+mod state_maintenance;
 mod state_metadata;
 mod state_repository;
 pub mod transport;
@@ -119,6 +120,11 @@ pub use state_catalog::{
 pub use state_host::{
     MycStateHost, MycStateHostError, MycStateHostErrorKind, MycStateHostMode, initialize_myc_state,
     open_myc_state_inspection, open_myc_state_read_write,
+};
+pub use state_maintenance::{
+    MycStagedStateRestore, MycStateMaintenanceError, MycStateMaintenanceErrorKind,
+    MycVerifiedStateBackup, finalize_myc_state_restore, stage_myc_state_restore,
+    verify_myc_state_backup,
 };
 pub use state_metadata::{
     MYC_OPERATOR_CONTRACT_VERSION, MYC_STATE_APPLICATION_ID, MycExpectedIdentities,

@@ -1,17 +1,23 @@
 //! Sealed lifecycle boundary for the canonical Myc SQLite state catalog.
 
 use core::fmt;
-use std::{error::Error, path::PathBuf};
+use std::{
+    error::Error,
+    path::{Path, PathBuf},
+};
 
 use radroots_service_sqlite::{
-    MigrationApplicationOutcome, MigrationAppliedAtUnixSeconds, MigrationBuildIdentity, OpenMode,
-    ServiceSqliteConnectionOptions, ServiceSqliteHost, ServiceSqlitePaths, initialize_database,
+    BackupCreatedAtUnixMs, IntegrityCheckedAtUnixMs, MigrationApplicationOutcome,
+    MigrationAppliedAtUnixSeconds, MigrationBuildIdentity, OpenMode, ServiceBackupManifest,
+    ServiceSqliteConnectionOptions, ServiceSqliteHost, ServiceSqliteIntegrityReport,
+    ServiceSqlitePaths, initialize_database,
 };
 use sqlx::{ConnectOptions, Connection, SqliteConnection, sqlite::SqliteConnectOptions};
 
 use crate::{
-    MYC_STATE_BASE_SCHEMA_VERSION, MYC_STATE_SCHEMA_VERSION, MycRuntimeContext, MycStateMetadata,
-    MycStateRepository, myc_migration_catalog, myc_schema_catalog, validate_myc_state_catalogs,
+    MYC_STATE_BASE_SCHEMA_VERSION, MYC_STATE_SCHEMA_VERSION, MycRuntimeContext,
+    MycStateMaintenanceError, MycStateMaintenanceErrorKind, MycStateMetadata, MycStateRepository,
+    myc_migration_catalog, myc_schema_catalog, validate_myc_state_catalogs,
 };
 
 /// Stable lifecycle mode of one opened Myc state host.
@@ -146,6 +152,37 @@ impl MycStateHost {
     #[must_use]
     pub const fn repository(&self) -> MycStateRepository<'_> {
         MycStateRepository::new(&self.host, &self.metadata)
+    }
+
+    /// Captures one governed point-in-time backup from a writable Myc host.
+    ///
+    /// The staging directory must be a new absolute path. The returned
+    /// manifest remains in memory and contains no protected identity material.
+    pub async fn capture_online_backup(
+        &self,
+        staging_directory: &Path,
+        created_at: BackupCreatedAtUnixMs,
+    ) -> Result<ServiceBackupManifest, MycStateMaintenanceError> {
+        if self.mode != MycStateHostMode::ReadWriteExisting {
+            return Err(MycStateMaintenanceError::new(
+                MycStateMaintenanceErrorKind::InvalidMode,
+            ));
+        }
+        self.host
+            .capture_online_backup(staging_directory, created_at)
+            .await
+            .map_err(MycStateMaintenanceError::from_sqlite)
+    }
+
+    /// Runs one explicit bounded integrity inspection over this host.
+    pub async fn inspect_integrity(
+        &self,
+        checked_at: IntegrityCheckedAtUnixMs,
+    ) -> Result<ServiceSqliteIntegrityReport, MycStateMaintenanceError> {
+        self.host
+            .inspect_integrity(checked_at)
+            .await
+            .map_err(MycStateMaintenanceError::from_sqlite)
     }
 
     /// Drains the shared host and explicitly releases retained authority.
@@ -298,12 +335,14 @@ pub async fn open_myc_state_inspection(
     Ok(state)
 }
 
-fn state_paths(runtime: &MycRuntimeContext) -> Result<ServiceSqlitePaths, MycStateHostError> {
+pub(crate) fn state_paths(
+    runtime: &MycRuntimeContext,
+) -> Result<ServiceSqlitePaths, MycStateHostError> {
     ServiceSqlitePaths::from_runtime_context(runtime.context())
         .map_err(|_| MycStateHostError::new(MycStateHostErrorKind::InvalidPaths))
 }
 
-fn require_metadata(
+pub(crate) fn require_metadata(
     runtime: &MycRuntimeContext,
     metadata: &MycStateMetadata,
 ) -> Result<(), MycStateHostError> {
@@ -349,7 +388,7 @@ fn exact_existing_outcome(outcome: MigrationApplicationOutcome) -> bool {
         )
 }
 
-fn catalogs() -> Result<
+pub(crate) fn catalogs() -> Result<
     (
         radroots_service_sqlite::MigrationCatalog,
         radroots_service_sqlite::SchemaCatalog,
