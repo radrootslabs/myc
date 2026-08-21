@@ -6,6 +6,7 @@ pub mod audit;
 mod audit_sqlite;
 pub mod cli;
 pub mod config;
+mod config_v1;
 pub mod control;
 pub mod custody;
 pub mod discovery;
@@ -39,6 +40,11 @@ pub use config::{
     MycLoggingConfig, MycObservabilityConfig, MycPathsConfig, MycPersistenceConfig,
     MycPolicyConfig, MycRuntimeAuditBackend, MycRuntimeContractOutput, MycServiceConfig,
     MycSignerStateBackend, MycTransportConfig, MycTransportDeliveryPolicy,
+};
+pub use config_v1::{
+    MYC_CONFIG_DOCUMENT_MAX_UTF8_BYTES, MYC_CONFIG_SCHEMA, MYC_CONFIG_SCHEMA_VERSION,
+    MycConfigDocumentV1, MycConfigProfile, MycConfigV1Error, MycConfigV1ErrorKind,
+    MycConfigValueSource, MycEffectiveConfigV1, parse_myc_config_v1,
 };
 pub use control::{MycAcceptedConnectionOutput, MycAuthorizedReplayOutput};
 pub use custody::{

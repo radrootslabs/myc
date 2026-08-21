@@ -35,6 +35,7 @@ chacha20poly1305 = "0.10"
 clap = { version = "4.5", features = ["derive"] }
 futures-executor = "0.3"
 hex = "0.4"
+jsonschema = { version = "0.48.1", default-features = false }
 keyring = { version = "3.6", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service"] }
 nostr = { version = "0.44.2", features = ["nip04", "nip44", "nip46", "nip49"] }
 nostr-sdk = { version = "0.44.1" }
@@ -55,13 +56,12 @@ tokio = { version = "1.48", default-features = false, features = ["io-util", "ma
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+toml = "0.8"
 url = "2.5"
 uuid = { version = "1.18", features = ["serde", "v7"] }
 zeroize = "1.8"
 
 [dev-dependencies]
 futures-util = "0.3.32"
-jsonschema = { version = "0.48.1", default-features = false }
 serial_test = "3"
 tokio-tungstenite = "0.26.2"
-toml = "0.8"

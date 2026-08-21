@@ -13,6 +13,14 @@ Only reviewed bounded operational leaves have defaults. Bootstrap profile,
 instance, repo-local root, and config-path selection are CLI concerns and are
 not document fields.
 
+`parse_myc_config_v1` caps original bytes before decoding, checks the schema
+header before closed contract admission, rejects duplicate, null, unknown, and
+semantically inconsistent input, and returns an immutable document plus a
+deterministic redacted effective-configuration projection. Every projected
+leaf records whether it came from the document or one of the exact governed
+default authorities. Ordinary errors and `Debug` output contain no source
+text, paths, credentials, relay URLs, or identity values.
+
 The current runtime loader remains transitional until its ordered replacement
 steps are complete. Existing environment variables and `.env.example` are
 prototype evidence, not authority to change or weaken the v1 contract.
