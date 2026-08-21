@@ -12,13 +12,16 @@ use radroots_service_sqlite::{
 pub const MYC_STATE_BASE_SCHEMA_VERSION: u32 = 1;
 
 /// The newest governed Myc state schema understood by this binary.
-pub const MYC_STATE_SCHEMA_VERSION: u32 = 2;
+pub const MYC_STATE_SCHEMA_VERSION: u32 = 3;
 
 /// The shared metadata and migration-ledger objects present at schema v1.
 pub const MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT: u32 = 6;
 
 /// The shared objects plus the three immutable Myc metadata objects at schema v2.
 pub const MYC_STATE_SCHEMA_VERSION_2_OBJECT_COUNT: u32 = 9;
+
+/// The shared objects plus Myc metadata and request-admission objects at schema v3.
+pub const MYC_STATE_SCHEMA_VERSION_3_OBJECT_COUNT: u32 = 13;
 
 /// SHA-256 identity of the exact schema-v1 object snapshot.
 pub const MYC_STATE_SCHEMA_VERSION_1_SHA256: [u8; 32] = [
@@ -34,20 +37,32 @@ pub const MYC_STATE_SCHEMA_VERSION_2_SHA256: [u8; 32] = [
 
 /// SHA-256 identity of the ordered Myc migration catalog.
 pub const MYC_MIGRATION_CATALOG_SHA256: [u8; 32] = [
-    0xbe, 0x15, 0x58, 0x4e, 0x4e, 0x6f, 0xe1, 0xf5, 0xb8, 0x02, 0x09, 0xe8, 0xf6, 0x12, 0x5e, 0xcc,
-    0x92, 0x81, 0xfc, 0x22, 0xe9, 0x76, 0x9a, 0x79, 0xf2, 0x10, 0xc3, 0x0c, 0x43, 0x1f, 0xf4, 0x62,
+    0x3d, 0x79, 0xb7, 0x19, 0xea, 0x3f, 0xe4, 0x63, 0xe2, 0x66, 0xf5, 0xed, 0x0d, 0x1f, 0x09, 0x1e,
+    0x3c, 0x33, 0x17, 0x7c, 0x17, 0x82, 0x0d, 0x21, 0xbd, 0x85, 0x96, 0xdf, 0xbd, 0x31, 0xaa, 0x9e,
 ];
 
 /// SHA-256 identity of the schema catalog bound to the migration catalog.
 pub const MYC_STATE_SCHEMA_CATALOG_SHA256: [u8; 32] = [
-    0x67, 0x3f, 0x8b, 0xa2, 0x09, 0x5e, 0xe0, 0x2e, 0x80, 0x48, 0xaf, 0x85, 0x0d, 0x29, 0x44, 0x36,
-    0xcb, 0x7b, 0x81, 0x50, 0xe9, 0x16, 0x93, 0xb7, 0x72, 0x7f, 0xae, 0x05, 0x81, 0x2e, 0x83, 0x1c,
+    0x26, 0x55, 0x64, 0xd0, 0x95, 0x67, 0x72, 0x4f, 0xac, 0x62, 0x1d, 0x1e, 0x00, 0xc3, 0x7d, 0xbc,
+    0xcb, 0xe3, 0xcc, 0x24, 0xa9, 0xfa, 0xb0, 0x0e, 0x59, 0xae, 0x70, 0xc6, 0xfe, 0x89, 0x87, 0x2b,
 ];
 
 /// SHA-256 identity of the schema-v2 migration content.
 pub const MYC_STATE_SCHEMA_VERSION_2_MIGRATION_SHA256: [u8; 32] = [
     0xc5, 0xeb, 0x97, 0x8b, 0xda, 0x1b, 0xc7, 0x0c, 0x70, 0xbd, 0x9b, 0xd4, 0x4d, 0x8c, 0xba, 0x70,
     0xcb, 0x28, 0x57, 0xd2, 0x6a, 0x9d, 0xce, 0x74, 0x96, 0x1f, 0x4b, 0x78, 0x1e, 0x71, 0x00, 0x37,
+];
+
+/// SHA-256 identity of the schema-v3 migration content.
+pub const MYC_STATE_SCHEMA_VERSION_3_MIGRATION_SHA256: [u8; 32] = [
+    0x75, 0x31, 0x65, 0x13, 0x6b, 0x3d, 0xac, 0xe0, 0x09, 0x1d, 0x78, 0x2f, 0x33, 0xf6, 0xb1, 0x0c,
+    0xa1, 0xa2, 0x82, 0x33, 0x14, 0x15, 0x8d, 0x80, 0xa4, 0x77, 0x5e, 0x0a, 0xf6, 0x28, 0xed, 0xf9,
+];
+
+/// SHA-256 identity of the schema-v3 object snapshot.
+pub const MYC_STATE_SCHEMA_VERSION_3_SHA256: [u8; 32] = [
+    0x57, 0x2f, 0xe6, 0xa4, 0xd3, 0x6c, 0x04, 0x76, 0xec, 0x40, 0x53, 0x6f, 0x48, 0x02, 0x8e, 0x15,
+    0x58, 0x48, 0x8f, 0xb8, 0xab, 0xeb, 0xa0, 0xa3, 0x4b, 0xa6, 0x9b, 0x4b, 0x70, 0x80, 0xba, 0x08,
 ];
 
 /// SHA-256 identity of the Myc metadata table definition.
@@ -66,6 +81,23 @@ const MYC_STATE_METADATA_NO_UPDATE_SHA256: [u8; 32] = [
 const MYC_STATE_METADATA_NO_DELETE_SHA256: [u8; 32] = [
     0x05, 0x32, 0x87, 0x93, 0x6d, 0xbb, 0xae, 0x52, 0x0b, 0xff, 0x25, 0xfe, 0x87, 0xd5, 0xd2, 0xd1,
     0xa3, 0xcc, 0xf2, 0x81, 0xc3, 0x5b, 0x14, 0xa0, 0x24, 0xa7, 0x74, 0xa5, 0x67, 0x50, 0x3d, 0x4c,
+];
+
+const NIP46_REQUESTS_TABLE_SHA256: [u8; 32] = [
+    0x7a, 0x62, 0x77, 0xaa, 0xa9, 0x71, 0x62, 0x2c, 0x1c, 0x7e, 0x0c, 0x0f, 0xab, 0x62, 0xe7, 0xfc,
+    0xfa, 0xea, 0x1b, 0x1d, 0x6f, 0x20, 0xda, 0x14, 0x7a, 0x93, 0xc7, 0x80, 0x6d, 0xd4, 0xaa, 0x54,
+];
+const NIP46_REQUEST_DEDUP_TABLE_SHA256: [u8; 32] = [
+    0x1d, 0xe1, 0x60, 0xcb, 0x35, 0xd1, 0x84, 0x66, 0x60, 0xda, 0xfc, 0xa4, 0xae, 0x26, 0x51, 0x12,
+    0xd1, 0x4a, 0xa9, 0x19, 0x7e, 0xf3, 0x7f, 0x2a, 0x5a, 0xd7, 0xdf, 0x3d, 0xfe, 0x36, 0xd7, 0x65,
+];
+const NIP46_REQUESTS_NO_UPDATE_SHA256: [u8; 32] = [
+    0x26, 0xfb, 0x6f, 0x52, 0x78, 0x7e, 0x07, 0x8a, 0x4a, 0xb9, 0x2f, 0xa1, 0x19, 0xf4, 0x65, 0x42,
+    0x18, 0xea, 0x3d, 0x61, 0xad, 0x58, 0xb2, 0x01, 0x3a, 0x99, 0x0e, 0xbc, 0xc9, 0xd7, 0x6b, 0x35,
+];
+const NIP46_REQUEST_DEDUP_GUARD_UPDATE_SHA256: [u8; 32] = [
+    0x47, 0x57, 0x86, 0x7c, 0x88, 0xe8, 0xec, 0x05, 0x0c, 0xa5, 0x3d, 0x64, 0x79, 0xae, 0x22, 0xb4,
+    0x9a, 0x11, 0xa4, 0xff, 0x39, 0x32, 0xd9, 0xa3, 0x88, 0x80, 0xd3, 0x1d, 0x7e, 0x7a, 0x94, 0x6c,
 ];
 
 macro_rules! myc_state_metadata_table_sql {
@@ -126,6 +158,115 @@ const CREATE_MYC_STATE_METADATA_MIGRATION_SQL: &str = concat!(
     myc_state_metadata_no_update_sql!(),
     ";\n",
     myc_state_metadata_no_delete_sql!(),
+);
+
+macro_rules! nip46_requests_table_sql {
+    () => {
+        r#"CREATE TABLE nip46_requests (
+    operation_id BLOB NOT NULL PRIMARY KEY CHECK (length(operation_id) = 32),
+    correlation_id BLOB NOT NULL UNIQUE CHECK (length(correlation_id) = 32),
+    operation_nonce BLOB NOT NULL CHECK (length(operation_nonce) = 32),
+    request_identity_sha256 BLOB NOT NULL UNIQUE CHECK (length(request_identity_sha256) = 32),
+    client_public_key TEXT NOT NULL
+        CHECK (length(CAST(client_public_key AS BLOB)) = 64)
+        CHECK (client_public_key NOT GLOB '*[^0-9a-f]*'),
+    request_id TEXT NOT NULL
+        CHECK (length(CAST(request_id AS BLOB)) BETWEEN 1 AND 128),
+    first_event_id BLOB NOT NULL CHECK (length(first_event_id) = 32),
+    method TEXT NOT NULL CHECK (method IN (
+        'connect',
+        'get_public_key',
+        'get_session_capability',
+        'sign_event',
+        'nip04_encrypt',
+        'nip04_decrypt',
+        'nip44_encrypt',
+        'nip44_decrypt',
+        'ping',
+        'switch_relays',
+        'logout'
+    )),
+    request_sha256 BLOB NOT NULL CHECK (length(request_sha256) = 32),
+    received_at_unix_ms INTEGER NOT NULL
+        CHECK (received_at_unix_ms BETWEEN 1 AND 9223372036854775807)
+) STRICT"#
+    };
+}
+
+macro_rules! nip46_request_dedup_table_sql {
+    () => {
+        r#"CREATE TABLE nip46_request_dedup (
+    dedup_kind TEXT NOT NULL CHECK (dedup_kind IN ('request', 'event')),
+    identity_sha256 BLOB NOT NULL CHECK (length(identity_sha256) = 32),
+    request_sha256 BLOB NOT NULL CHECK (length(request_sha256) = 32),
+    operation_id BLOB NOT NULL CHECK (length(operation_id) = 32)
+        REFERENCES nip46_requests(operation_id),
+    replay_count INTEGER NOT NULL CHECK (replay_count BETWEEN 0 AND 9223372036854775807),
+    conflict_count INTEGER NOT NULL CHECK (conflict_count BETWEEN 0 AND 9223372036854775807),
+    first_seen_at_unix_ms INTEGER NOT NULL
+        CHECK (first_seen_at_unix_ms BETWEEN 1 AND 9223372036854775807),
+    last_seen_at_unix_ms INTEGER NOT NULL
+        CHECK (last_seen_at_unix_ms BETWEEN first_seen_at_unix_ms AND 9223372036854775807),
+    PRIMARY KEY (dedup_kind, identity_sha256)
+) STRICT"#
+    };
+}
+
+macro_rules! nip46_requests_no_update_sql {
+    () => {
+        r#"CREATE TRIGGER nip46_requests_no_update
+BEFORE UPDATE ON nip46_requests
+BEGIN
+    SELECT RAISE(ABORT, 'NIP-46 request identity is immutable');
+END"#
+    };
+}
+
+macro_rules! nip46_request_dedup_guard_update_sql {
+    () => {
+        r#"CREATE TRIGGER nip46_request_dedup_guard_update
+BEFORE UPDATE ON nip46_request_dedup
+WHEN NEW.dedup_kind != OLD.dedup_kind
+    OR NEW.identity_sha256 != OLD.identity_sha256
+    OR NEW.request_sha256 != OLD.request_sha256
+    OR NEW.operation_id != OLD.operation_id
+    OR NEW.first_seen_at_unix_ms != OLD.first_seen_at_unix_ms
+    OR NEW.last_seen_at_unix_ms < OLD.last_seen_at_unix_ms
+    OR NOT (
+        (
+            OLD.replay_count < 9223372036854775807
+            AND NEW.replay_count = OLD.replay_count + 1
+            AND NEW.conflict_count = OLD.conflict_count
+        ) OR (
+            OLD.conflict_count < 9223372036854775807
+            AND NEW.conflict_count = OLD.conflict_count + 1
+            AND NEW.replay_count = OLD.replay_count
+        )
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'NIP-46 request evidence is append-only');
+END"#
+    };
+}
+
+const CREATE_NIP46_REQUESTS_TABLE_SQL: &str = nip46_requests_table_sql!();
+const CREATE_NIP46_REQUEST_DEDUP_TABLE_SQL: &str = nip46_request_dedup_table_sql!();
+const CREATE_NIP46_REQUESTS_NO_UPDATE_SQL: &str = nip46_requests_no_update_sql!();
+const CREATE_NIP46_REQUEST_DEDUP_GUARD_UPDATE_SQL: &str = nip46_request_dedup_guard_update_sql!();
+
+const CREATE_NIP46_REQUEST_ADMISSION_MIGRATION_SQL: &str = concat!(
+    "DROP TRIGGER myc_state_metadata_no_update;\n",
+    "UPDATE myc_state_metadata SET state_contract_version = CASE ",
+    "WHEN state_contract_version = 2 THEN 3 ELSE 0 END WHERE singleton = 1;\n",
+    myc_state_metadata_no_update_sql!(),
+    ";\n",
+    nip46_requests_table_sql!(),
+    ";\n",
+    nip46_request_dedup_table_sql!(),
+    ";\n",
+    nip46_requests_no_update_sql!(),
+    ";\n",
+    nip46_request_dedup_guard_update_sql!(),
 );
 
 /// Stable classes for invalid embedded Myc catalog definitions.
@@ -199,17 +340,24 @@ impl Error for MycStateCatalogError {}
 
 /// Constructs the exact ordered Myc migration catalog.
 pub fn myc_migration_catalog() -> Result<MigrationCatalog, MycStateCatalogError> {
-    let migration = MigrationDescriptor::sql(
-        MYC_STATE_SCHEMA_VERSION,
+    let metadata = MigrationDescriptor::sql(
+        2,
         "create_myc_state_metadata",
         CREATE_MYC_STATE_METADATA_MIGRATION_SQL,
         MigrationChecksum::from_bytes(MYC_STATE_SCHEMA_VERSION_2_MIGRATION_SHA256),
     )
     .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
-    let catalog = MigrationCatalog::new([migration])
+    let requests = MigrationDescriptor::sql(
+        3,
+        "create_nip46_request_admission",
+        CREATE_NIP46_REQUEST_ADMISSION_MIGRATION_SQL,
+        MigrationChecksum::from_bytes(MYC_STATE_SCHEMA_VERSION_3_MIGRATION_SHA256),
+    )
+    .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
+    let catalog = MigrationCatalog::new([metadata, requests])
         .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
     if catalog.current_version() != MYC_STATE_SCHEMA_VERSION
-        || catalog.descriptors().len() != 1
+        || catalog.descriptors().len() != 2
         || catalog.digest().as_bytes() != &MYC_MIGRATION_CATALOG_SHA256
     {
         return Err(MycStateCatalogError::new(
@@ -229,12 +377,18 @@ pub fn myc_schema_catalog() -> Result<SchemaCatalog, MycStateCatalogError> {
     )
     .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
     let version_two = SchemaVersionCatalog::new(
-        MYC_STATE_SCHEMA_VERSION,
+        2,
         myc_state_metadata_objects()?,
         SchemaDigest::from_bytes(MYC_STATE_SCHEMA_VERSION_2_SHA256),
     )
     .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
-    let catalog = SchemaCatalog::new(&migrations, [version_one, version_two])
+    let version_three = SchemaVersionCatalog::new(
+        3,
+        myc_state_request_objects()?,
+        SchemaDigest::from_bytes(MYC_STATE_SCHEMA_VERSION_3_SHA256),
+    )
+    .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
+    let catalog = SchemaCatalog::new(&migrations, [version_one, version_two, version_three])
         .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
     validate_myc_state_catalogs(&migrations, &catalog)?;
     Ok(catalog)
@@ -268,6 +422,47 @@ fn myc_state_metadata_objects() -> Result<[SchemaObject; 3], MycStateCatalogErro
     Ok([table, update, delete])
 }
 
+fn myc_state_request_objects() -> Result<[SchemaObject; 7], MycStateCatalogError> {
+    let [metadata_table, metadata_update, metadata_delete] = myc_state_metadata_objects()?;
+    Ok([
+        metadata_table,
+        metadata_update,
+        metadata_delete,
+        SchemaObject::new(
+            SchemaObjectKind::Table,
+            "nip46_requests",
+            "nip46_requests",
+            CREATE_NIP46_REQUESTS_TABLE_SQL,
+            SchemaDigest::from_bytes(NIP46_REQUESTS_TABLE_SHA256),
+        )
+        .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?,
+        SchemaObject::new(
+            SchemaObjectKind::Table,
+            "nip46_request_dedup",
+            "nip46_request_dedup",
+            CREATE_NIP46_REQUEST_DEDUP_TABLE_SQL,
+            SchemaDigest::from_bytes(NIP46_REQUEST_DEDUP_TABLE_SHA256),
+        )
+        .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?,
+        SchemaObject::new(
+            SchemaObjectKind::Trigger,
+            "nip46_requests_no_update",
+            "nip46_requests",
+            CREATE_NIP46_REQUESTS_NO_UPDATE_SQL,
+            SchemaDigest::from_bytes(NIP46_REQUESTS_NO_UPDATE_SHA256),
+        )
+        .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?,
+        SchemaObject::new(
+            SchemaObjectKind::Trigger,
+            "nip46_request_dedup_guard_update",
+            "nip46_request_dedup",
+            CREATE_NIP46_REQUEST_DEDUP_GUARD_UPDATE_SQL,
+            SchemaDigest::from_bytes(NIP46_REQUEST_DEDUP_GUARD_UPDATE_SHA256),
+        )
+        .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?,
+    ])
+}
+
 /// Independently validates exact catalog versions, counts, and digests.
 pub fn validate_myc_state_catalogs(
     migrations: &MigrationCatalog,
@@ -276,19 +471,25 @@ pub fn validate_myc_state_catalogs(
     let versions = schema.versions();
     let descriptors = migrations.descriptors();
     let valid = migrations.current_version() == MYC_STATE_SCHEMA_VERSION
-        && descriptors.len() == 1
-        && descriptors[0].target_version() == MYC_STATE_SCHEMA_VERSION
+        && descriptors.len() == 2
+        && descriptors[0].target_version() == 2
         && descriptors[0].name().as_str() == "create_myc_state_metadata"
         && descriptors[0].checksum().as_bytes() == &MYC_STATE_SCHEMA_VERSION_2_MIGRATION_SHA256
+        && descriptors[1].target_version() == 3
+        && descriptors[1].name().as_str() == "create_nip46_request_admission"
+        && descriptors[1].checksum().as_bytes() == &MYC_STATE_SCHEMA_VERSION_3_MIGRATION_SHA256
         && migrations.digest().as_bytes() == &MYC_MIGRATION_CATALOG_SHA256
         && schema.migration_catalog_digest() == migrations.digest()
-        && versions.len() == 2
+        && versions.len() == 3
         && versions[0].version() == MYC_STATE_BASE_SCHEMA_VERSION
         && versions[0].object_count() == MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT
         && versions[0].digest().as_bytes() == &MYC_STATE_SCHEMA_VERSION_1_SHA256
-        && versions[1].version() == MYC_STATE_SCHEMA_VERSION
+        && versions[1].version() == 2
         && versions[1].object_count() == MYC_STATE_SCHEMA_VERSION_2_OBJECT_COUNT
         && versions[1].digest().as_bytes() == &MYC_STATE_SCHEMA_VERSION_2_SHA256
+        && versions[2].version() == 3
+        && versions[2].object_count() == MYC_STATE_SCHEMA_VERSION_3_OBJECT_COUNT
+        && versions[2].digest().as_bytes() == &MYC_STATE_SCHEMA_VERSION_3_SHA256
         && schema.digest().as_bytes() == &MYC_STATE_SCHEMA_CATALOG_SHA256;
     if valid {
         Ok(())

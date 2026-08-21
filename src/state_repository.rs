@@ -84,7 +84,7 @@ pub struct MycStateRepositoryError {
 }
 
 impl MycStateRepositoryError {
-    const fn new(kind: MycStateRepositoryErrorKind) -> Self {
+    pub(crate) const fn new(kind: MycStateRepositoryErrorKind) -> Self {
         Self { kind }
     }
 
@@ -146,6 +146,14 @@ impl<'host> MycStateRepository<'host> {
         Self { host, expected }
     }
 
+    pub(crate) const fn host(&self) -> &'host ServiceSqliteHost {
+        self.host
+    }
+
+    pub(crate) const fn expected(&self) -> &'host MycStateMetadata {
+        self.expected
+    }
+
     /// Re-verifies the immutable Myc binding through the sealed transaction executor.
     pub async fn verify_binding(&self) -> Result<(), MycStateRepositoryError> {
         self.transact(false).await
@@ -190,7 +198,7 @@ impl fmt::Debug for MycStateRepository<'_> {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-struct PersistedMetadata {
+pub(crate) struct PersistedMetadata {
     normalized_config_sha256: [u8; 32],
     transport_public_key: Box<str>,
     user_public_key: Box<str>,
@@ -219,9 +227,19 @@ impl From<&MycStateMetadata> for PersistedMetadata {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RepositoryOperationError {
+pub(crate) enum RepositoryOperationError {
     Binding,
     Storage,
+}
+
+pub(crate) async fn require_expected_metadata(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    expected: &PersistedMetadata,
+) -> Result<(), RepositoryOperationError> {
+    match read_metadata(transaction).await? {
+        Some(actual) if actual == *expected => Ok(()),
+        Some(_) | None => Err(RepositoryOperationError::Binding),
+    }
 }
 
 async fn read_metadata(

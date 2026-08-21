@@ -30,6 +30,7 @@ mod state_host;
 mod state_maintenance;
 mod state_metadata;
 mod state_repository;
+mod state_request;
 pub mod transport;
 
 pub use app::{
@@ -114,8 +115,9 @@ pub use state_catalog::{
     MYC_STATE_SCHEMA_VERSION, MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT,
     MYC_STATE_SCHEMA_VERSION_1_SHA256, MYC_STATE_SCHEMA_VERSION_2_MIGRATION_SHA256,
     MYC_STATE_SCHEMA_VERSION_2_OBJECT_COUNT, MYC_STATE_SCHEMA_VERSION_2_SHA256,
-    MycStateCatalogError, MycStateCatalogErrorKind, myc_migration_catalog, myc_schema_catalog,
-    validate_myc_state_catalogs,
+    MYC_STATE_SCHEMA_VERSION_3_MIGRATION_SHA256, MYC_STATE_SCHEMA_VERSION_3_OBJECT_COUNT,
+    MYC_STATE_SCHEMA_VERSION_3_SHA256, MycStateCatalogError, MycStateCatalogErrorKind,
+    myc_migration_catalog, myc_schema_catalog, validate_myc_state_catalogs,
 };
 pub use state_host::{
     MycStateHost, MycStateHostError, MycStateHostErrorKind, MycStateHostMode, initialize_myc_state,
@@ -133,5 +135,12 @@ pub use state_metadata::{
 };
 pub use state_repository::{
     MycStateRepository, MycStateRepositoryError, MycStateRepositoryErrorKind,
+};
+pub use state_request::{
+    MYC_NIP46_CANONICAL_REQUEST_MAX_BYTES, MYC_NIP46_REQUEST_ID_MAX_UTF8_BYTES,
+    MycNip46ClientPublicKey, MycNip46EventId, MycNip46RequestId, MycRequestReceivedAtUnixMs,
+    MycSignerCorrelationId, MycSignerOperationId, MycSignerOperationNonce, MycSignerRequest,
+    MycSignerRequestAdmission, MycSignerRequestDigest, MycSignerRequestError,
+    MycSignerRequestErrorKind, MycSignerRequestMethod, MycSignerRequestRecord,
 };
 pub use transport::{MycNostrTransport, MycRelayPublishResult, MycTransportSnapshot};

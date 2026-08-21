@@ -47,18 +47,30 @@ without changing the canonical common artifact inventory.
 
 Create-new initialization reserves the shared schema-v1 metadata and migration
 ledger, retains exclusive writer authority, applies the exact Myc schema-v2
-migration, binds the normalized configuration, expected identity roles, and
-policy versions through a sealed typed repository, and explicitly closes the
-host before reporting success. Existing writable open can resume the exact
-v1-to-v2 prefix; read-only inspection requires the current catalog and exact
-immutable Myc binding.
+and schema-v3 migrations, binds the normalized configuration, expected
+identity roles, and policy versions through a sealed typed repository, and
+explicitly closes the host before reporting success. Existing writable open can
+resume the exact v1 or v2 prefix; read-only inspection requires the current
+catalog and exact immutable Myc binding.
 
 The public Myc repository exposes no raw pool, connection, transaction-control
-handle, path, or SQL. Its only SQLite mutation executes inside the shared
-`ServiceSqliteTransaction` runner. Provider and relay work cannot occur inside
-that transaction boundary. The v2 binding table and its update/delete guards
-are checksum-pinned service-owned schema objects; later workflow tables remain
-owned by their ordered repository steps.
+handle, path, or SQL. Binding and request-admission mutations execute only
+inside the shared `ServiceSqliteTransaction` runner. Provider and relay work
+cannot occur inside that transaction boundary. The v2 binding table, v3
+request/dedup tables, and their update guards are checksum-pinned service-owned
+schema objects; later workflow tables remain owned by their ordered repository
+steps.
+
+Signer-request admission validates bounded client, request, event, method,
+canonical request, injected operation entropy, and injected time evidence
+before storage. Stable domain-separated operation and correlation identities
+bind the logical client request to its persisted entropy evidence. Event
+identity and logical request identity retain distinct durable deduplication
+records, so an exact replay is idempotent while event or request reuse with
+different normalized content records a conflict without retaining the
+decrypted request bytes. Replay and conflict counters are bounded and
+survive explicit close and reopen; retention remains owned by its later state
+checkpoint.
 
 Writable hosts expose Myc-bound online-backup and active-integrity operations.
 Backup verification retains the exact admitted member inode, and

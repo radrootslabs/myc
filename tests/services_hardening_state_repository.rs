@@ -115,12 +115,21 @@ async fn initialization_migrates_and_binds_exact_metadata_before_inspection() {
     .await
     .expect("shared metadata row");
     assert_eq!(row.get::<i64, _>(0), i64::from(MYC_STATE_SCHEMA_VERSION));
-    let migration = sqlx::query("SELECT version, name FROM schema_migrations LIMIT 2")
-        .fetch_one(&mut connection)
+    let migrations = sqlx::query("SELECT version, name FROM schema_migrations ORDER BY version")
+        .fetch_all(&mut connection)
         .await
-        .expect("migration row");
-    assert_eq!(migration.get::<i64, _>(0), 2);
-    assert_eq!(migration.get::<String, _>(1), "create_myc_state_metadata");
+        .expect("migration rows");
+    assert_eq!(migrations.len(), 2);
+    assert_eq!(migrations[0].get::<i64, _>(0), 2);
+    assert_eq!(
+        migrations[0].get::<String, _>(1),
+        "create_myc_state_metadata"
+    );
+    assert_eq!(migrations[1].get::<i64, _>(0), 3);
+    assert_eq!(
+        migrations[1].get::<String, _>(1),
+        "create_nip46_request_admission"
+    );
     let binding = sqlx::query(
         "SELECT normalized_config_sha256, transport_public_key, user_public_key, \
          discovery_public_key, config_contract_version, state_contract_version, \
@@ -151,7 +160,7 @@ async fn initialization_migrates_and_binds_exact_metadata_before_inspection() {
             .as_hex()
     );
     assert_eq!(binding.get::<i64, _>(4), 1);
-    assert_eq!(binding.get::<i64, _>(5), 2);
+    assert_eq!(binding.get::<i64, _>(5), 3);
     assert_eq!(binding.get::<i64, _>(6), 1);
     assert_eq!(binding.get::<i64, _>(7), 1);
     connection.close().await.expect("test connection close");

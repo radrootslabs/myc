@@ -175,7 +175,7 @@ async fn backup_integrity_and_offline_restore_obey_one_exact_myc_authority() {
         .expect("online backup");
     assert_eq!(manifest.service().as_str(), "myc");
     assert_eq!(manifest.instance().as_str(), "primary");
-    assert_eq!(manifest.state_schema_version().get(), 2);
+    assert_eq!(manifest.state_schema_version().get(), 3);
     assert!(!manifest.protected_material_included());
     let members = fs::read_dir(&bundle)
         .expect("backup directory")
@@ -281,7 +281,7 @@ async fn backup_integrity_and_offline_restore_obey_one_exact_myc_authority() {
         format!("{verified:?}"),
         "MycVerifiedStateBackup([redacted])"
     );
-    assert_eq!(verified.database_metadata().state_schema_version().get(), 2);
+    assert_eq!(verified.database_metadata().state_schema_version().get(), 3);
     let staged = stage_myc_state_restore(&runtime, &metadata, verified)
         .await
         .expect("offline staging");
