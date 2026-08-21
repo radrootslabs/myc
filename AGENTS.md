@@ -163,13 +163,17 @@
 
 ## 9. Canonical verification
 
-Use the repository-owned Nix lanes as the standalone command authority:
+Through RCLD-RSHR-170, run the standalone native command authority through
+extbuild. Do not install, repair, invoke, or require Nix, and do not claim Nix,
+NixOS-module, or Nix-produced OCI qualification:
 
 ```text
-nix run .#fmt
-nix run .#check
-nix run .#test
-nix run .#release-acceptance
+cargo extbuild doctor
+cargo extbuild run -- cargo fmt --all --check
+cargo extbuild run -- cargo check --workspace --locked
+cargo extbuild run -- cargo test --workspace --all-targets --locked
+cargo extbuild run -- cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo extbuild run -- ./scripts/release-acceptance.sh
 ```
 
 The release-acceptance contract requires formatting, locked metadata, locked
@@ -177,9 +181,11 @@ all-target checking and testing, warnings-denied all-target Clippy, rustdoc with
 warnings denied, and diff hygiene. Run any gate not yet covered by the current
 release script explicitly; do not describe the script as sufficient until it
 enforces the complete contract. Run additional SQLx freshness, source-lock,
-Nix, OCI, systemd, package, SBOM, checksum, notice, and fresh-install gates when
-their surfaces change. Use narrower checked-in commands only for iteration,
-and never claim a command passed unless it ran successfully.
+independently produced OCI, systemd, package, SBOM, checksum, notice, and
+fresh-install gates when their surfaces change. Checked-in Nix material remains
+deferred source data through RCLD-RSHR-170 and is not a verification gate. Use
+narrower checked-in commands only for iteration, and never claim a command
+passed unless it ran successfully.
 
 ## 10. Commits and irreversible actions
 

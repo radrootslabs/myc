@@ -6,6 +6,8 @@ cd "$repo_root"
 
 cargo fmt --all --check
 cargo metadata --locked --format-version 1 --no-deps >/dev/null
+cargo check --locked --all-targets --no-default-features
+cargo check --locked --all-targets --no-default-features --features service-host
 cargo check --locked --all-targets
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked

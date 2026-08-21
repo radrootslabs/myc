@@ -1369,7 +1369,6 @@ dependencies = [
  "clap",
  "futures-executor",
  "futures-util",
- "getrandom 0.2.17",
  "hex",
  "keyring",
  "nostr",
