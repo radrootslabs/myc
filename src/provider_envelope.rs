@@ -1129,6 +1129,7 @@ mod tests {
             .clone()
     }
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn credential(label: &str) -> MycWrappingCredential {
         MycWrappingCredential::from_resolution(MycCredentialResolutionProof {
             credential: Zeroizing::new(bytes(label)),

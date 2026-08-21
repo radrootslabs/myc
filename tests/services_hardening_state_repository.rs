@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![cfg(any(target_os = "linux", target_os = "macos"))]
 
 use std::{error::Error, fs, os::unix::fs::PermissionsExt, path::Path};
 
