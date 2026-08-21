@@ -484,11 +484,11 @@ async fn terminal_unknown_is_not_relabelled_as_failure_and_sql_guards_preserve_e
         .await
         .expect("inspection connection");
     for statement in [
-        "DELETE FROM publication_attempts",
-        "DELETE FROM publication_targets",
-        "DELETE FROM publication_outbox",
-        "UPDATE publication_targets SET relay_id = 'changed'",
-        "UPDATE publication_outbox SET artifact_sha256 = zeroblob(32)",
+        "DELETE FROM delivery_attempts",
+        "DELETE FROM delivery_targets",
+        "DELETE FROM delivery_jobs",
+        "UPDATE delivery_targets SET relay_id = 'changed'",
+        "UPDATE delivery_jobs SET artifact_sha256 = zeroblob(32)",
     ] {
         assert!(
             sqlx::query(statement)
@@ -499,7 +499,7 @@ async fn terminal_unknown_is_not_relabelled_as_failure_and_sql_guards_preserve_e
         );
     }
     assert_eq!(
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM publication_attempts")
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM delivery_attempts")
             .fetch_one(&mut connection)
             .await
             .expect("attempt count"),
@@ -513,11 +513,11 @@ fn delivery_boundary_is_typed_sqlx_only_and_has_no_external_wait_or_legacy_autho
     assert!(LIB_SOURCE.contains("mod state_delivery;"));
     assert!(!LIB_SOURCE.contains("pub mod state_delivery;"));
     assert!(DELIVERY_SOURCE.contains("ServiceSqliteTransaction<'_>"));
-    assert!(DELIVERY_SOURCE.contains("publication_attempts"));
+    assert!(DELIVERY_SOURCE.contains("delivery_attempts"));
     assert!(DELIVERY_SOURCE.contains("UnknownAcknowledgement"));
-    assert!(CATALOG_SOURCE.contains("publication_outbox_no_delete"));
-    assert!(CATALOG_SOURCE.contains("publication_targets_no_delete"));
-    assert!(CATALOG_SOURCE.contains("publication_attempts_no_delete"));
+    assert!(CATALOG_SOURCE.contains("delivery_jobs_no_delete"));
+    assert!(CATALOG_SOURCE.contains("delivery_targets_no_delete"));
+    assert!(CATALOG_SOURCE.contains("delivery_attempts_no_delete"));
     for forbidden in [
         "SqlitePool",
         "SqliteConnection",

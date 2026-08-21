@@ -12,7 +12,7 @@ use radroots_service_sqlite::{
 pub const MYC_STATE_BASE_SCHEMA_VERSION: u32 = 1;
 
 /// The newest governed Myc state schema understood by this binary.
-pub const MYC_STATE_SCHEMA_VERSION: u32 = 6;
+pub const MYC_STATE_SCHEMA_VERSION: u32 = 7;
 
 /// The shared metadata and migration-ledger objects present at schema v1.
 pub const MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT: u32 = 6;
@@ -32,6 +32,9 @@ pub const MYC_STATE_SCHEMA_VERSION_5_OBJECT_COUNT: u32 = 34;
 /// The shared objects plus Myc metadata, request, connection, governance, and delivery objects.
 pub const MYC_STATE_SCHEMA_VERSION_6_OBJECT_COUNT: u32 = 43;
 
+/// The shared objects plus Myc discovery desired/current state and exact documents.
+pub const MYC_STATE_SCHEMA_VERSION_7_OBJECT_COUNT: u32 = 53;
+
 /// SHA-256 identity of the exact schema-v1 object snapshot.
 pub const MYC_STATE_SCHEMA_VERSION_1_SHA256: [u8; 32] = [
     0x94, 0xdc, 0x66, 0xfb, 0xca, 0x60, 0x16, 0x79, 0x61, 0x5c, 0x05, 0x52, 0x29, 0xdc, 0x0d, 0xb6,
@@ -46,14 +49,14 @@ pub const MYC_STATE_SCHEMA_VERSION_2_SHA256: [u8; 32] = [
 
 /// SHA-256 identity of the ordered Myc migration catalog.
 pub const MYC_MIGRATION_CATALOG_SHA256: [u8; 32] = [
-    0xa6, 0x9b, 0xbc, 0x7f, 0x3c, 0x22, 0x75, 0x0d, 0xdd, 0xa5, 0x5f, 0x36, 0xdb, 0x12, 0x56, 0x22,
-    0xc4, 0x9f, 0x26, 0xb4, 0x4c, 0xdc, 0x47, 0x21, 0x0f, 0xad, 0xb7, 0xb5, 0xfc, 0x4f, 0x31, 0xe5,
+    0x6f, 0x47, 0xd1, 0xa6, 0x61, 0x42, 0x93, 0xb8, 0xd8, 0xd3, 0x10, 0x2a, 0xb5, 0x87, 0xc4, 0x2e,
+    0x2b, 0xde, 0x40, 0xb2, 0x49, 0xa1, 0x65, 0xe2, 0x50, 0x4c, 0xe4, 0xa6, 0xf5, 0x08, 0x16, 0x77,
 ];
 
 /// SHA-256 identity of the schema catalog bound to the migration catalog.
 pub const MYC_STATE_SCHEMA_CATALOG_SHA256: [u8; 32] = [
-    0x94, 0xf7, 0xad, 0xfb, 0xd6, 0x2b, 0xe0, 0x3e, 0x6f, 0x3a, 0xf9, 0xc9, 0x75, 0x4b, 0xf2, 0xf4,
-    0x7c, 0xc7, 0x04, 0xa8, 0x7b, 0x27, 0x08, 0xf6, 0x82, 0x6c, 0x44, 0x32, 0x55, 0x6b, 0x6f, 0x06,
+    0x4f, 0x8d, 0x6e, 0xe9, 0x87, 0x59, 0xcc, 0xad, 0x98, 0x42, 0xb1, 0xbe, 0xb6, 0xa1, 0xdc, 0x96,
+    0xc2, 0x16, 0x49, 0x00, 0x8e, 0xd6, 0x47, 0xff, 0x73, 0x11, 0xcf, 0x22, 0x06, 0xc1, 0xf6, 0x20,
 ];
 
 /// SHA-256 identity of the schema-v2 migration content.
@@ -108,6 +111,18 @@ pub const MYC_STATE_SCHEMA_VERSION_6_MIGRATION_SHA256: [u8; 32] = [
 pub const MYC_STATE_SCHEMA_VERSION_6_SHA256: [u8; 32] = [
     0x55, 0x72, 0x73, 0x30, 0x6e, 0x68, 0xe9, 0x30, 0x6d, 0xc1, 0xd7, 0xc7, 0x00, 0x9e, 0x1c, 0xb7,
     0xc9, 0xd1, 0x5b, 0x8d, 0x52, 0xe0, 0x7d, 0xb7, 0xd0, 0xbd, 0x51, 0xe8, 0x3f, 0x05, 0x44, 0x92,
+];
+
+/// SHA-256 identity of the schema-v7 discovery-state migration.
+pub const MYC_STATE_SCHEMA_VERSION_7_MIGRATION_SHA256: [u8; 32] = [
+    0x60, 0x97, 0xc4, 0x07, 0x76, 0xa5, 0x7d, 0xd4, 0xbd, 0xdc, 0x04, 0xe6, 0x52, 0x98, 0x72, 0x17,
+    0xd6, 0xf5, 0x99, 0x1f, 0x2d, 0x5e, 0x94, 0xd3, 0x22, 0xd1, 0x20, 0x86, 0x19, 0x25, 0x4e, 0x6c,
+];
+
+/// SHA-256 identity of the schema-v7 object snapshot.
+pub const MYC_STATE_SCHEMA_VERSION_7_SHA256: [u8; 32] = [
+    0x3b, 0x35, 0x28, 0x91, 0x1a, 0x29, 0x34, 0x99, 0xd9, 0x72, 0x1d, 0xa7, 0x1b, 0x6a, 0xd0, 0x7a,
+    0x5e, 0x72, 0x3e, 0x97, 0xb6, 0xeb, 0xf5, 0xb4, 0x0a, 0x19, 0xb9, 0x05, 0x89, 0x58, 0xbf, 0x79,
 ];
 
 /// SHA-256 identity of the Myc metadata table definition.
@@ -1064,6 +1079,463 @@ const CREATE_DELIVERY_STATE_MIGRATION_SQL: &str = concat!(
     publication_attempts_no_delete_sql!(),
 );
 
+macro_rules! delivery_jobs_table_sql {
+    () => {
+        r#"CREATE TABLE delivery_jobs (
+    job_id BLOB NOT NULL PRIMARY KEY CHECK (length(job_id) = 32),
+    source_kind TEXT NOT NULL CHECK (source_kind IN ('signer_response', 'discovery_handler')),
+    source_id BLOB NOT NULL CHECK (length(source_id) = 32),
+    artifact_sha256 BLOB NOT NULL CHECK (length(artifact_sha256) = 32),
+    policy_mode TEXT NOT NULL CHECK (policy_mode IN (
+        'at_least_one_required', 'all_required', 'required_quorum'
+    )),
+    required_acknowledgements INTEGER NOT NULL
+        CHECK (required_acknowledgements BETWEEN 1 AND 32),
+    max_attempts INTEGER NOT NULL CHECK (max_attempts BETWEEN 1 AND 32),
+    initial_backoff_ms INTEGER NOT NULL CHECK (initial_backoff_ms BETWEEN 1 AND 30000),
+    maximum_backoff_ms INTEGER NOT NULL CHECK (maximum_backoff_ms BETWEEN initial_backoff_ms AND 300000),
+    attempt_deadline_ms INTEGER NOT NULL CHECK (attempt_deadline_ms BETWEEN 1 AND 30000),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'active', 'delivered', 'failed', 'unknown')),
+    created_at_unix_ms INTEGER NOT NULL
+        CHECK (created_at_unix_ms BETWEEN 1 AND 9223372036854775807),
+    updated_at_unix_ms INTEGER NOT NULL
+        CHECK (updated_at_unix_ms BETWEEN created_at_unix_ms AND 9223372036854775807),
+    finalized_at_unix_ms INTEGER
+        CHECK (finalized_at_unix_ms IS NULL OR
+            finalized_at_unix_ms BETWEEN created_at_unix_ms AND 9223372036854775807),
+    UNIQUE (source_kind, source_id),
+    CHECK ((status IN ('pending', 'active') AND finalized_at_unix_ms IS NULL)
+        OR (status IN ('delivered', 'failed', 'unknown') AND finalized_at_unix_ms IS NOT NULL))
+) STRICT"#
+    };
+}
+
+macro_rules! delivery_targets_table_sql {
+    () => {
+        r#"CREATE TABLE delivery_targets (
+    job_id BLOB NOT NULL CHECK (length(job_id) = 32)
+        REFERENCES delivery_jobs(job_id),
+    target_index INTEGER NOT NULL CHECK (target_index BETWEEN 0 AND 31),
+    relay_id TEXT NOT NULL CHECK (length(CAST(relay_id AS BLOB)) BETWEEN 1 AND 64),
+    required INTEGER NOT NULL CHECK (required IN (0, 1)),
+    attempt_count INTEGER NOT NULL CHECK (attempt_count BETWEEN 0 AND 32),
+    status TEXT NOT NULL CHECK (status IN (
+        'pending', 'leased', 'submitted', 'delivered', 'retryable', 'unknown', 'exhausted'
+    )),
+    active_attempt_id BLOB CHECK (active_attempt_id IS NULL OR length(active_attempt_id) = 32),
+    next_attempt_at_unix_ms INTEGER
+        CHECK (next_attempt_at_unix_ms IS NULL OR
+            next_attempt_at_unix_ms BETWEEN 1 AND 9223372036854775807),
+    updated_at_unix_ms INTEGER NOT NULL
+        CHECK (updated_at_unix_ms BETWEEN 1 AND 9223372036854775807),
+    CHECK ((status IN ('leased', 'submitted') AND active_attempt_id IS NOT NULL
+            AND next_attempt_at_unix_ms IS NULL)
+        OR (status = 'retryable' AND active_attempt_id IS NULL
+            AND next_attempt_at_unix_ms IS NOT NULL)
+        OR (status = 'unknown' AND active_attempt_id IS NULL)
+        OR (status IN ('pending', 'delivered', 'exhausted') AND active_attempt_id IS NULL
+            AND next_attempt_at_unix_ms IS NULL)),
+    PRIMARY KEY (job_id, target_index),
+    UNIQUE (job_id, relay_id)
+) STRICT"#
+    };
+}
+
+macro_rules! delivery_attempts_table_sql {
+    () => {
+        r#"CREATE TABLE delivery_attempts (
+    attempt_id BLOB NOT NULL PRIMARY KEY CHECK (length(attempt_id) = 32),
+    job_id BLOB NOT NULL CHECK (length(job_id) = 32),
+    target_index INTEGER NOT NULL CHECK (target_index BETWEEN 0 AND 31),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number BETWEEN 1 AND 32),
+    attempt_nonce BLOB NOT NULL CHECK (length(attempt_nonce) = 32),
+    status TEXT NOT NULL CHECK (status IN ('leased', 'submitted', 'delivered', 'failed', 'unknown')),
+    leased_at_unix_ms INTEGER NOT NULL
+        CHECK (leased_at_unix_ms BETWEEN 1 AND 9223372036854775807),
+    lease_expires_at_unix_ms INTEGER NOT NULL
+        CHECK (lease_expires_at_unix_ms BETWEEN leased_at_unix_ms + 1 AND 9223372036854775807),
+    submitted_at_unix_ms INTEGER
+        CHECK (submitted_at_unix_ms IS NULL OR
+            submitted_at_unix_ms BETWEEN leased_at_unix_ms AND lease_expires_at_unix_ms),
+    resolved_at_unix_ms INTEGER
+        CHECK (resolved_at_unix_ms IS NULL OR
+            resolved_at_unix_ms BETWEEN leased_at_unix_ms AND 9223372036854775807),
+    reason_code TEXT CHECK (reason_code IS NULL OR reason_code IN (
+        'accepted', 'relay_rejected', 'transport_failed',
+        'lease_expired_before_submit', 'acknowledgement_lost'
+    )),
+    CHECK ((status = 'leased' AND submitted_at_unix_ms IS NULL
+            AND resolved_at_unix_ms IS NULL AND reason_code IS NULL)
+        OR (status = 'submitted' AND submitted_at_unix_ms IS NOT NULL
+            AND resolved_at_unix_ms IS NULL AND reason_code IS NULL)
+        OR (status = 'delivered' AND submitted_at_unix_ms IS NOT NULL
+            AND resolved_at_unix_ms IS NOT NULL AND reason_code = 'accepted')
+        OR (status = 'failed' AND resolved_at_unix_ms IS NOT NULL
+            AND reason_code IN ('relay_rejected', 'transport_failed', 'lease_expired_before_submit'))
+        OR (status = 'unknown' AND submitted_at_unix_ms IS NOT NULL
+            AND resolved_at_unix_ms IS NOT NULL AND reason_code = 'acknowledgement_lost')),
+    FOREIGN KEY (job_id, target_index)
+        REFERENCES delivery_targets(job_id, target_index),
+    UNIQUE (job_id, target_index, attempt_number),
+    UNIQUE (job_id, target_index, attempt_nonce)
+) STRICT"#
+    };
+}
+
+macro_rules! delivery_jobs_guard_update_sql {
+    () => {
+        r#"CREATE TRIGGER delivery_jobs_guard_update
+BEFORE UPDATE ON delivery_jobs
+WHEN NEW.job_id != OLD.job_id
+    OR NEW.source_kind != OLD.source_kind
+    OR NEW.source_id != OLD.source_id
+    OR NEW.artifact_sha256 != OLD.artifact_sha256
+    OR NEW.policy_mode != OLD.policy_mode
+    OR NEW.required_acknowledgements != OLD.required_acknowledgements
+    OR NEW.max_attempts != OLD.max_attempts
+    OR NEW.initial_backoff_ms != OLD.initial_backoff_ms
+    OR NEW.maximum_backoff_ms != OLD.maximum_backoff_ms
+    OR NEW.attempt_deadline_ms != OLD.attempt_deadline_ms
+    OR NEW.created_at_unix_ms != OLD.created_at_unix_ms
+    OR NEW.updated_at_unix_ms < OLD.updated_at_unix_ms
+    OR NOT ((OLD.status = 'pending' AND NEW.status = 'active'
+            AND NEW.finalized_at_unix_ms IS NULL)
+        OR (OLD.status IN ('pending', 'active') AND NEW.status IN ('delivered', 'failed', 'unknown')
+            AND NEW.finalized_at_unix_ms IS NOT NULL))
+BEGIN
+    SELECT RAISE(ABORT, 'publication job transition is invalid');
+END"#
+    };
+}
+
+macro_rules! delivery_jobs_guard_insert_sql {
+    () => {
+        r#"CREATE TRIGGER delivery_jobs_guard_insert
+BEFORE INSERT ON delivery_jobs
+WHEN (NEW.source_kind = 'signer_response'
+        AND NOT EXISTS (
+            SELECT 1 FROM nip46_requests WHERE operation_id = NEW.source_id
+        ))
+    OR (NEW.source_kind = 'discovery_handler'
+        AND NOT EXISTS (
+            SELECT 1 FROM discovery_desired_state WHERE generation_id = NEW.source_id
+        ))
+BEGIN
+    SELECT RAISE(ABORT, 'delivery job source is unknown');
+END"#
+    };
+}
+
+macro_rules! delivery_targets_guard_update_sql {
+    () => {
+        r#"CREATE TRIGGER delivery_targets_guard_update
+BEFORE UPDATE ON delivery_targets
+WHEN NEW.job_id != OLD.job_id
+    OR NEW.target_index != OLD.target_index
+    OR NEW.relay_id != OLD.relay_id
+    OR NEW.required != OLD.required
+    OR NEW.updated_at_unix_ms < OLD.updated_at_unix_ms
+    OR NOT ((OLD.status IN ('pending', 'retryable', 'unknown') AND NEW.status = 'leased'
+            AND NEW.attempt_count = OLD.attempt_count + 1
+            AND NEW.active_attempt_id IS NOT NULL AND NEW.next_attempt_at_unix_ms IS NULL)
+        OR (OLD.status = 'leased' AND NEW.status = 'submitted'
+            AND NEW.attempt_count = OLD.attempt_count
+            AND NEW.active_attempt_id = OLD.active_attempt_id
+            AND NEW.next_attempt_at_unix_ms IS NULL)
+        OR (OLD.status IN ('leased', 'submitted')
+            AND NEW.status IN ('delivered', 'retryable', 'unknown', 'exhausted')
+            AND NEW.attempt_count = OLD.attempt_count
+            AND NEW.active_attempt_id IS NULL
+            AND ((NEW.status = 'retryable'
+                    AND NEW.next_attempt_at_unix_ms IS NOT NULL)
+                OR NEW.status = 'unknown'
+                OR (NEW.status IN ('delivered', 'exhausted')
+                    AND NEW.next_attempt_at_unix_ms IS NULL))))
+BEGIN
+    SELECT RAISE(ABORT, 'publication target transition is invalid');
+END"#
+    };
+}
+
+macro_rules! delivery_attempts_guard_update_sql {
+    () => {
+        r#"CREATE TRIGGER delivery_attempts_guard_update
+BEFORE UPDATE ON delivery_attempts
+WHEN NEW.attempt_id != OLD.attempt_id
+    OR NEW.job_id != OLD.job_id
+    OR NEW.target_index != OLD.target_index
+    OR NEW.attempt_number != OLD.attempt_number
+    OR NEW.attempt_nonce != OLD.attempt_nonce
+    OR NEW.leased_at_unix_ms != OLD.leased_at_unix_ms
+    OR NEW.lease_expires_at_unix_ms != OLD.lease_expires_at_unix_ms
+    OR NOT ((OLD.status = 'leased' AND NEW.status = 'submitted'
+            AND NEW.submitted_at_unix_ms IS NOT NULL
+            AND NEW.resolved_at_unix_ms IS NULL AND NEW.reason_code IS NULL)
+        OR (OLD.status = 'leased' AND NEW.status = 'failed'
+            AND NEW.submitted_at_unix_ms IS NULL
+            AND NEW.resolved_at_unix_ms IS NOT NULL
+            AND NEW.reason_code IN ('transport_failed', 'lease_expired_before_submit'))
+        OR (OLD.status = 'submitted' AND NEW.status IN ('delivered', 'failed', 'unknown')
+            AND NEW.submitted_at_unix_ms = OLD.submitted_at_unix_ms
+            AND NEW.resolved_at_unix_ms IS NOT NULL
+            AND ((NEW.status = 'delivered' AND NEW.reason_code = 'accepted')
+                OR (NEW.status = 'failed'
+                    AND NEW.reason_code IN ('relay_rejected', 'transport_failed'))
+                OR (NEW.status = 'unknown'
+                    AND NEW.reason_code = 'acknowledgement_lost'))))
+BEGIN
+    SELECT RAISE(ABORT, 'publication attempt transition is invalid');
+END"#
+    };
+}
+
+macro_rules! discovery_desired_state_table_sql {
+    () => {
+        r#"CREATE TABLE discovery_desired_state (
+    generation_id BLOB NOT NULL PRIMARY KEY CHECK (length(generation_id) = 32),
+    normalized_config_sha256 BLOB NOT NULL CHECK (length(normalized_config_sha256) = 32),
+    desired_sha256 BLOB NOT NULL UNIQUE CHECK (length(desired_sha256) = 32),
+    created_at_unix_ms INTEGER NOT NULL
+        CHECK (created_at_unix_ms BETWEEN 1 AND 9223372036854775807)
+) STRICT"#
+    };
+}
+
+macro_rules! discovery_documents_table_sql {
+    () => {
+        r#"CREATE TABLE discovery_documents (
+    generation_id BLOB NOT NULL PRIMARY KEY CHECK (length(generation_id) = 32)
+        REFERENCES discovery_desired_state(generation_id),
+    event_id BLOB NOT NULL UNIQUE CHECK (length(event_id) = 32),
+    event_sha256 BLOB NOT NULL UNIQUE CHECK (length(event_sha256) = 32),
+    event_bytes BLOB NOT NULL CHECK (length(event_bytes) BETWEEN 1 AND 524288),
+    nip05_projection_sha256 BLOB NOT NULL CHECK (length(nip05_projection_sha256) = 32),
+    nip05_projection_bytes BLOB NOT NULL
+        CHECK (length(nip05_projection_bytes) BETWEEN 1 AND 524288)
+) STRICT"#
+    };
+}
+
+macro_rules! discovery_publication_state_table_sql {
+    () => {
+        r#"CREATE TABLE discovery_publication_state (
+    singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
+    desired_generation_id BLOB NOT NULL UNIQUE CHECK (length(desired_generation_id) = 32)
+        REFERENCES discovery_desired_state(generation_id),
+    desired_job_id BLOB NOT NULL UNIQUE CHECK (length(desired_job_id) = 32)
+        REFERENCES delivery_jobs(job_id),
+    current_generation_id BLOB UNIQUE
+        CHECK (current_generation_id IS NULL OR length(current_generation_id) = 32)
+        REFERENCES discovery_desired_state(generation_id),
+    current_job_id BLOB UNIQUE
+        CHECK (current_job_id IS NULL OR length(current_job_id) = 32)
+        REFERENCES delivery_jobs(job_id),
+    updated_at_unix_ms INTEGER NOT NULL
+        CHECK (updated_at_unix_ms BETWEEN 1 AND 9223372036854775807),
+    CHECK ((current_generation_id IS NULL AND current_job_id IS NULL)
+        OR (current_generation_id IS NOT NULL AND current_job_id IS NOT NULL))
+) STRICT"#
+    };
+}
+
+macro_rules! immutable_no_update_sql {
+    ($trigger:literal, $table:literal, $message:literal) => {
+        concat!(
+            "CREATE TRIGGER ",
+            $trigger,
+            " BEFORE UPDATE ON ",
+            $table,
+            " BEGIN SELECT RAISE(ABORT, '",
+            $message,
+            "'); END"
+        )
+    };
+}
+
+macro_rules! immutable_no_delete_sql {
+    ($trigger:literal, $table:literal, $message:literal) => {
+        concat!(
+            "CREATE TRIGGER ",
+            $trigger,
+            " BEFORE DELETE ON ",
+            $table,
+            " BEGIN SELECT RAISE(ABORT, '",
+            $message,
+            "'); END"
+        )
+    };
+}
+
+macro_rules! discovery_publication_state_guard_update_sql {
+    () => {
+        r#"CREATE TRIGGER discovery_publication_state_guard_update
+BEFORE UPDATE ON discovery_publication_state
+WHEN NEW.singleton != OLD.singleton
+    OR NEW.updated_at_unix_ms < OLD.updated_at_unix_ms
+    OR NOT (
+        (NEW.desired_generation_id != OLD.desired_generation_id
+            AND NEW.desired_job_id != OLD.desired_job_id
+            AND NEW.current_generation_id IS OLD.current_generation_id
+            AND NEW.current_job_id IS OLD.current_job_id)
+        OR (NEW.desired_generation_id = OLD.desired_generation_id
+            AND NEW.desired_job_id = OLD.desired_job_id
+            AND NEW.current_generation_id = OLD.desired_generation_id
+            AND NEW.current_job_id = OLD.desired_job_id)
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'discovery publication transition is invalid');
+END"#
+    };
+}
+
+const CREATE_DELIVERY_JOBS_TABLE_SQL: &str = delivery_jobs_table_sql!();
+const CREATE_DELIVERY_TARGETS_TABLE_SQL: &str = delivery_targets_table_sql!();
+const CREATE_DELIVERY_ATTEMPTS_TABLE_SQL: &str = delivery_attempts_table_sql!();
+const CREATE_DELIVERY_JOBS_GUARD_INSERT_SQL: &str = delivery_jobs_guard_insert_sql!();
+const CREATE_DELIVERY_JOBS_GUARD_UPDATE_SQL: &str = delivery_jobs_guard_update_sql!();
+const CREATE_DELIVERY_TARGETS_GUARD_UPDATE_SQL: &str = delivery_targets_guard_update_sql!();
+const CREATE_DELIVERY_ATTEMPTS_GUARD_UPDATE_SQL: &str = delivery_attempts_guard_update_sql!();
+const CREATE_DELIVERY_JOBS_NO_DELETE_SQL: &str = immutable_no_delete_sql!(
+    "delivery_jobs_no_delete",
+    "delivery_jobs",
+    "publication jobs are immutable"
+);
+const CREATE_DELIVERY_TARGETS_NO_DELETE_SQL: &str = immutable_no_delete_sql!(
+    "delivery_targets_no_delete",
+    "delivery_targets",
+    "publication targets are immutable"
+);
+const CREATE_DELIVERY_ATTEMPTS_NO_DELETE_SQL: &str = immutable_no_delete_sql!(
+    "delivery_attempts_no_delete",
+    "delivery_attempts",
+    "publication attempts are immutable"
+);
+const CREATE_DISCOVERY_DESIRED_STATE_TABLE_SQL: &str = discovery_desired_state_table_sql!();
+const CREATE_DISCOVERY_DOCUMENTS_TABLE_SQL: &str = discovery_documents_table_sql!();
+const CREATE_DISCOVERY_PUBLICATION_STATE_TABLE_SQL: &str = discovery_publication_state_table_sql!();
+const CREATE_DISCOVERY_DESIRED_STATE_NO_UPDATE_SQL: &str = immutable_no_update_sql!(
+    "discovery_desired_state_no_update",
+    "discovery_desired_state",
+    "discovery desired state is immutable"
+);
+const CREATE_DISCOVERY_DESIRED_STATE_NO_DELETE_SQL: &str = immutable_no_delete_sql!(
+    "discovery_desired_state_no_delete",
+    "discovery_desired_state",
+    "discovery desired state is immutable"
+);
+const CREATE_DISCOVERY_DOCUMENTS_NO_UPDATE_SQL: &str = immutable_no_update_sql!(
+    "discovery_documents_no_update",
+    "discovery_documents",
+    "discovery documents are immutable"
+);
+const CREATE_DISCOVERY_DOCUMENTS_NO_DELETE_SQL: &str = immutable_no_delete_sql!(
+    "discovery_documents_no_delete",
+    "discovery_documents",
+    "discovery documents are immutable"
+);
+const CREATE_DISCOVERY_PUBLICATION_STATE_GUARD_UPDATE_SQL: &str =
+    discovery_publication_state_guard_update_sql!();
+const CREATE_DISCOVERY_PUBLICATION_STATE_NO_DELETE_SQL: &str = immutable_no_delete_sql!(
+    "discovery_publication_state_no_delete",
+    "discovery_publication_state",
+    "discovery publication state is retained"
+);
+
+const CREATE_DISCOVERY_STATE_MIGRATION_SQL: &str = concat!(
+    "DROP TRIGGER myc_state_metadata_no_update;\n",
+    "UPDATE myc_state_metadata SET state_contract_version = CASE ",
+    "WHEN state_contract_version = 6 THEN 7 ELSE 0 END WHERE singleton = 1;\n",
+    myc_state_metadata_no_update_sql!(),
+    ";\n",
+    "DROP TRIGGER publication_attempts_no_delete;\n",
+    "DROP TRIGGER publication_targets_no_delete;\n",
+    "DROP TRIGGER publication_outbox_no_delete;\n",
+    "DROP TRIGGER publication_attempts_guard_update;\n",
+    "DROP TRIGGER publication_targets_guard_update;\n",
+    "DROP TRIGGER publication_outbox_guard_update;\n",
+    delivery_jobs_table_sql!(),
+    ";\n",
+    delivery_targets_table_sql!(),
+    ";\n",
+    delivery_attempts_table_sql!(),
+    ";\n",
+    "INSERT INTO delivery_jobs (job_id, source_kind, source_id, artifact_sha256, ",
+    "policy_mode, required_acknowledgements, max_attempts, initial_backoff_ms, ",
+    "maximum_backoff_ms, attempt_deadline_ms, status, created_at_unix_ms, ",
+    "updated_at_unix_ms, finalized_at_unix_ms) SELECT job_id, 'signer_response', ",
+    "signer_operation_id, artifact_sha256, policy_mode, required_acknowledgements, ",
+    "max_attempts, initial_backoff_ms, maximum_backoff_ms, attempt_deadline_ms, status, ",
+    "created_at_unix_ms, updated_at_unix_ms, finalized_at_unix_ms FROM publication_outbox;\n",
+    "INSERT INTO delivery_targets SELECT * FROM publication_targets;\n",
+    "INSERT INTO delivery_attempts SELECT * FROM publication_attempts;\n",
+    "DROP TABLE publication_attempts;\n",
+    "DROP TABLE publication_targets;\n",
+    "DROP TABLE publication_outbox;\n",
+    delivery_jobs_guard_update_sql!(),
+    ";\n",
+    delivery_targets_guard_update_sql!(),
+    ";\n",
+    delivery_attempts_guard_update_sql!(),
+    ";\n",
+    immutable_no_delete_sql!(
+        "delivery_jobs_no_delete",
+        "delivery_jobs",
+        "publication jobs are immutable"
+    ),
+    ";\n",
+    immutable_no_delete_sql!(
+        "delivery_targets_no_delete",
+        "delivery_targets",
+        "publication targets are immutable"
+    ),
+    ";\n",
+    immutable_no_delete_sql!(
+        "delivery_attempts_no_delete",
+        "delivery_attempts",
+        "publication attempts are immutable"
+    ),
+    ";\n",
+    discovery_desired_state_table_sql!(),
+    ";\n",
+    discovery_documents_table_sql!(),
+    ";\n",
+    discovery_publication_state_table_sql!(),
+    ";\n",
+    delivery_jobs_guard_insert_sql!(),
+    ";\n",
+    immutable_no_update_sql!(
+        "discovery_desired_state_no_update",
+        "discovery_desired_state",
+        "discovery desired state is immutable"
+    ),
+    ";\n",
+    immutable_no_delete_sql!(
+        "discovery_desired_state_no_delete",
+        "discovery_desired_state",
+        "discovery desired state is immutable"
+    ),
+    ";\n",
+    immutable_no_update_sql!(
+        "discovery_documents_no_update",
+        "discovery_documents",
+        "discovery documents are immutable"
+    ),
+    ";\n",
+    immutable_no_delete_sql!(
+        "discovery_documents_no_delete",
+        "discovery_documents",
+        "discovery documents are immutable"
+    ),
+    ";\n",
+    discovery_publication_state_guard_update_sql!(),
+    ";\n",
+    immutable_no_delete_sql!(
+        "discovery_publication_state_no_delete",
+        "discovery_publication_state",
+        "discovery publication state is retained"
+    ),
+);
+
 const CONNECTIONS_TABLE_SHA256: [u8; 32] = [
     0x72, 0xd5, 0xd8, 0xba, 0x24, 0x68, 0x9c, 0x93, 0x34, 0xb3, 0x8f, 0xbf, 0x64, 0x21, 0xe1, 0x65,
     0xfd, 0xc3, 0x80, 0x46, 0xf1, 0x3f, 0x56, 0x49, 0x3a, 0xef, 0xd7, 0x42, 0xc4, 0xe6, 0x49, 0x85,
@@ -1184,6 +1656,82 @@ const PUBLICATION_ATTEMPTS_NO_DELETE_SHA256: [u8; 32] = [
     0x72, 0x0a, 0x1f, 0x3a, 0x40, 0xfb, 0xf8, 0x63, 0xeb, 0x1f, 0xd4, 0x54, 0x7f, 0xa0, 0xbc, 0x43,
     0x50, 0x65, 0x2b, 0xb2, 0xf0, 0x98, 0x9f, 0xda, 0x1f, 0xc6, 0x49, 0xcf, 0xd8, 0xb5, 0xd4, 0xe5,
 ];
+const DELIVERY_JOBS_TABLE_SHA256: [u8; 32] = [
+    0xbb, 0xb1, 0xcf, 0xa2, 0x5e, 0x1e, 0xdd, 0x70, 0x30, 0x61, 0xd8, 0x43, 0xbe, 0x8d, 0x8c, 0x2b,
+    0x16, 0x8c, 0x35, 0x6c, 0x9a, 0x9c, 0x0b, 0xe7, 0x88, 0x64, 0x18, 0xde, 0xca, 0xdd, 0x05, 0x01,
+];
+const DELIVERY_TARGETS_TABLE_SHA256: [u8; 32] = [
+    0xce, 0xa5, 0x3a, 0xa4, 0x64, 0x18, 0xb1, 0x8e, 0xaf, 0x61, 0xe0, 0x90, 0xf9, 0x51, 0xe7, 0x76,
+    0x79, 0xba, 0x33, 0x97, 0xc5, 0xa9, 0x5b, 0x3c, 0xa7, 0xeb, 0x83, 0x81, 0x4a, 0x8c, 0xaf, 0x69,
+];
+const DELIVERY_ATTEMPTS_TABLE_SHA256: [u8; 32] = [
+    0xae, 0x8c, 0x2a, 0xa4, 0x61, 0xeb, 0xb2, 0x04, 0x69, 0x7b, 0xdc, 0x57, 0xc9, 0x34, 0x9c, 0x1b,
+    0x86, 0x4b, 0x0f, 0xcd, 0x7b, 0xba, 0x9a, 0x45, 0xa7, 0x72, 0x2b, 0x49, 0xa0, 0x95, 0x94, 0xb8,
+];
+const DELIVERY_JOBS_GUARD_INSERT_SHA256: [u8; 32] = [
+    0x29, 0x60, 0xe9, 0x9e, 0x32, 0xcd, 0x50, 0x0a, 0xfb, 0xa2, 0x5a, 0xc6, 0xbc, 0x2b, 0xfc, 0xa0,
+    0x1a, 0x71, 0x95, 0x68, 0xa6, 0x2c, 0xa7, 0xac, 0x63, 0xd4, 0x79, 0x30, 0xc8, 0x5a, 0x8f, 0x7f,
+];
+const DELIVERY_JOBS_GUARD_UPDATE_SHA256: [u8; 32] = [
+    0xc9, 0x5f, 0x5c, 0xac, 0x67, 0xa5, 0xe8, 0x1e, 0x88, 0xca, 0x5d, 0xf2, 0xc4, 0x8e, 0x71, 0x39,
+    0xb6, 0x11, 0xc4, 0x4f, 0xa9, 0x59, 0x09, 0xea, 0xf7, 0x5e, 0x34, 0x61, 0xab, 0x5a, 0x5c, 0xe8,
+];
+const DELIVERY_TARGETS_GUARD_UPDATE_SHA256: [u8; 32] = [
+    0x1b, 0xf7, 0x81, 0xe9, 0x9e, 0xe2, 0xdd, 0x1a, 0xb9, 0xc7, 0xd5, 0xd4, 0x25, 0x96, 0x65, 0x11,
+    0x79, 0x50, 0x1f, 0x74, 0xbf, 0x1a, 0x09, 0xdb, 0x99, 0x9c, 0x19, 0x9f, 0x25, 0xff, 0x98, 0x97,
+];
+const DELIVERY_ATTEMPTS_GUARD_UPDATE_SHA256: [u8; 32] = [
+    0x24, 0x5f, 0x0a, 0x53, 0xa0, 0xd5, 0x96, 0xa9, 0x62, 0x82, 0x70, 0xca, 0x9b, 0x89, 0x9e, 0xc2,
+    0xd8, 0xe7, 0xf1, 0x45, 0x81, 0x61, 0x6f, 0x61, 0x62, 0x66, 0x98, 0xf5, 0x48, 0x29, 0x76, 0x9c,
+];
+const DELIVERY_JOBS_NO_DELETE_SHA256: [u8; 32] = [
+    0x19, 0x9b, 0x4a, 0xc3, 0x1e, 0x53, 0x87, 0xed, 0x6a, 0xbc, 0x15, 0x69, 0x51, 0x38, 0x0d, 0xf2,
+    0x61, 0xf7, 0x3c, 0x97, 0x0c, 0xc3, 0x7b, 0x16, 0xfc, 0x9e, 0xca, 0x47, 0x1a, 0x64, 0x3d, 0xb2,
+];
+const DELIVERY_TARGETS_NO_DELETE_SHA256: [u8; 32] = [
+    0xa6, 0xa1, 0xd0, 0xb7, 0x42, 0xfd, 0x4f, 0xd7, 0x1d, 0x14, 0x0c, 0x64, 0xfd, 0xda, 0x1b, 0x1a,
+    0x60, 0xfb, 0xea, 0xc4, 0xea, 0x6e, 0x22, 0xd8, 0x12, 0x79, 0xc3, 0xee, 0xbb, 0xf8, 0xb1, 0x29,
+];
+const DELIVERY_ATTEMPTS_NO_DELETE_SHA256: [u8; 32] = [
+    0x8b, 0x6d, 0x86, 0x04, 0xe3, 0x6b, 0xf6, 0xb9, 0xa2, 0x21, 0x13, 0x39, 0xda, 0xd1, 0xf0, 0x9a,
+    0x6a, 0xf3, 0x31, 0xef, 0x46, 0xbc, 0xdd, 0xd1, 0xe0, 0xe3, 0xef, 0x35, 0x07, 0x40, 0x08, 0xf1,
+];
+const DISCOVERY_DESIRED_STATE_TABLE_SHA256: [u8; 32] = [
+    0xad, 0x85, 0x4a, 0x61, 0x50, 0xa4, 0x0f, 0xf9, 0x99, 0xe7, 0x2e, 0xf8, 0xa7, 0x63, 0xa8, 0xc8,
+    0xcc, 0x57, 0x9d, 0x37, 0x23, 0xa2, 0x20, 0x67, 0x3c, 0xb1, 0xee, 0xbe, 0x9a, 0xda, 0xec, 0xce,
+];
+const DISCOVERY_DOCUMENTS_TABLE_SHA256: [u8; 32] = [
+    0x0b, 0x44, 0x57, 0x52, 0xbd, 0xdc, 0x28, 0x9c, 0x90, 0x96, 0x42, 0x80, 0x00, 0x8e, 0x00, 0x2a,
+    0x96, 0x81, 0x1a, 0x2a, 0x67, 0x96, 0x9c, 0x6c, 0x55, 0x44, 0x1b, 0xa2, 0xff, 0x0e, 0x01, 0x28,
+];
+const DISCOVERY_PUBLICATION_STATE_TABLE_SHA256: [u8; 32] = [
+    0xc1, 0x61, 0x4f, 0xc6, 0x3e, 0x56, 0xae, 0xcd, 0xcf, 0x81, 0xe5, 0xea, 0x45, 0x93, 0x16, 0xc1,
+    0x44, 0x71, 0x97, 0x11, 0xda, 0x97, 0x9c, 0xd5, 0xe4, 0x2a, 0x62, 0x54, 0x01, 0x24, 0xa1, 0x62,
+];
+const DISCOVERY_DESIRED_STATE_NO_UPDATE_SHA256: [u8; 32] = [
+    0x5a, 0x4e, 0x12, 0x67, 0x2a, 0xb5, 0x75, 0xb7, 0x91, 0x35, 0xb0, 0xd2, 0x87, 0xcb, 0x33, 0x83,
+    0x89, 0x8a, 0x51, 0x32, 0xf2, 0x34, 0xc1, 0x20, 0xd4, 0x5a, 0x56, 0x10, 0x6d, 0xe6, 0x92, 0x4c,
+];
+const DISCOVERY_DESIRED_STATE_NO_DELETE_SHA256: [u8; 32] = [
+    0x5e, 0x1e, 0xcc, 0x9f, 0x37, 0x97, 0x38, 0xdf, 0x66, 0x0f, 0x89, 0xb2, 0xb6, 0x5d, 0x85, 0xd4,
+    0xd2, 0x2c, 0xa1, 0x47, 0x7f, 0x20, 0x2e, 0x9b, 0xcb, 0x52, 0xb8, 0x95, 0x55, 0x8f, 0xeb, 0xf0,
+];
+const DISCOVERY_DOCUMENTS_NO_UPDATE_SHA256: [u8; 32] = [
+    0x80, 0xf0, 0x11, 0x68, 0xe6, 0x3e, 0x94, 0xd1, 0xa6, 0xcd, 0x63, 0xf6, 0x16, 0xed, 0xdf, 0x05,
+    0x7d, 0x58, 0xb4, 0x77, 0x8b, 0x83, 0xac, 0xc6, 0x07, 0xd3, 0x98, 0x11, 0xbf, 0x0d, 0x83, 0xf7,
+];
+const DISCOVERY_DOCUMENTS_NO_DELETE_SHA256: [u8; 32] = [
+    0x23, 0xd4, 0x66, 0xe2, 0x21, 0xd3, 0x7a, 0xa1, 0xe0, 0xb7, 0xa6, 0x4e, 0x01, 0x5b, 0x1c, 0xf0,
+    0xd5, 0x8d, 0xad, 0x1c, 0x31, 0x5b, 0x1a, 0x9e, 0x88, 0x17, 0x5c, 0x6b, 0x59, 0xd4, 0x47, 0xec,
+];
+const DISCOVERY_PUBLICATION_STATE_GUARD_UPDATE_SHA256: [u8; 32] = [
+    0xfc, 0xe8, 0x4a, 0xa7, 0x55, 0x00, 0x1c, 0x00, 0x12, 0x99, 0xc7, 0x58, 0xa1, 0xc6, 0x6a, 0x70,
+    0x99, 0xba, 0x07, 0x77, 0xc7, 0x8e, 0xce, 0x5a, 0xeb, 0xa7, 0xf8, 0x5a, 0x27, 0x52, 0xb7, 0x5f,
+];
+const DISCOVERY_PUBLICATION_STATE_NO_DELETE_SHA256: [u8; 32] = [
+    0xcd, 0x1b, 0xb2, 0x56, 0x6e, 0x3e, 0x46, 0x14, 0x4a, 0x4d, 0x38, 0xf1, 0xcb, 0xf9, 0xa0, 0xc4,
+    0xb8, 0x94, 0xb8, 0x96, 0x71, 0x75, 0x49, 0x9c, 0x12, 0xb0, 0x15, 0x1d, 0xa0, 0x06, 0x1c, 0xa0,
+];
 
 /// Stable classes for invalid embedded Myc catalog definitions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1291,10 +1839,24 @@ pub fn myc_migration_catalog() -> Result<MigrationCatalog, MycStateCatalogError>
         MigrationChecksum::from_bytes(MYC_STATE_SCHEMA_VERSION_6_MIGRATION_SHA256),
     )
     .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
-    let catalog = MigrationCatalog::new([metadata, requests, connections, governance, delivery])
-        .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
+    let discovery = MigrationDescriptor::sql(
+        7,
+        "create_discovery_desired_state",
+        CREATE_DISCOVERY_STATE_MIGRATION_SQL,
+        MigrationChecksum::from_bytes(MYC_STATE_SCHEMA_VERSION_7_MIGRATION_SHA256),
+    )
+    .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
+    let catalog = MigrationCatalog::new([
+        metadata,
+        requests,
+        connections,
+        governance,
+        delivery,
+        discovery,
+    ])
+    .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
     if catalog.current_version() != MYC_STATE_SCHEMA_VERSION
-        || catalog.descriptors().len() != 5
+        || catalog.descriptors().len() != 6
         || catalog.digest().as_bytes() != &MYC_MIGRATION_CATALOG_SHA256
     {
         return Err(MycStateCatalogError::new(
@@ -1343,6 +1905,12 @@ pub fn myc_schema_catalog() -> Result<SchemaCatalog, MycStateCatalogError> {
         SchemaDigest::from_bytes(MYC_STATE_SCHEMA_VERSION_6_SHA256),
     )
     .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
+    let version_seven = SchemaVersionCatalog::new(
+        7,
+        myc_state_discovery_objects()?,
+        SchemaDigest::from_bytes(MYC_STATE_SCHEMA_VERSION_7_SHA256),
+    )
+    .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
     let catalog = SchemaCatalog::new(
         &migrations,
         [
@@ -1352,6 +1920,7 @@ pub fn myc_schema_catalog() -> Result<SchemaCatalog, MycStateCatalogError> {
             version_four,
             version_five,
             version_six,
+            version_seven,
         ],
     )
     .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
@@ -1685,6 +2254,164 @@ fn myc_state_delivery_objects() -> Result<Vec<SchemaObject>, MycStateCatalogErro
     Ok(objects)
 }
 
+fn myc_state_discovery_objects() -> Result<Vec<SchemaObject>, MycStateCatalogError> {
+    let mut objects = myc_state_delivery_objects()?;
+    objects.retain(|object| {
+        !matches!(
+            object.name(),
+            "publication_outbox"
+                | "publication_targets"
+                | "publication_attempts"
+                | "publication_outbox_guard_update"
+                | "publication_targets_guard_update"
+                | "publication_attempts_guard_update"
+                | "publication_outbox_no_delete"
+                | "publication_targets_no_delete"
+                | "publication_attempts_no_delete"
+        )
+    });
+    let object = |kind, name, table, sql, digest| {
+        SchemaObject::new(kind, name, table, sql, SchemaDigest::from_bytes(digest))
+            .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))
+    };
+    objects.extend([
+        object(
+            SchemaObjectKind::Table,
+            "delivery_jobs",
+            "delivery_jobs",
+            CREATE_DELIVERY_JOBS_TABLE_SQL,
+            DELIVERY_JOBS_TABLE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Table,
+            "delivery_targets",
+            "delivery_targets",
+            CREATE_DELIVERY_TARGETS_TABLE_SQL,
+            DELIVERY_TARGETS_TABLE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Table,
+            "delivery_attempts",
+            "delivery_attempts",
+            CREATE_DELIVERY_ATTEMPTS_TABLE_SQL,
+            DELIVERY_ATTEMPTS_TABLE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "delivery_jobs_guard_update",
+            "delivery_jobs",
+            CREATE_DELIVERY_JOBS_GUARD_UPDATE_SQL,
+            DELIVERY_JOBS_GUARD_UPDATE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "delivery_targets_guard_update",
+            "delivery_targets",
+            CREATE_DELIVERY_TARGETS_GUARD_UPDATE_SQL,
+            DELIVERY_TARGETS_GUARD_UPDATE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "delivery_attempts_guard_update",
+            "delivery_attempts",
+            CREATE_DELIVERY_ATTEMPTS_GUARD_UPDATE_SQL,
+            DELIVERY_ATTEMPTS_GUARD_UPDATE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "delivery_jobs_no_delete",
+            "delivery_jobs",
+            CREATE_DELIVERY_JOBS_NO_DELETE_SQL,
+            DELIVERY_JOBS_NO_DELETE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "delivery_targets_no_delete",
+            "delivery_targets",
+            CREATE_DELIVERY_TARGETS_NO_DELETE_SQL,
+            DELIVERY_TARGETS_NO_DELETE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "delivery_attempts_no_delete",
+            "delivery_attempts",
+            CREATE_DELIVERY_ATTEMPTS_NO_DELETE_SQL,
+            DELIVERY_ATTEMPTS_NO_DELETE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Table,
+            "discovery_desired_state",
+            "discovery_desired_state",
+            CREATE_DISCOVERY_DESIRED_STATE_TABLE_SQL,
+            DISCOVERY_DESIRED_STATE_TABLE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Table,
+            "discovery_documents",
+            "discovery_documents",
+            CREATE_DISCOVERY_DOCUMENTS_TABLE_SQL,
+            DISCOVERY_DOCUMENTS_TABLE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Table,
+            "discovery_publication_state",
+            "discovery_publication_state",
+            CREATE_DISCOVERY_PUBLICATION_STATE_TABLE_SQL,
+            DISCOVERY_PUBLICATION_STATE_TABLE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "delivery_jobs_guard_insert",
+            "delivery_jobs",
+            CREATE_DELIVERY_JOBS_GUARD_INSERT_SQL,
+            DELIVERY_JOBS_GUARD_INSERT_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "discovery_desired_state_no_update",
+            "discovery_desired_state",
+            CREATE_DISCOVERY_DESIRED_STATE_NO_UPDATE_SQL,
+            DISCOVERY_DESIRED_STATE_NO_UPDATE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "discovery_desired_state_no_delete",
+            "discovery_desired_state",
+            CREATE_DISCOVERY_DESIRED_STATE_NO_DELETE_SQL,
+            DISCOVERY_DESIRED_STATE_NO_DELETE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "discovery_documents_no_update",
+            "discovery_documents",
+            CREATE_DISCOVERY_DOCUMENTS_NO_UPDATE_SQL,
+            DISCOVERY_DOCUMENTS_NO_UPDATE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "discovery_documents_no_delete",
+            "discovery_documents",
+            CREATE_DISCOVERY_DOCUMENTS_NO_DELETE_SQL,
+            DISCOVERY_DOCUMENTS_NO_DELETE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "discovery_publication_state_guard_update",
+            "discovery_publication_state",
+            CREATE_DISCOVERY_PUBLICATION_STATE_GUARD_UPDATE_SQL,
+            DISCOVERY_PUBLICATION_STATE_GUARD_UPDATE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "discovery_publication_state_no_delete",
+            "discovery_publication_state",
+            CREATE_DISCOVERY_PUBLICATION_STATE_NO_DELETE_SQL,
+            DISCOVERY_PUBLICATION_STATE_NO_DELETE_SHA256,
+        )?,
+    ]);
+    Ok(objects)
+}
+
 /// Independently validates exact catalog versions, counts, and digests.
 pub fn validate_myc_state_catalogs(
     migrations: &MigrationCatalog,
@@ -1693,7 +2420,7 @@ pub fn validate_myc_state_catalogs(
     let versions = schema.versions();
     let descriptors = migrations.descriptors();
     let valid = migrations.current_version() == MYC_STATE_SCHEMA_VERSION
-        && descriptors.len() == 5
+        && descriptors.len() == 6
         && descriptors[0].target_version() == 2
         && descriptors[0].name().as_str() == "create_myc_state_metadata"
         && descriptors[0].checksum().as_bytes() == &MYC_STATE_SCHEMA_VERSION_2_MIGRATION_SHA256
@@ -1709,9 +2436,12 @@ pub fn validate_myc_state_catalogs(
         && descriptors[4].target_version() == 6
         && descriptors[4].name().as_str() == "create_delivery_evidence_state"
         && descriptors[4].checksum().as_bytes() == &MYC_STATE_SCHEMA_VERSION_6_MIGRATION_SHA256
+        && descriptors[5].target_version() == 7
+        && descriptors[5].name().as_str() == "create_discovery_desired_state"
+        && descriptors[5].checksum().as_bytes() == &MYC_STATE_SCHEMA_VERSION_7_MIGRATION_SHA256
         && migrations.digest().as_bytes() == &MYC_MIGRATION_CATALOG_SHA256
         && schema.migration_catalog_digest() == migrations.digest()
-        && versions.len() == 6
+        && versions.len() == 7
         && versions[0].version() == MYC_STATE_BASE_SCHEMA_VERSION
         && versions[0].object_count() == MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT
         && versions[0].digest().as_bytes() == &MYC_STATE_SCHEMA_VERSION_1_SHA256
@@ -1730,6 +2460,9 @@ pub fn validate_myc_state_catalogs(
         && versions[5].version() == 6
         && versions[5].object_count() == MYC_STATE_SCHEMA_VERSION_6_OBJECT_COUNT
         && versions[5].digest().as_bytes() == &MYC_STATE_SCHEMA_VERSION_6_SHA256
+        && versions[6].version() == 7
+        && versions[6].object_count() == MYC_STATE_SCHEMA_VERSION_7_OBJECT_COUNT
+        && versions[6].digest().as_bytes() == &MYC_STATE_SCHEMA_VERSION_7_SHA256
         && schema.digest().as_bytes() == &MYC_STATE_SCHEMA_CATALOG_SHA256;
     if valid {
         Ok(())

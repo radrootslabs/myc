@@ -12,6 +12,7 @@ use radroots_storage::event::SourceGeneration;
 use sha2::{Digest, Sha256};
 
 use crate::state_delivery::{MycDeliveryPolicies, MycDeliveryPolicyMode, MycDeliveryRelayId};
+use crate::state_discovery::MycDiscoveryPolicies;
 use crate::state_governance::{
     MycGovernancePolicies, MycRateLimitClass, MycRateLimitPolicy, MycRateRelayId,
 };
@@ -173,6 +174,7 @@ pub struct MycStateMetadata {
     identities: MycExpectedIdentities,
     governance: MycGovernancePolicies,
     delivery: MycDeliveryPolicies,
+    discovery: Option<MycDiscoveryPolicies>,
     policy_versions: MycStatePolicyVersions,
 }
 
@@ -211,9 +213,11 @@ impl MycStateMetadata {
         );
         let normalized = configuration.normalized();
         let governance = governance_policies(normalized)?;
-        let delivery = delivery_policies(normalized)?;
-        let configuration = normalized_config_digest(configuration.profile(), normalized)?;
         let identities = expected_identities(normalized)?;
+        let delivery = delivery_policies(normalized)?;
+        let discovery = MycDiscoveryPolicies::from_normalized(normalized, &identities)
+            .map_err(|_| MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant))?;
+        let configuration = normalized_config_digest(configuration.profile(), normalized)?;
         let policy_versions = MycStatePolicyVersions::governed();
         if [
             policy_versions.configuration,
@@ -235,6 +239,7 @@ impl MycStateMetadata {
             identities,
             governance,
             delivery,
+            discovery,
             policy_versions,
         })
     }
@@ -288,6 +293,10 @@ impl MycStateMetadata {
         &self.delivery
     }
 
+    pub(crate) const fn discovery_policies(&self) -> Option<&MycDiscoveryPolicies> {
+        self.discovery.as_ref()
+    }
+
     pub(crate) fn matches_runtime(&self, runtime: &MycRuntimeContext) -> bool {
         ServiceSqlitePaths::from_runtime_context(runtime.context())
             .is_ok_and(|paths| paths == self.paths)
@@ -304,6 +313,7 @@ impl fmt::Debug for MycStateMetadata {
             .field("identities", &self.identities)
             .field("governance", &"[redacted]")
             .field("delivery", &"[redacted]")
+            .field("discovery", &self.discovery.as_ref().map(|_| "[redacted]"))
             .field("policy_versions", &self.policy_versions)
             .field("paths", &"[redacted]")
             .finish()

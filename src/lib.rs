@@ -28,6 +28,7 @@ pub mod sql;
 mod state_catalog;
 mod state_connection;
 mod state_delivery;
+mod state_discovery;
 mod state_governance;
 mod state_host;
 mod state_maintenance;
@@ -124,8 +125,9 @@ pub use state_catalog::{
     MYC_STATE_SCHEMA_VERSION_5_MIGRATION_SHA256, MYC_STATE_SCHEMA_VERSION_5_OBJECT_COUNT,
     MYC_STATE_SCHEMA_VERSION_5_SHA256, MYC_STATE_SCHEMA_VERSION_6_MIGRATION_SHA256,
     MYC_STATE_SCHEMA_VERSION_6_OBJECT_COUNT, MYC_STATE_SCHEMA_VERSION_6_SHA256,
-    MycStateCatalogError, MycStateCatalogErrorKind, myc_migration_catalog, myc_schema_catalog,
-    validate_myc_state_catalogs,
+    MYC_STATE_SCHEMA_VERSION_7_MIGRATION_SHA256, MYC_STATE_SCHEMA_VERSION_7_OBJECT_COUNT,
+    MYC_STATE_SCHEMA_VERSION_7_SHA256, MycStateCatalogError, MycStateCatalogErrorKind,
+    myc_migration_catalog, myc_schema_catalog, validate_myc_state_catalogs,
 };
 pub use state_connection::{
     MYC_AUTHORIZATION_CHALLENGE_URL_MAX_BYTES, MYC_CONNECTION_PERMISSION_MAX_COUNT,
@@ -144,8 +146,14 @@ pub use state_delivery::{
     MycDeliveryAttemptOutcome, MycDeliveryAttemptRecord, MycDeliveryAttemptStatus,
     MycDeliveryClaim, MycDeliveryJobAdmission, MycDeliveryJobId, MycDeliveryJobRecord,
     MycDeliveryJobRequest, MycDeliveryJobStatus, MycDeliveryPolicyMode, MycDeliveryRelayId,
-    MycDeliveryStateError, MycDeliveryStateErrorKind, MycDeliveryTargetRecord,
-    MycDeliveryTargetStatus, MycDeliveryTimeUnixMs,
+    MycDeliverySourceKind, MycDeliveryStateError, MycDeliveryStateErrorKind,
+    MycDeliveryTargetRecord, MycDeliveryTargetStatus, MycDeliveryTimeUnixMs,
+};
+pub use state_discovery::{
+    MYC_DISCOVERY_DOCUMENT_MAX_BYTES, MYC_NIP05_PROJECTION_MAX_BYTES, MycDiscoveryCommitAdmission,
+    MycDiscoveryCommitRecord, MycDiscoveryCommitRequest, MycDiscoveryDocumentDigest,
+    MycDiscoveryDocumentRecord, MycDiscoveryGenerationId, MycDiscoveryPublicationState,
+    MycDiscoveryStateError, MycDiscoveryStateErrorKind, MycNip05ProjectionDigest,
 };
 pub use state_governance::{
     MYC_AUDIT_PAGE_MAX_ITEMS, MYC_AUDIT_RETENTION_MAX_MS, MYC_COMPACTION_MAX_ROWS,

@@ -111,6 +111,15 @@ or delivery. This checkpoint binds an artifact digest and precommit identity;
 the exact committed signed-event bytes and discovery projection are owned by
 their subsequent state checkpoints.
 
+Discovery desired state is committed atomically with signature-verified,
+canonical NIP-89 event bytes, deterministic NIP-05 projection inputs, the
+immutable relay targets, and the initial delivery job. The desired generation
+may advance independently, while current generation advances only after the
+corresponding desired job has proven the configured delivery policy. Restart
+reads return the same committed event bytes and projection inputs; publication
+and hosted NIP-05 responses remain later runtime concerns and never run inside
+the SQLite transaction.
+
 Writable hosts expose Myc-bound online-backup and active-integrity operations.
 Backup verification retains the exact admitted member inode, and
 offline staging derives the same runtime paths, database identity, migration

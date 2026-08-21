@@ -32,8 +32,10 @@ WHERE operation_id = ?"#;
 const READ_JOB_SQL: &str = r#"SELECT
     CASE WHEN typeof(job_id) = 'blob' AND length(job_id) = 32
         THEN job_id ELSE NULL END AS job_id,
-    CASE WHEN typeof(signer_operation_id) = 'blob' AND length(signer_operation_id) = 32
-        THEN signer_operation_id ELSE NULL END AS signer_operation_id,
+    CASE WHEN typeof(source_kind) = 'text' AND length(CAST(source_kind AS BLOB)) <= 32
+        THEN source_kind ELSE NULL END AS source_kind,
+    CASE WHEN typeof(source_id) = 'blob' AND length(source_id) = 32
+        THEN source_id ELSE NULL END AS source_id,
     CASE WHEN typeof(artifact_sha256) = 'blob' AND length(artifact_sha256) = 32
         THEN artifact_sha256 ELSE NULL END AS artifact_sha256,
     CASE WHEN typeof(policy_mode) = 'text' AND length(CAST(policy_mode AS BLOB)) <= 32
@@ -44,15 +46,17 @@ const READ_JOB_SQL: &str = r#"SELECT
         THEN status ELSE NULL END AS status,
     created_at_unix_ms, updated_at_unix_ms, finalized_at_unix_ms,
     typeof(finalized_at_unix_ms) AS finalized_at_type
-FROM publication_outbox
+FROM delivery_jobs
 WHERE job_id = ?
 LIMIT 2"#;
 
-const READ_JOB_BY_OPERATION_SQL: &str = r#"SELECT
+const READ_JOB_BY_SOURCE_SQL: &str = r#"SELECT
     CASE WHEN typeof(job_id) = 'blob' AND length(job_id) = 32
         THEN job_id ELSE NULL END AS job_id,
-    CASE WHEN typeof(signer_operation_id) = 'blob' AND length(signer_operation_id) = 32
-        THEN signer_operation_id ELSE NULL END AS signer_operation_id,
+    CASE WHEN typeof(source_kind) = 'text' AND length(CAST(source_kind AS BLOB)) <= 32
+        THEN source_kind ELSE NULL END AS source_kind,
+    CASE WHEN typeof(source_id) = 'blob' AND length(source_id) = 32
+        THEN source_id ELSE NULL END AS source_id,
     CASE WHEN typeof(artifact_sha256) = 'blob' AND length(artifact_sha256) = 32
         THEN artifact_sha256 ELSE NULL END AS artifact_sha256,
     CASE WHEN typeof(policy_mode) = 'text' AND length(CAST(policy_mode AS BLOB)) <= 32
@@ -63,8 +67,8 @@ const READ_JOB_BY_OPERATION_SQL: &str = r#"SELECT
         THEN status ELSE NULL END AS status,
     created_at_unix_ms, updated_at_unix_ms, finalized_at_unix_ms,
     typeof(finalized_at_unix_ms) AS finalized_at_type
-FROM publication_outbox
-WHERE signer_operation_id = ?
+FROM delivery_jobs
+WHERE source_kind = ? AND source_id = ?
 LIMIT 2"#;
 
 const READ_TARGETS_SQL: &str = r#"SELECT
@@ -81,7 +85,7 @@ const READ_TARGETS_SQL: &str = r#"SELECT
     next_attempt_at_unix_ms,
     typeof(next_attempt_at_unix_ms) AS next_attempt_at_type,
     updated_at_unix_ms
-FROM publication_targets
+FROM delivery_targets
 WHERE job_id = ?
 ORDER BY target_index
 LIMIT 33"#;
@@ -100,7 +104,7 @@ const READ_ATTEMPTS_SQL: &str = r#"SELECT
     CASE WHEN typeof(reason_code) = 'text' AND length(CAST(reason_code AS BLOB)) <= 32
         THEN reason_code ELSE NULL END AS reason_code,
     typeof(reason_code) AS reason_code_type
-FROM publication_attempts
+FROM delivery_attempts
 WHERE job_id = ? AND target_index = ?
 ORDER BY attempt_number
 LIMIT 33"#;
@@ -119,7 +123,7 @@ const READ_ATTEMPT_SQL: &str = r#"SELECT
     CASE WHEN typeof(reason_code) = 'text' AND length(CAST(reason_code AS BLOB)) <= 32
         THEN reason_code ELSE NULL END AS reason_code,
     typeof(reason_code) AS reason_code_type
-FROM publication_attempts
+FROM delivery_attempts
 WHERE job_id = ? AND target_index = ? AND attempt_id = ?
 LIMIT 2"#;
 
@@ -137,58 +141,58 @@ const READ_ATTEMPT_BY_NONCE_SQL: &str = r#"SELECT
     CASE WHEN typeof(reason_code) = 'text' AND length(CAST(reason_code AS BLOB)) <= 32
         THEN reason_code ELSE NULL END AS reason_code,
     typeof(reason_code) AS reason_code_type
-FROM publication_attempts
+FROM delivery_attempts
 WHERE job_id = ? AND target_index = ? AND attempt_nonce = ?
 LIMIT 2"#;
 
-const INSERT_JOB_SQL: &str = r#"INSERT INTO publication_outbox (
-    job_id, signer_operation_id, artifact_sha256, policy_mode,
+const INSERT_JOB_SQL: &str = r#"INSERT INTO delivery_jobs (
+    job_id, source_kind, source_id, artifact_sha256, policy_mode,
     required_acknowledgements, max_attempts, initial_backoff_ms,
     maximum_backoff_ms, attempt_deadline_ms, status,
     created_at_unix_ms, updated_at_unix_ms, finalized_at_unix_ms
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL)"#;
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL)"#;
 
-const INSERT_TARGET_SQL: &str = r#"INSERT INTO publication_targets (
+const INSERT_TARGET_SQL: &str = r#"INSERT INTO delivery_targets (
     job_id, target_index, relay_id, required, attempt_count, status,
     active_attempt_id, next_attempt_at_unix_ms, updated_at_unix_ms
 ) VALUES (?, ?, ?, ?, 0, 'pending', NULL, NULL, ?)"#;
 
-const INSERT_ATTEMPT_SQL: &str = r#"INSERT INTO publication_attempts (
+const INSERT_ATTEMPT_SQL: &str = r#"INSERT INTO delivery_attempts (
     attempt_id, job_id, target_index, attempt_number, attempt_nonce, status,
     leased_at_unix_ms, lease_expires_at_unix_ms, submitted_at_unix_ms,
     resolved_at_unix_ms, reason_code
 ) VALUES (?, ?, ?, ?, ?, 'leased', ?, ?, NULL, NULL, NULL)"#;
 
-const CLAIM_TARGET_SQL: &str = r#"UPDATE publication_targets
+const CLAIM_TARGET_SQL: &str = r#"UPDATE delivery_targets
 SET attempt_count = ?, status = 'leased', active_attempt_id = ?,
     next_attempt_at_unix_ms = NULL, updated_at_unix_ms = ?
 WHERE job_id = ? AND target_index = ? AND attempt_count = ?
     AND status IN ('pending', 'retryable', 'unknown')
     AND active_attempt_id IS NULL"#;
 
-const MARK_JOB_ACTIVE_SQL: &str = r#"UPDATE publication_outbox
+const MARK_JOB_ACTIVE_SQL: &str = r#"UPDATE delivery_jobs
 SET status = 'active', updated_at_unix_ms = ?
 WHERE job_id = ? AND status = 'pending'"#;
 
-const MARK_ATTEMPT_SUBMITTED_SQL: &str = r#"UPDATE publication_attempts
+const MARK_ATTEMPT_SUBMITTED_SQL: &str = r#"UPDATE delivery_attempts
 SET status = 'submitted', submitted_at_unix_ms = ?
 WHERE attempt_id = ? AND job_id = ? AND target_index = ?
     AND status = 'leased' AND lease_expires_at_unix_ms >= ?"#;
 
-const MARK_TARGET_SUBMITTED_SQL: &str = r#"UPDATE publication_targets
+const MARK_TARGET_SUBMITTED_SQL: &str = r#"UPDATE delivery_targets
 SET status = 'submitted', updated_at_unix_ms = ?
 WHERE job_id = ? AND target_index = ? AND active_attempt_id = ? AND status = 'leased'"#;
 
-const RESOLVE_ATTEMPT_SQL: &str = r#"UPDATE publication_attempts
+const RESOLVE_ATTEMPT_SQL: &str = r#"UPDATE delivery_attempts
 SET status = ?, resolved_at_unix_ms = ?, reason_code = ?
 WHERE attempt_id = ? AND job_id = ? AND target_index = ? AND status = ?"#;
 
-const RESOLVE_TARGET_SQL: &str = r#"UPDATE publication_targets
+const RESOLVE_TARGET_SQL: &str = r#"UPDATE delivery_targets
 SET status = ?, active_attempt_id = NULL, next_attempt_at_unix_ms = ?,
     updated_at_unix_ms = ?
 WHERE job_id = ? AND target_index = ? AND active_attempt_id = ? AND status = ?"#;
 
-const FINALIZE_JOB_SQL: &str = r#"UPDATE publication_outbox
+const FINALIZE_JOB_SQL: &str = r#"UPDATE delivery_jobs
 SET status = ?, updated_at_unix_ms = ?, finalized_at_unix_ms = ?
 WHERE job_id = ? AND status IN ('pending', 'active')"#;
 
@@ -285,6 +289,12 @@ redacted_id!(
     "MycDeliveryArtifactDigest([redacted])"
 );
 
+impl MycDeliveryJobId {
+    pub(crate) const fn from_persisted(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+}
+
 impl MycDeliveryArtifactDigest {
     /// Wraps an independently verified exact-artifact SHA-256 identity.
     #[must_use]
@@ -331,7 +341,7 @@ impl MycDeliveryTimeUnixMs {
         self.0
     }
 
-    fn sqlite_value(self) -> i64 {
+    pub(crate) fn sqlite_value(self) -> i64 {
         i64::try_from(self.0).expect("validated delivery time fits SQLite")
     }
 }
@@ -483,6 +493,72 @@ impl fmt::Debug for MycDeliveryPolicies {
     }
 }
 
+/// Closed authority that produced the exact bytes retained by a delivery job.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MycDeliverySourceKind {
+    SignerResponse,
+    DiscoveryHandler,
+}
+
+impl MycDeliverySourceKind {
+    /// Returns the exact durable spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SignerResponse => "signer_response",
+            Self::DiscoveryHandler => "discovery_handler",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "signer_response" => Some(Self::SignerResponse),
+            "discovery_handler" => Some(Self::DiscoveryHandler),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MycDeliverySource {
+    kind: MycDeliverySourceKind,
+    id: [u8; 32],
+}
+
+impl MycDeliverySource {
+    pub(crate) const fn signer_response(operation_id: MycSignerOperationId) -> Self {
+        Self {
+            kind: MycDeliverySourceKind::SignerResponse,
+            id: *operation_id.as_bytes(),
+        }
+    }
+
+    pub(crate) const fn discovery_handler(generation_id: [u8; 32]) -> Self {
+        Self {
+            kind: MycDeliverySourceKind::DiscoveryHandler,
+            id: generation_id,
+        }
+    }
+
+    pub(crate) const fn kind(self) -> MycDeliverySourceKind {
+        self.kind
+    }
+
+    pub(crate) const fn id(self) -> [u8; 32] {
+        self.id
+    }
+}
+
+impl fmt::Debug for MycDeliverySource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MycDeliverySource")
+            .field("kind", &self.kind)
+            .field("id", &"[redacted]")
+            .finish()
+    }
+}
+
 /// Immutable signer-response delivery job input.
 pub struct MycDeliveryJobRequest {
     operation_id: MycSignerOperationId,
@@ -543,7 +619,7 @@ impl MycDeliveryJobStatus {
         }
     }
 
-    fn parse(value: &str) -> Option<Self> {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         match value {
             "pending" => Some(Self::Pending),
             "active" => Some(Self::Active),
@@ -663,7 +739,7 @@ impl MycDeliveryAttemptOutcome {
 #[derive(Clone, PartialEq, Eq)]
 pub struct MycDeliveryJobRecord {
     id: MycDeliveryJobId,
-    operation_id: MycSignerOperationId,
+    source: MycDeliverySource,
     artifact_digest: MycDeliveryArtifactDigest,
     policy_mode: MycDeliveryPolicyMode,
     required_acknowledgements: u32,
@@ -684,8 +760,17 @@ impl MycDeliveryJobRecord {
         self.id
     }
     #[must_use]
-    pub const fn operation_id(&self) -> MycSignerOperationId {
-        self.operation_id
+    pub const fn operation_id(&self) -> Option<MycSignerOperationId> {
+        match self.source.kind {
+            MycDeliverySourceKind::SignerResponse => {
+                Some(MycSignerOperationId::from_persisted(self.source.id))
+            }
+            MycDeliverySourceKind::DiscoveryHandler => None,
+        }
+    }
+    #[must_use]
+    pub const fn source_kind(&self) -> MycDeliverySourceKind {
+        self.source.kind
     }
     #[must_use]
     pub const fn artifact_digest(&self) -> MycDeliveryArtifactDigest {
@@ -741,6 +826,7 @@ impl fmt::Debug for MycDeliveryJobRecord {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("MycDeliveryJobRecord")
+            .field("source_kind", &self.source.kind)
             .field("status", &self.status)
             .field("target_count", &self.targets.len())
             .finish()
@@ -916,13 +1002,22 @@ impl MycStateRepository<'_> {
         request: &MycDeliveryJobRequest,
     ) -> Result<MycDeliveryJobAdmission, MycStateRepositoryError> {
         let request = request.owned();
+        let source = MycDeliverySource::signer_response(request.operation_id);
         let policy = self.expected().delivery_policies().clone();
         let expected = PersistedMetadata::from(self.expected());
         self.host()
             .transaction(move |transaction| {
                 Box::pin(async move {
                     verify_metadata(transaction, &expected).await?;
-                    create_job(transaction, &request, &policy).await
+                    require_signer_operation(transaction, request.operation_id).await?;
+                    create_job(
+                        transaction,
+                        source,
+                        request.artifact_digest,
+                        request.created_at,
+                        &policy,
+                    )
+                    .await
                 })
             })
             .await
@@ -1064,7 +1159,7 @@ impl MycStateRepository<'_> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DeliveryOperationError {
+pub(crate) enum DeliveryOperationError {
     Binding,
     Storage,
 }
@@ -1081,22 +1176,24 @@ async fn verify_metadata(
         })
 }
 
-async fn create_job(
+pub(crate) async fn create_job(
     transaction: &mut ServiceSqliteTransaction<'_>,
-    request: &MycDeliveryJobRequest,
+    source: MycDeliverySource,
+    artifact_digest: MycDeliveryArtifactDigest,
+    created_at: MycDeliveryTimeUnixMs,
     policy: &MycDeliveryPolicies,
 ) -> Result<MycDeliveryJobAdmission, DeliveryOperationError> {
-    require_signer_operation(transaction, request.operation_id).await?;
-    if let Some(existing) = read_job_by_operation(transaction, request.operation_id).await? {
-        return exact_job(&existing, request, policy)
+    if let Some(existing) = read_job_by_source(transaction, source).await? {
+        return exact_job(&existing, source, artifact_digest, created_at, policy)
             .then_some(MycDeliveryJobAdmission::ExactReplay(existing))
             .ok_or(DeliveryOperationError::Binding);
     }
-    let job_id = derive_job_id(request.operation_id, request.artifact_digest);
+    let job_id = derive_job_id(source, artifact_digest);
     let result = sqlx::query(INSERT_JOB_SQL)
         .bind(job_id.as_bytes().as_slice())
-        .bind(request.operation_id.as_bytes().as_slice())
-        .bind(request.artifact_digest.as_bytes().as_slice())
+        .bind(source.kind().as_str())
+        .bind(source.id().as_slice())
+        .bind(artifact_digest.as_bytes().as_slice())
         .bind(policy.mode.as_str())
         .bind(i64::from(policy.required_acknowledgements))
         .bind(i64::from(policy.max_attempts))
@@ -1112,8 +1209,8 @@ async fn create_job(
             i64::try_from(policy.attempt_deadline_ms)
                 .map_err(|_| DeliveryOperationError::Binding)?,
         )
-        .bind(request.created_at.sqlite_value())
-        .bind(request.created_at.sqlite_value())
+        .bind(created_at.sqlite_value())
+        .bind(created_at.sqlite_value())
         .execute(&mut *transaction)
         .await
         .map_err(|_| DeliveryOperationError::Storage)?;
@@ -1125,7 +1222,7 @@ async fn create_job(
             .bind(i64::from(index))
             .bind(target.relay_id.as_str())
             .bind(target.required)
-            .bind(request.created_at.sqlite_value())
+            .bind(created_at.sqlite_value())
             .execute(&mut *transaction)
             .await
             .map_err(|_| DeliveryOperationError::Storage)?;
@@ -1540,16 +1637,22 @@ async fn require_signer_operation(
         .ok_or(DeliveryOperationError::Binding)
 }
 
-async fn read_job_by_operation(
+async fn read_job_by_source(
     transaction: &mut ServiceSqliteTransaction<'_>,
-    operation_id: MycSignerOperationId,
+    source: MycDeliverySource,
 ) -> Result<Option<MycDeliveryJobRecord>, DeliveryOperationError> {
-    let rows = sqlx::query(READ_JOB_BY_OPERATION_SQL)
-        .bind(operation_id.as_bytes().as_slice())
+    let rows = sqlx::query(READ_JOB_BY_SOURCE_SQL)
+        .bind(source.kind().as_str())
+        .bind(source.id().as_slice())
         .fetch_all(&mut *transaction)
         .await
         .map_err(|_| DeliveryOperationError::Storage)?;
-    read_job_rows(transaction, rows).await
+    let job = read_job_rows(transaction, rows).await?;
+    match job {
+        Some(job) if job.source == source => Ok(Some(job)),
+        Some(_) => Err(DeliveryOperationError::Binding),
+        None => Ok(None),
+    }
 }
 
 async fn read_job(
@@ -1575,7 +1678,12 @@ async fn read_job_rows(
         return Ok(None);
     };
     let id = MycDeliveryJobId(blob32(row, "job_id")?);
-    let operation_id = MycSignerOperationId::from_persisted(blob32(row, "signer_operation_id")?);
+    let source_kind = MycDeliverySourceKind::parse(text(row, "source_kind")?)
+        .ok_or(DeliveryOperationError::Binding)?;
+    let source = MycDeliverySource {
+        kind: source_kind,
+        id: blob32(row, "source_id")?,
+    };
     let artifact_digest = MycDeliveryArtifactDigest(blob32(row, "artifact_sha256")?);
     let policy_mode = MycDeliveryPolicyMode::parse(text(row, "policy_mode")?)
         .ok_or(DeliveryOperationError::Binding)?;
@@ -1621,7 +1729,7 @@ async fn read_job_rows(
     }
     Ok(Some(MycDeliveryJobRecord {
         id,
-        operation_id,
+        source,
         artifact_digest,
         policy_mode,
         required_acknowledgements,
@@ -1842,18 +1950,20 @@ fn target_by_relay<'a>(
 
 fn exact_job(
     job: &MycDeliveryJobRecord,
-    request: &MycDeliveryJobRequest,
+    source: MycDeliverySource,
+    artifact_digest: MycDeliveryArtifactDigest,
+    created_at: MycDeliveryTimeUnixMs,
     policy: &MycDeliveryPolicies,
 ) -> bool {
-    job.operation_id == request.operation_id
-        && job.artifact_digest == request.artifact_digest
+    job.source == source
+        && job.artifact_digest == artifact_digest
         && job.policy_mode == policy.mode
         && job.required_acknowledgements == policy.required_acknowledgements
         && job.max_attempts == policy.max_attempts
         && job.initial_backoff_ms == policy.initial_backoff_ms
         && job.maximum_backoff_ms == policy.maximum_backoff_ms
         && job.attempt_deadline_ms == policy.attempt_deadline_ms
-        && job.created_at == request.created_at
+        && job.created_at == created_at
         && job.targets.len() == policy.targets.len()
         && job
             .targets
@@ -1865,12 +1975,15 @@ fn exact_job(
 }
 
 fn derive_job_id(
-    operation_id: MycSignerOperationId,
+    source: MycDeliverySource,
     artifact: MycDeliveryArtifactDigest,
 ) -> MycDeliveryJobId {
     let mut hasher = Sha256::new();
     hasher.update(JOB_ID_DOMAIN);
-    hasher.update(operation_id.as_bytes());
+    if source.kind() == MycDeliverySourceKind::DiscoveryHandler {
+        hasher.update(b"discovery_handler\0");
+    }
+    hasher.update(source.id());
     hasher.update(artifact.as_bytes());
     MycDeliveryJobId(hasher.finalize().into())
 }
