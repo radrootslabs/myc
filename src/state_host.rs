@@ -377,17 +377,18 @@ fn require_migration_build(
 fn exact_initialization_outcome(outcome: MigrationApplicationOutcome) -> bool {
     outcome.initial_version() == MYC_STATE_BASE_SCHEMA_VERSION
         && outcome.final_version() == MYC_STATE_SCHEMA_VERSION
-        && outcome.applied_count() == 4
+        && outcome.applied_count() == 5
 }
 
 fn exact_existing_outcome(outcome: MigrationApplicationOutcome) -> bool {
     outcome.final_version() == MYC_STATE_SCHEMA_VERSION
         && matches!(
             (outcome.initial_version(), outcome.applied_count()),
-            (MYC_STATE_BASE_SCHEMA_VERSION, 4)
-                | (2, 3)
-                | (3, 2)
-                | (4, 1)
+            (MYC_STATE_BASE_SCHEMA_VERSION, 5)
+                | (2, 4)
+                | (3, 3)
+                | (4, 2)
+                | (5, 1)
                 | (MYC_STATE_SCHEMA_VERSION, 0)
         )
 }

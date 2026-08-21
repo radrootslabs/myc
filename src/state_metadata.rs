@@ -11,6 +11,7 @@ use radroots_service_sqlite::{
 use radroots_storage::event::SourceGeneration;
 use sha2::{Digest, Sha256};
 
+use crate::state_delivery::{MycDeliveryPolicies, MycDeliveryPolicyMode, MycDeliveryRelayId};
 use crate::state_governance::{
     MycGovernancePolicies, MycRateLimitClass, MycRateLimitPolicy, MycRateRelayId,
 };
@@ -171,6 +172,7 @@ pub struct MycStateMetadata {
     configuration: MycNormalizedConfigDigest,
     identities: MycExpectedIdentities,
     governance: MycGovernancePolicies,
+    delivery: MycDeliveryPolicies,
     policy_versions: MycStatePolicyVersions,
 }
 
@@ -209,6 +211,7 @@ impl MycStateMetadata {
         );
         let normalized = configuration.normalized();
         let governance = governance_policies(normalized)?;
+        let delivery = delivery_policies(normalized)?;
         let configuration = normalized_config_digest(configuration.profile(), normalized)?;
         let identities = expected_identities(normalized)?;
         let policy_versions = MycStatePolicyVersions::governed();
@@ -231,6 +234,7 @@ impl MycStateMetadata {
             configuration,
             identities,
             governance,
+            delivery,
             policy_versions,
         })
     }
@@ -280,6 +284,10 @@ impl MycStateMetadata {
         self.governance.audit_retention_ms()
     }
 
+    pub(crate) const fn delivery_policies(&self) -> &MycDeliveryPolicies {
+        &self.delivery
+    }
+
     pub(crate) fn matches_runtime(&self, runtime: &MycRuntimeContext) -> bool {
         ServiceSqlitePaths::from_runtime_context(runtime.context())
             .is_ok_and(|paths| paths == self.paths)
@@ -295,6 +303,7 @@ impl fmt::Debug for MycStateMetadata {
             .field("configuration", &self.configuration)
             .field("identities", &self.identities)
             .field("governance", &"[redacted]")
+            .field("delivery", &"[redacted]")
             .field("policy_versions", &self.policy_versions)
             .field("paths", &"[redacted]")
             .finish()
@@ -443,6 +452,61 @@ fn governance_policies(
         relays,
     )
     .map_err(|_| MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant))
+}
+
+fn delivery_policies(
+    normalized: &serde_json::Value,
+) -> Result<MycDeliveryPolicies, MycStateMetadataError> {
+    let invalid = || MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant);
+    let integer = |pointer: &str| {
+        normalized
+            .pointer(pointer)
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(invalid)
+    };
+    let mode = normalized
+        .pointer("/transport/delivery_policy/mode")
+        .and_then(serde_json::Value::as_str)
+        .and_then(MycDeliveryPolicyMode::parse)
+        .ok_or_else(invalid)?;
+    let configured_quorum = normalized
+        .pointer("/transport/delivery_policy/required_acknowledgements")
+        .map(|value| {
+            value
+                .as_u64()
+                .and_then(|number| u32::try_from(number).ok())
+                .ok_or_else(invalid)
+        })
+        .transpose()?;
+    let targets = normalized
+        .pointer("/relays")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(invalid)?
+        .iter()
+        .filter(|relay| relay.pointer("/write").and_then(serde_json::Value::as_bool) == Some(true))
+        .map(|relay| {
+            let id = relay
+                .pointer("/id")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(invalid)?;
+            let required = relay
+                .pointer("/required")
+                .and_then(serde_json::Value::as_bool)
+                .ok_or_else(invalid)?;
+            let id = MycDeliveryRelayId::new(id).map_err(|_| invalid())?;
+            Ok((id, required))
+        })
+        .collect::<Result<Vec<_>, MycStateMetadataError>>()?;
+    MycDeliveryPolicies::new(
+        mode,
+        configured_quorum,
+        u32::try_from(integer("/transport/publish_retry/max_attempts")?).map_err(|_| invalid())?,
+        integer("/transport/publish_retry/initial_backoff_ms")?,
+        integer("/transport/publish_retry/maximum_backoff_ms")?,
+        integer("/transport/publish_retry/attempt_deadline_ms")?,
+        targets,
+    )
+    .map_err(|_| invalid())
 }
 
 fn expected_identities(
