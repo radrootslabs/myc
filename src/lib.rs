@@ -3,6 +3,7 @@
 
 mod cli_v1;
 mod config_v1;
+mod nip46_admission;
 mod provider_contract;
 mod provider_credential;
 mod provider_envelope;
@@ -29,6 +30,12 @@ pub use config_v1::{
     MYC_CONFIG_DOCUMENT_MAX_UTF8_BYTES, MYC_CONFIG_SCHEMA, MYC_CONFIG_SCHEMA_VERSION,
     MycConfigDocumentV1, MycConfigProfile, MycConfigV1Error, MycConfigV1ErrorKind,
     MycConfigValueSource, MycEffectiveConfigV1, parse_myc_config_v1,
+};
+pub use nip46_admission::{
+    MYC_NIP46_EVENT_ID_MAX_BYTES, MYC_NIP46_PUBLIC_KEY_MAX_BYTES, MYC_NIP46_SIGNATURE_MAX_BYTES,
+    MycBoundedNip46Event, MycBoundedNip46Request, MycNip46AdmissionError,
+    MycNip46AdmissionErrorKind, MycNip46AdmissionLimits, admit_myc_nip46_event,
+    admit_myc_nip46_request,
 };
 pub use provider_contract::{
     MYC_PROVIDER_CONCURRENCY_MAX, MYC_PROVIDER_CONTRACT_VERSION, MYC_PROVIDER_INPUT_MAX_BYTES,

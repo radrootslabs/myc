@@ -8,6 +8,7 @@ const PUBLIC_API: &str = include_str!("../contracts/api_baselines/myc.txt");
 const SOURCES: &[&str] = &[
     include_str!("../src/cli_v1.rs"),
     include_str!("../src/config_v1.rs"),
+    include_str!("../src/nip46_admission.rs"),
     include_str!("../src/provider_contract.rs"),
     include_str!("../src/provider_credential.rs"),
     include_str!("../src/provider_envelope.rs"),
@@ -37,6 +38,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
         BTreeSet::from([
             "cli_v1",
             "config_v1",
+            "nip46_admission",
             "provider_contract",
             "provider_credential",
             "provider_envelope",
@@ -77,8 +79,14 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub struct myc::MycRuntimeFoundation",
         "pub struct myc::MycRuntimeReadiness",
         "pub enum myc::MycRuntimeReadinessReason",
+        "pub struct myc::MycBoundedNip46Event",
+        "pub struct myc::MycBoundedNip46Request",
+        "pub struct myc::MycNip46AdmissionLimits",
+        "pub enum myc::MycNip46AdmissionErrorKind",
         "pub struct myc::MycStateHost",
         "pub struct myc::MycStateRepository",
+        "pub fn myc::admit_myc_nip46_event",
+        "pub fn myc::admit_myc_nip46_request",
         "pub async fn myc::open_myc_runtime_foundation",
     ] {
         assert!(
@@ -90,6 +98,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
     for module in [
         "cli_v1",
         "config_v1",
+        "nip46_admission",
         "provider_contract",
         "provider_credential",
         "provider_envelope",
@@ -161,7 +170,7 @@ fn public_errors_remain_crate_owned_redacted_and_source_free() {
         .lines()
         .filter(|line| line.starts_with("pub struct myc::") && line.ends_with("Error"))
         .count();
-    assert_eq!(public_error_count, 19);
+    assert_eq!(public_error_count, 20);
     assert!(!PUBLIC_API.contains("pub struct myc::MycRuntimeFoundation {"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycStateHost {"));
 }

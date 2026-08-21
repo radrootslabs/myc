@@ -278,6 +278,27 @@ pub myc::MycLocalSignerTransportErrorKind::Transport
 pub myc::MycLocalSignerTransportErrorKind::UnsupportedPlatform
 impl myc::MycLocalSignerTransportErrorKind
 pub const fn myc::MycLocalSignerTransportErrorKind::code(self) -> &'static str
+pub enum myc::MycNip46AdmissionErrorKind
+pub myc::MycNip46AdmissionErrorKind::EmptyEvent
+pub myc::MycNip46AdmissionErrorKind::EmptyPlaintext
+pub myc::MycNip46AdmissionErrorKind::EventContentTooLarge
+pub myc::MycNip46AdmissionErrorKind::EventIdentifierTooLarge
+pub myc::MycNip46AdmissionErrorKind::EventTooLarge
+pub myc::MycNip46AdmissionErrorKind::InvalidEventUtf8
+pub myc::MycNip46AdmissionErrorKind::InvalidLimits
+pub myc::MycNip46AdmissionErrorKind::InvalidPlaintextUtf8
+pub myc::MycNip46AdmissionErrorKind::MalformedEvent
+pub myc::MycNip46AdmissionErrorKind::MalformedRequest
+pub myc::MycNip46AdmissionErrorKind::PlaintextTooLarge
+pub myc::MycNip46AdmissionErrorKind::RequestIdentifierTooLarge
+pub myc::MycNip46AdmissionErrorKind::RequestMethodTooLarge
+pub myc::MycNip46AdmissionErrorKind::RequestParameterTooLarge
+pub myc::MycNip46AdmissionErrorKind::RequestParametersTooLarge
+pub myc::MycNip46AdmissionErrorKind::TagElementTooLarge
+pub myc::MycNip46AdmissionErrorKind::TagsTooLarge
+pub myc::MycNip46AdmissionErrorKind::TooManyRequestParameters
+pub myc::MycNip46AdmissionErrorKind::TooManyTagElements
+pub myc::MycNip46AdmissionErrorKind::TooManyTags
 pub enum myc::MycProviderCapability
 pub myc::MycProviderCapability::Describe
 pub myc::MycProviderCapability::Nip04Decrypt
@@ -520,6 +541,24 @@ pub fn myc::MycAuthorizationChallengeUrl::as_str(&self) -> &str
 pub fn myc::MycAuthorizationChallengeUrl::new(&str) -> core::result::Result<Self, myc::MycConnectionStateError>
 impl core::fmt::Debug for myc::MycAuthorizationChallengeUrl
 pub fn myc::MycAuthorizationChallengeUrl::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycBoundedNip46Event
+impl myc::MycBoundedNip46Event
+pub fn myc::MycBoundedNip46Event::encrypted_content(&self) -> &str
+pub fn myc::MycBoundedNip46Event::original_bytes(&self) -> &[u8]
+pub const fn myc::MycBoundedNip46Event::tag_bytes(&self) -> usize
+pub const fn myc::MycBoundedNip46Event::tag_count(&self) -> usize
+pub const fn myc::MycBoundedNip46Event::tag_element_count(&self) -> usize
+impl core::fmt::Debug for myc::MycBoundedNip46Event
+pub fn myc::MycBoundedNip46Event::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycBoundedNip46Request
+impl myc::MycBoundedNip46Request
+pub const fn myc::MycBoundedNip46Request::method_bytes(&self) -> usize
+pub const fn myc::MycBoundedNip46Request::parameter_bytes(&self) -> usize
+pub const fn myc::MycBoundedNip46Request::parameter_count(&self) -> usize
+pub fn myc::MycBoundedNip46Request::plaintext_bytes(&self) -> usize
+pub const fn myc::MycBoundedNip46Request::request_id_bytes(&self) -> usize
+impl core::fmt::Debug for myc::MycBoundedNip46Request
+pub fn myc::MycBoundedNip46Request::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycCliInvocationV1
 impl myc::MycCliInvocationV1
 pub const fn myc::MycCliInvocationV1::command(&self) -> myc::MycCommandV1
@@ -849,6 +888,26 @@ impl myc::MycNip05ProjectionDigest
 pub const fn myc::MycNip05ProjectionDigest::as_bytes(&self) -> &[u8; 32]
 impl core::fmt::Debug for myc::MycNip05ProjectionDigest
 pub fn myc::MycNip05ProjectionDigest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46AdmissionError
+impl myc::MycNip46AdmissionError
+pub const fn myc::MycNip46AdmissionError::kind(self) -> myc::MycNip46AdmissionErrorKind
+impl core::error::Error for myc::MycNip46AdmissionError
+impl core::fmt::Debug for myc::MycNip46AdmissionError
+pub fn myc::MycNip46AdmissionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycNip46AdmissionError
+pub fn myc::MycNip46AdmissionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46AdmissionLimits
+impl myc::MycNip46AdmissionLimits
+pub const fn myc::MycNip46AdmissionLimits::decrypted_plaintext_bytes(self) -> usize
+pub const fn myc::MycNip46AdmissionLimits::event_content_bytes(self) -> usize
+pub const fn myc::MycNip46AdmissionLimits::event_tag_count(self) -> usize
+pub const fn myc::MycNip46AdmissionLimits::event_tag_element_bytes(self) -> usize
+pub const fn myc::MycNip46AdmissionLimits::event_tag_total_bytes(self) -> usize
+pub const fn myc::MycNip46AdmissionLimits::event_tag_total_elements(self) -> usize
+pub const fn myc::MycNip46AdmissionLimits::event_wire_bytes(self) -> usize
+pub fn myc::MycNip46AdmissionLimits::from_config(&myc::MycConfigDocumentV1) -> core::result::Result<Self, myc::MycNip46AdmissionError>
+impl core::fmt::Debug for myc::MycNip46AdmissionLimits
+pub fn myc::MycNip46AdmissionLimits::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycNip46ClientPublicKey(_)
 impl myc::MycNip46ClientPublicKey
 pub fn myc::MycNip46ClientPublicKey::as_hex(&self) -> &str
@@ -1233,7 +1292,10 @@ pub const myc::MYC_LOCAL_SIGNER_TRANSPORT_CONTRACT_VERSION: u32
 pub const myc::MYC_MIGRATION_CATALOG_SHA256: [u8; 32]
 pub const myc::MYC_NIP05_PROJECTION_MAX_BYTES: usize
 pub const myc::MYC_NIP46_CANONICAL_REQUEST_MAX_BYTES: usize
+pub const myc::MYC_NIP46_EVENT_ID_MAX_BYTES: usize
+pub const myc::MYC_NIP46_PUBLIC_KEY_MAX_BYTES: usize
 pub const myc::MYC_NIP46_REQUEST_ID_MAX_UTF8_BYTES: usize
+pub const myc::MYC_NIP46_SIGNATURE_MAX_BYTES: usize
 pub const myc::MYC_OPERATOR_CONTRACT_VERSION: u32
 pub const myc::MYC_PROVIDER_CONCURRENCY_MAX: u32
 pub const myc::MYC_PROVIDER_CONTRACT_VERSION: u32
@@ -1275,6 +1337,8 @@ pub const myc::MYC_STATE_SCHEMA_VERSION_7_OBJECT_COUNT: u32
 pub const myc::MYC_STATE_SCHEMA_VERSION_7_SHA256: [u8; 32]
 pub const myc::MYC_WRAPPING_CREDENTIAL_ARTIFACT_BYTES: usize
 pub const myc::MYC_WRAPPING_CREDENTIAL_CONTRACT_VERSION: u32
+pub fn myc::admit_myc_nip46_event(myc::MycNip46AdmissionLimits, &[u8]) -> core::result::Result<myc::MycBoundedNip46Event, myc::MycNip46AdmissionError>
+pub fn myc::admit_myc_nip46_request(myc::MycNip46AdmissionLimits, &[u8]) -> core::result::Result<myc::MycBoundedNip46Request, myc::MycNip46AdmissionError>
 pub async fn myc::finalize_myc_state_restore(myc::MycStagedStateRestore) -> core::result::Result<(), myc::MycStateMaintenanceError>
 pub async fn myc::initialize_myc_state(&myc::MycRuntimeContext, &myc::MycStateMetadata, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<(), myc::MycStateHostError>
 pub fn myc::myc_migration_catalog() -> core::result::Result<radroots_service_sqlite::migration::MigrationCatalog, myc::MycStateCatalogError>

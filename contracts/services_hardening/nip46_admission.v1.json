@@ -1,0 +1,61 @@
+{
+  "schema": "radroots.myc.nip46-admission.v1",
+  "contract_version": 1,
+  "source": "validated_config_resource_limits_events",
+  "event": {
+    "original_wire_cap_before_parse": true,
+    "utf8": "required",
+    "object_fields": ["id", "pubkey", "created_at", "kind", "tags", "content", "sig"],
+    "unknown_fields": "reject",
+    "duplicate_fields": "reject",
+    "null_fields": "reject",
+    "identifier_max_bytes": {
+      "id": 64,
+      "pubkey": 64,
+      "sig": 128
+    },
+    "configured_bounds": [
+      "wire_bytes",
+      "content_bytes",
+      "tag_count",
+      "tag_total_elements",
+      "tag_element_bytes",
+      "tag_total_bytes"
+    ],
+    "decryption": "forbidden_before_admission"
+  },
+  "request": {
+    "plaintext_cap_before_parse": true,
+    "utf8": "required",
+    "object_fields": ["id", "method", "params"],
+    "unknown_fields": "reject",
+    "duplicate_fields": "reject",
+    "null_fields": "reject",
+    "configured_bound": "decrypted_plaintext_bytes",
+    "library_bounds": {
+      "request_id_bytes": 128,
+      "method_bytes": 64,
+      "parameter_count": 64,
+      "parameter_bytes": 65536,
+      "aggregate_parameter_bytes": 262144
+    },
+    "typed_decode": "deferred_to_step_142"
+  },
+  "retention": {
+    "event_original_bytes": "exact",
+    "event_ciphertext": "bounded",
+    "request_plaintext": "opaque_and_redacted"
+  },
+  "errors": "crate_owned_source_free_redacted",
+  "deferred": [
+    "event_id_and_signature_verification",
+    "sender_receiver_kind_and_timestamp_policy",
+    "nip04_nip44_context",
+    "typed_nip46_request",
+    "replay_and_deduplication",
+    "authorization",
+    "provider_execution",
+    "persistence",
+    "relay_io"
+  ]
+}
