@@ -65,13 +65,30 @@ fn migration_evidence() -> (MigrationAppliedAtUnixSeconds, MigrationBuildIdentit
         "test-target",
         "service-host",
         1,
-        1,
+        myc::MYC_STATE_SCHEMA_VERSION,
         1,
         1,
         1,
     )
     .expect("build identity");
     (applied_at, build)
+}
+
+fn mismatched_migration_build() -> MigrationBuildIdentity {
+    MigrationBuildIdentity::new(
+        env!("CARGO_PKG_VERSION"),
+        "1111111111111111111111111111111111111111",
+        "b44119fbac5985be8127ad1bf56d2950e6399427",
+        "rustc-test",
+        "test-target",
+        "service-host",
+        1,
+        1,
+        1,
+        1,
+        1,
+    )
+    .expect("structurally valid mismatched build")
 }
 
 #[tokio::test]
@@ -84,7 +101,8 @@ async fn initialize_is_create_new_and_both_existing_open_modes_close_explicitly(
     let lock = runtime.artifacts().state_lock();
 
     assert!(!state.exists());
-    initialize_myc_state(&runtime, &metadata)
+    let (applied_at, build) = migration_evidence();
+    initialize_myc_state(&runtime, &metadata, applied_at, &build)
         .await
         .expect("create-new initialization");
     assert!(state.is_file());
@@ -98,12 +116,11 @@ async fn initialize_is_create_new_and_both_existing_open_modes_close_explicitly(
         0o600
     );
 
-    let duplicate = initialize_myc_state(&runtime, &metadata)
+    let duplicate = initialize_myc_state(&runtime, &metadata, applied_at, &build)
         .await
         .expect_err("second initialization must fail");
     assert_eq!(duplicate.kind(), MycStateHostErrorKind::Initialize);
 
-    let (applied_at, build) = migration_evidence();
     let writer = open_myc_state_read_write(&runtime, &metadata, applied_at, &build)
         .await
         .expect("existing writable state");
@@ -147,7 +164,18 @@ async fn missing_state_and_mismatched_evidence_fail_before_database_creation() {
     assert_eq!(missing.kind(), MycStateHostErrorKind::ReadWriteOpen);
     assert!(!primary.artifacts().state_database().exists());
 
-    let mismatch = initialize_myc_state(&secondary, &primary_metadata)
+    let invalid_build = initialize_myc_state(
+        &primary,
+        &primary_metadata,
+        applied_at,
+        &mismatched_migration_build(),
+    )
+    .await
+    .expect_err("migration build contract mismatch");
+    assert_eq!(invalid_build.kind(), MycStateHostErrorKind::InvalidEvidence);
+    assert!(!primary.artifacts().state_database().exists());
+
+    let mismatch = initialize_myc_state(&secondary, &primary_metadata, applied_at, &build)
         .await
         .expect_err("cross-instance metadata");
     assert_eq!(mismatch.kind(), MycStateHostErrorKind::InvalidEvidence);

@@ -28,6 +28,7 @@ pub mod sql;
 mod state_catalog;
 mod state_host;
 mod state_metadata;
+mod state_repository;
 pub mod transport;
 
 pub use app::{
@@ -108,8 +109,10 @@ pub use runtime_context::{
     resolve_myc_runtime_context,
 };
 pub use state_catalog::{
-    MYC_MIGRATION_CATALOG_SHA256, MYC_STATE_SCHEMA_CATALOG_SHA256, MYC_STATE_SCHEMA_VERSION,
-    MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT, MYC_STATE_SCHEMA_VERSION_1_SHA256,
+    MYC_MIGRATION_CATALOG_SHA256, MYC_STATE_BASE_SCHEMA_VERSION, MYC_STATE_SCHEMA_CATALOG_SHA256,
+    MYC_STATE_SCHEMA_VERSION, MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT,
+    MYC_STATE_SCHEMA_VERSION_1_SHA256, MYC_STATE_SCHEMA_VERSION_2_MIGRATION_SHA256,
+    MYC_STATE_SCHEMA_VERSION_2_OBJECT_COUNT, MYC_STATE_SCHEMA_VERSION_2_SHA256,
     MycStateCatalogError, MycStateCatalogErrorKind, myc_migration_catalog, myc_schema_catalog,
     validate_myc_state_catalogs,
 };
@@ -121,5 +124,8 @@ pub use state_metadata::{
     MYC_OPERATOR_CONTRACT_VERSION, MYC_STATE_APPLICATION_ID, MycExpectedIdentities,
     MycExpectedPublicIdentity, MycNormalizedConfigDigest, MycStateMetadata, MycStateMetadataError,
     MycStateMetadataErrorKind, MycStatePolicyVersions,
+};
+pub use state_repository::{
+    MycStateRepository, MycStateRepositoryError, MycStateRepositoryErrorKind,
 };
 pub use transport::{MycNostrTransport, MycRelayPublishResult, MycTransportSnapshot};

@@ -12,8 +12,9 @@ use radroots_storage::event::SourceGeneration;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    MYC_CONFIG_SCHEMA_VERSION, MYC_SIGNER_STATUS_CONTRACT_VERSION, MYC_STATE_SCHEMA_VERSION,
-    MycBootstrapProfileV1, MycConfigDocumentV1, MycConfigProfile, MycRuntimeContext,
+    MYC_CONFIG_SCHEMA_VERSION, MYC_SIGNER_STATUS_CONTRACT_VERSION, MYC_STATE_BASE_SCHEMA_VERSION,
+    MYC_STATE_SCHEMA_VERSION, MycBootstrapProfileV1, MycConfigDocumentV1, MycConfigProfile,
+    MycRuntimeContext,
 };
 
 const NORMALIZED_CONFIG_DIGEST_DOMAIN: &[u8] = b"radroots.myc.normalized_config.v1\0";
@@ -163,6 +164,7 @@ impl MycStatePolicyVersions {
 pub struct MycStateMetadata {
     paths: ServiceSqlitePaths,
     database: ServiceDatabaseMetadata,
+    database_identity: ServiceDatabaseIdentity,
     configuration: MycNormalizedConfigDigest,
     identities: MycExpectedIdentities,
     policy_versions: MycStatePolicyVersions,
@@ -182,7 +184,7 @@ impl MycStateMetadata {
             .map_err(|_| MycStateMetadataError::new(MycStateMetadataErrorKind::Paths))?;
         let application_id = ServiceSqliteApplicationId::new(MYC_STATE_APPLICATION_ID)
             .map_err(|_| MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant))?;
-        let state_schema_version = core::num::NonZeroU32::new(MYC_STATE_SCHEMA_VERSION)
+        let state_schema_version = core::num::NonZeroU32::new(MYC_STATE_BASE_SCHEMA_VERSION)
             .ok_or_else(|| MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant))?;
         let database = ServiceDatabaseMetadata::new(
             &paths,
@@ -192,6 +194,15 @@ impl MycStateMetadata {
             application_id,
         )
         .map_err(|_| MycStateMetadataError::new(MycStateMetadataErrorKind::Database))?;
+        let supported_state_schema_version =
+            core::num::NonZeroU32::new(MYC_STATE_SCHEMA_VERSION)
+                .ok_or_else(|| MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant))?;
+        let database_identity = ServiceDatabaseIdentity::new(
+            &paths,
+            source_generation,
+            supported_state_schema_version,
+            application_id,
+        );
         let normalized = configuration.normalized();
         let configuration = normalized_config_digest(configuration.profile(), normalized)?;
         let identities = expected_identities(normalized)?;
@@ -211,22 +222,23 @@ impl MycStateMetadata {
         Ok(Self {
             paths,
             database,
+            database_identity,
             configuration,
             identities,
             policy_versions,
         })
     }
 
-    /// Returns the shared immutable database metadata.
+    /// Returns the immutable shared schema-v1 initialization metadata.
     #[must_use]
-    pub const fn database(&self) -> &ServiceDatabaseMetadata {
+    pub const fn initial_database_metadata(&self) -> &ServiceDatabaseMetadata {
         &self.database
     }
 
-    /// Returns the reopen identity derived from the immutable database metadata.
+    /// Returns the reopen identity with this binary's exact schema ceiling.
     #[must_use]
     pub fn database_identity(&self) -> ServiceDatabaseIdentity {
-        self.database.identity()
+        self.database_identity.clone()
     }
 
     /// Returns the normalized configuration digest.
@@ -258,6 +270,7 @@ impl fmt::Debug for MycStateMetadata {
         formatter
             .debug_struct("MycStateMetadata")
             .field("database", &self.database)
+            .field("database_identity", &self.database_identity)
             .field("configuration", &self.configuration)
             .field("identities", &self.identities)
             .field("policy_versions", &self.policy_versions)

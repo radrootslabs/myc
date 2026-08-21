@@ -4,14 +4,14 @@ use core::fmt;
 use std::{error::Error, path::PathBuf};
 
 use radroots_service_sqlite::{
-    MigrationAppliedAtUnixSeconds, MigrationBuildIdentity, OpenMode,
+    MigrationApplicationOutcome, MigrationAppliedAtUnixSeconds, MigrationBuildIdentity, OpenMode,
     ServiceSqliteConnectionOptions, ServiceSqliteHost, ServiceSqlitePaths, initialize_database,
 };
 use sqlx::{ConnectOptions, Connection, SqliteConnection, sqlite::SqliteConnectOptions};
 
 use crate::{
-    MYC_STATE_SCHEMA_VERSION, MycRuntimeContext, MycStateMetadata, myc_migration_catalog,
-    myc_schema_catalog, validate_myc_state_catalogs,
+    MYC_STATE_BASE_SCHEMA_VERSION, MYC_STATE_SCHEMA_VERSION, MycRuntimeContext, MycStateMetadata,
+    MycStateRepository, myc_migration_catalog, myc_schema_catalog, validate_myc_state_catalogs,
 };
 
 /// Stable lifecycle mode of one opened Myc state host.
@@ -30,6 +30,7 @@ pub enum MycStateHostErrorKind {
     Initialize,
     ReadWriteOpen,
     InspectionOpen,
+    Repository,
     Close,
 }
 
@@ -44,6 +45,7 @@ impl MycStateHostErrorKind {
             Self::Initialize => "state_initialize_failed",
             Self::ReadWriteOpen => "state_read_write_open_failed",
             Self::InspectionOpen => "state_inspection_open_failed",
+            Self::Repository => "state_repository_failed",
             Self::Close => "state_close_failed",
         }
     }
@@ -82,6 +84,7 @@ impl fmt::Display for MycStateHostError {
             MycStateHostErrorKind::Initialize => "Myc state initialization failed",
             MycStateHostErrorKind::ReadWriteOpen => "Myc writable state could not be opened",
             MycStateHostErrorKind::InspectionOpen => "Myc inspection state could not be opened",
+            MycStateHostErrorKind::Repository => "Myc state repository binding failed",
             MycStateHostErrorKind::Close => "Myc state host could not be closed",
         })
     }
@@ -139,6 +142,12 @@ impl MycStateHost {
         &self.metadata
     }
 
+    /// Returns sealed typed repository access bound to this host and metadata.
+    #[must_use]
+    pub const fn repository(&self) -> MycStateRepository<'_> {
+        MycStateRepository::new(&self.host, &self.metadata)
+    }
+
     /// Drains the shared host and explicitly releases retained authority.
     pub async fn close(&self) -> Result<(), MycStateHostError> {
         self.host
@@ -166,24 +175,53 @@ impl fmt::Debug for MycStateHost {
 pub async fn initialize_myc_state(
     runtime: &MycRuntimeContext,
     metadata: &MycStateMetadata,
+    applied_at: MigrationAppliedAtUnixSeconds,
+    build: &MigrationBuildIdentity,
 ) -> Result<(), MycStateHostError> {
     let paths = state_paths(runtime)?;
     require_metadata(runtime, metadata)?;
+    require_migration_build(metadata, build)?;
     let (migrations, schema) = catalogs()?;
-    let mut authority = initialize_database(
+    let authority = initialize_database(
         &paths,
         OpenMode::Initialize,
-        metadata.database(),
+        metadata.initial_database_metadata(),
         &schema,
         initialize_empty_catalog,
     )
     .await
     .map_err(|_| MycStateHostError::new(MycStateHostErrorKind::Initialize))?;
-    authority
-        .release()
-        .map_err(|_| MycStateHostError::new(MycStateHostErrorKind::Initialize))?;
-    drop(migrations);
-    Ok(())
+    let identity = metadata.database_identity();
+    let (host, outcome) = ServiceSqliteHost::open_initialized(
+        &paths,
+        &identity,
+        &migrations,
+        &schema,
+        ServiceSqliteConnectionOptions::reviewed(),
+        authority,
+        applied_at,
+        build,
+        &[],
+    )
+    .await
+    .map_err(|_| MycStateHostError::new(MycStateHostErrorKind::Initialize))?;
+    let state = MycStateHost {
+        host,
+        mode: MycStateHostMode::ReadWriteExisting,
+        metadata: metadata.clone(),
+    };
+    if !exact_initialization_outcome(outcome) {
+        let _ = state.close().await;
+        return Err(MycStateHostError::new(MycStateHostErrorKind::Catalog));
+    }
+    if state.repository().bind_or_verify().await.is_err() {
+        let _ = state.close().await;
+        return Err(MycStateHostError::new(MycStateHostErrorKind::Repository));
+    }
+    state
+        .close()
+        .await
+        .map_err(|_| MycStateHostError::new(MycStateHostErrorKind::Initialize))
 }
 
 /// Opens an already initialized Myc catalog with exclusive writer authority.
@@ -199,6 +237,7 @@ pub async fn open_myc_state_read_write(
 ) -> Result<MycStateHost, MycStateHostError> {
     let paths = state_paths(runtime)?;
     require_metadata(runtime, metadata)?;
+    require_migration_build(metadata, build)?;
     let identity = metadata.database_identity();
     let (migrations, schema) = catalogs()?;
     let (host, outcome) = ServiceSqliteHost::open_read_write_existing(
@@ -213,18 +252,20 @@ pub async fn open_myc_state_read_write(
     )
     .await
     .map_err(|_| MycStateHostError::new(MycStateHostErrorKind::ReadWriteOpen))?;
-    if outcome.initial_version() != MYC_STATE_SCHEMA_VERSION
-        || outcome.final_version() != MYC_STATE_SCHEMA_VERSION
-        || outcome.applied_count() != 0
-    {
+    if !exact_existing_outcome(outcome) {
         let _ = host.close().await;
         return Err(MycStateHostError::new(MycStateHostErrorKind::Catalog));
     }
-    Ok(MycStateHost {
+    let state = MycStateHost {
         host,
         mode: MycStateHostMode::ReadWriteExisting,
         metadata: metadata.clone(),
-    })
+    };
+    if state.repository().bind_or_verify().await.is_err() {
+        let _ = state.close().await;
+        return Err(MycStateHostError::new(MycStateHostErrorKind::Repository));
+    }
+    Ok(state)
 }
 
 /// Opens an already initialized Myc catalog for immutable inspection.
@@ -245,11 +286,16 @@ pub async fn open_myc_state_inspection(
     )
     .await
     .map_err(|_| MycStateHostError::new(MycStateHostErrorKind::InspectionOpen))?;
-    Ok(MycStateHost {
+    let state = MycStateHost {
         host,
         mode: MycStateHostMode::ReadOnlyInspection,
         metadata: metadata.clone(),
-    })
+    };
+    if state.repository().verify_binding().await.is_err() {
+        let _ = state.close().await;
+        return Err(MycStateHostError::new(MycStateHostErrorKind::Repository));
+    }
+    Ok(state)
 }
 
 fn state_paths(runtime: &MycRuntimeContext) -> Result<ServiceSqlitePaths, MycStateHostError> {
@@ -261,14 +307,46 @@ fn require_metadata(
     runtime: &MycRuntimeContext,
     metadata: &MycStateMetadata,
 ) -> Result<(), MycStateHostError> {
-    let database = metadata.database();
+    let database = metadata.initial_database_metadata();
+    let identity = metadata.database_identity();
     let matches = metadata.matches_runtime(runtime)
         && database.service() == runtime.context().service()
         && database.instance() == runtime.context().instance()
-        && database.state_schema_version().get() == MYC_STATE_SCHEMA_VERSION;
+        && database.state_schema_version().get() == MYC_STATE_BASE_SCHEMA_VERSION
+        && identity.service() == runtime.context().service()
+        && identity.instance() == runtime.context().instance()
+        && identity.supported_state_schema_version().get() == MYC_STATE_SCHEMA_VERSION;
     matches
         .then_some(())
         .ok_or_else(|| MycStateHostError::new(MycStateHostErrorKind::InvalidEvidence))
+}
+
+fn require_migration_build(
+    metadata: &MycStateMetadata,
+    build: &MigrationBuildIdentity,
+) -> Result<(), MycStateHostError> {
+    let versions = metadata.policy_versions();
+    let matches = build.config_contract_version() == versions.configuration()
+        && build.state_contract_version() == versions.state()
+        && build.admin_contract_version() == versions.operator()
+        && build.status_contract_version() == versions.status();
+    matches
+        .then_some(())
+        .ok_or_else(|| MycStateHostError::new(MycStateHostErrorKind::InvalidEvidence))
+}
+
+fn exact_initialization_outcome(outcome: MigrationApplicationOutcome) -> bool {
+    outcome.initial_version() == MYC_STATE_BASE_SCHEMA_VERSION
+        && outcome.final_version() == MYC_STATE_SCHEMA_VERSION
+        && outcome.applied_count() == 1
+}
+
+fn exact_existing_outcome(outcome: MigrationApplicationOutcome) -> bool {
+    outcome.final_version() == MYC_STATE_SCHEMA_VERSION
+        && matches!(
+            (outcome.initial_version(), outcome.applied_count()),
+            (MYC_STATE_BASE_SCHEMA_VERSION, 1) | (MYC_STATE_SCHEMA_VERSION, 0)
+        )
 }
 
 fn catalogs() -> Result<

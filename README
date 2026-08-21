@@ -43,6 +43,23 @@ host-environment resolver, worker namespace, ambient selector, or implicit
 path default. An explicit absolute `--config` may select the document to read
 without changing the canonical common artifact inventory.
 
+## Governed state boundary
+
+Create-new initialization reserves the shared schema-v1 metadata and migration
+ledger, retains exclusive writer authority, applies the exact Myc schema-v2
+migration, binds the normalized configuration, expected identity roles, and
+policy versions through a sealed typed repository, and explicitly closes the
+host before reporting success. Existing writable open can resume the exact
+v1-to-v2 prefix; read-only inspection requires the current catalog and exact
+immutable Myc binding.
+
+The public Myc repository exposes no raw pool, connection, transaction-control
+handle, path, or SQL. Its only SQLite mutation executes inside the shared
+`ServiceSqliteTransaction` runner. Provider and relay work cannot occur inside
+that transaction boundary. The v2 binding table and its update/delete guards
+are checksum-pinned service-owned schema objects; later workflow tables remain
+owned by their ordered repository steps.
+
 ## NIP-46 runtime contract
 
 Myc listens for encrypted kind-24133 requests on the exact configured relay

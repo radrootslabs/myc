@@ -4,9 +4,10 @@ use std::{error::Error, path::Path};
 
 use myc::{
     MYC_CONFIG_SCHEMA_VERSION, MYC_OPERATOR_CONTRACT_VERSION, MYC_SIGNER_STATUS_CONTRACT_VERSION,
-    MYC_STATE_APPLICATION_ID, MYC_STATE_SCHEMA_VERSION, MycConfigProfile, MycStateMetadata,
-    MycStateMetadataErrorKind, RadrootsHostEnvironment, RadrootsPathResolver, RadrootsPlatform,
-    parse_myc_cli_v1_from, parse_myc_config_v1, resolve_myc_runtime_context,
+    MYC_STATE_APPLICATION_ID, MYC_STATE_BASE_SCHEMA_VERSION, MYC_STATE_SCHEMA_VERSION,
+    MycConfigProfile, MycStateMetadata, MycStateMetadataErrorKind, RadrootsHostEnvironment,
+    RadrootsPathResolver, RadrootsPlatform, parse_myc_cli_v1_from, parse_myc_config_v1,
+    resolve_myc_runtime_context,
 };
 use radroots_storage::event::SourceGeneration;
 
@@ -53,7 +54,7 @@ fn exact_database_configuration_identity_and_policy_bindings_are_frozen() {
     let directory = tempfile::tempdir().expect("temporary root");
     let runtime = runtime(directory.path(), "repo-local");
     let metadata = state_metadata(&runtime, EXAMPLE).expect("state metadata");
-    let database = metadata.database();
+    let database = metadata.initial_database_metadata();
 
     assert_eq!(MYC_STATE_APPLICATION_ID.to_be_bytes(), *b"RDMY");
     assert_eq!(database.application_id().get(), MYC_STATE_APPLICATION_ID);
@@ -62,9 +63,16 @@ fn exact_database_configuration_identity_and_policy_bindings_are_frozen() {
     assert_eq!(database.source_generation().as_bytes(), &[0x5a; 32]);
     assert_eq!(
         database.state_schema_version().get(),
-        MYC_STATE_SCHEMA_VERSION
+        MYC_STATE_BASE_SCHEMA_VERSION
     );
     assert_eq!(database.created_at_unix_ms(), 1_725_000_000_000);
+    assert_eq!(
+        metadata
+            .database_identity()
+            .supported_state_schema_version()
+            .get(),
+        MYC_STATE_SCHEMA_VERSION
+    );
 
     let identities = metadata.expected_identities();
     assert_eq!(identities.transport().as_hex(), "4".repeat(64));
