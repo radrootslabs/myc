@@ -1,0 +1,72 @@
+{
+  "schema": "radroots.myc.provider-contract",
+  "schema_version": 1,
+  "contract_version": 1,
+  "provider_kinds": ["encrypted_file", "local_signer"],
+  "capabilities": [
+    "describe",
+    "public_identity",
+    "sign_event",
+    "nip04_encrypt",
+    "nip04_decrypt",
+    "nip44_encrypt",
+    "nip44_decrypt"
+  ],
+  "roles": [
+    {
+      "role": "transport",
+      "provider_instance": "transport",
+      "required_capabilities": [
+        "describe",
+        "public_identity",
+        "nip04_encrypt",
+        "nip04_decrypt",
+        "nip44_encrypt",
+        "nip44_decrypt"
+      ]
+    },
+    {
+      "role": "user",
+      "provider_instance": "user",
+      "required_capabilities": [
+        "describe",
+        "public_identity",
+        "sign_event",
+        "nip04_encrypt",
+        "nip04_decrypt",
+        "nip44_encrypt",
+        "nip44_decrypt"
+      ]
+    },
+    {
+      "role": "discovery",
+      "provider_instance": "discovery",
+      "required_capabilities": ["describe", "public_identity", "sign_event"]
+    }
+  ],
+  "operation_binding": {
+    "operation_id_bytes": 32,
+    "correlation_id_bytes": 32,
+    "absolute_deadline_unix_ms": { "minimum": 1, "maximum": 9223372036854775807 },
+    "nip44_versions": [2],
+    "semantic_input_max_bytes": 262144,
+    "untrusted_output_max_bytes": 1048576
+  },
+  "local_signer_limits": {
+    "request_deadline_ms": { "minimum": 1, "maximum": 30000 },
+    "request_max_bytes": { "minimum": 1, "maximum": 65536 },
+    "response_max_bytes": { "minimum": 1, "maximum": 1048576 },
+    "concurrency": { "minimum": 1, "maximum": 64 }
+  },
+  "credential_reference": {
+    "maximum_utf8_bytes": 128,
+    "shared_type": "ServiceCredentialArtifactName",
+    "material_in_configuration": false
+  },
+  "execution": {
+    "database_transaction_held": false,
+    "provider_result_trusted": false,
+    "cancellation_proves_no_effect": false,
+    "signing_is_publication": false
+  }
+}

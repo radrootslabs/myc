@@ -74,6 +74,17 @@ the only writer authority is its retained `state.lock`; there is no backend
 selection, compatibility reader, prototype importer, or secondary migration
 engine.
 
+The side-effect-free signer-provider contract admits exactly `encrypted_file`
+and `local_signer` assignments for the explicit transport, user, and optional
+discovery roles. It freezes the seven-operation capability vocabulary, exact
+role requirements, stable provider-instance/operation/correlation identities,
+absolute deadlines, bounded semantic input and untrusted output, local-signer
+resource limits, and logical credential references. Construction derives from
+the already admitted v1 configuration, exposes no provider path or secret in
+ordinary Debug, and performs no filesystem, credential, socket, clock, task,
+or cryptographic work. Envelope execution, credential resolution, Unix-socket
+transport, and independent result verification remain later checkpoints.
+
 Signer-request admission validates bounded client, request, event, method,
 canonical request, injected operation entropy, and injected time evidence
 before storage. Stable domain-separated operation and correlation identities

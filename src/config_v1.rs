@@ -10,6 +10,8 @@ use serde::Serialize;
 use serde_json::{Map, Value, json};
 use url::Url;
 
+use crate::provider_contract::MycProviderContract;
+
 const CONFIG_SCHEMA: &str = include_str!("../contracts/services_hardening/config.v1.schema.json");
 
 /// Exact schema identity for the production Myc configuration document.
@@ -152,6 +154,7 @@ pub struct MycConfigDocumentV1 {
     profile: MycConfigProfile,
     normalized: Value,
     effective: MycEffectiveConfigV1,
+    provider_contract: MycProviderContract,
 }
 
 impl MycConfigDocumentV1 {
@@ -188,6 +191,12 @@ impl MycConfigDocumentV1 {
             .map_or(0, Vec::len)
     }
 
+    /// Returns the immutable provider assignments derived from this document.
+    #[must_use]
+    pub const fn provider_contract(&self) -> &MycProviderContract {
+        &self.provider_contract
+    }
+
     pub(crate) const fn normalized(&self) -> &Value {
         &self.normalized
     }
@@ -201,6 +210,7 @@ impl fmt::Debug for MycConfigDocumentV1 {
             .field("schema_version", &MYC_CONFIG_SCHEMA_VERSION)
             .field("profile", &self.profile)
             .field("effective", &self.effective)
+            .field("provider_contract", &self.provider_contract)
             .finish()
     }
 }
@@ -234,10 +244,13 @@ pub fn parse_myc_config_v1(
     }
     validate_relationships(&normalized, profile)?;
     let effective = build_effective(&normalized, &original)?;
+    let provider_contract = MycProviderContract::from_normalized(&normalized)
+        .map_err(|_| error(MycConfigV1ErrorKind::InvalidRelationship))?;
     Ok(MycConfigDocumentV1 {
         profile,
         normalized,
         effective,
+        provider_contract,
     })
 }
 

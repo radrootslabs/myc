@@ -36,6 +36,13 @@
   Service implementation must use its exact routes, operation IDs, model
   fields, doctor checks, and shared host/exit references; prototype CLI or
   HTTP behavior is not authority to reinterpret that contract.
+- The exact signer-provider inventory and resource boundary is
+  `contracts/services_hardening/provider_contract.v1.json`. Keep its role,
+  provider, capability, call-identity, deadline, limit, credential-reference,
+  cancellation, and no-publication facts synchronized with the sealed Rust
+  models. Provider wire encoding and result verification may refine only the
+  later checkpoints that own those boundaries; they may not widen this
+  contract.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

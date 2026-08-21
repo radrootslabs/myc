@@ -2,6 +2,7 @@
 
 mod cli_v1;
 mod config_v1;
+mod provider_contract;
 mod runtime_context;
 mod state_catalog;
 mod state_connection;
@@ -22,6 +23,17 @@ pub use config_v1::{
     MYC_CONFIG_DOCUMENT_MAX_UTF8_BYTES, MYC_CONFIG_SCHEMA, MYC_CONFIG_SCHEMA_VERSION,
     MycConfigDocumentV1, MycConfigProfile, MycConfigV1Error, MycConfigV1ErrorKind,
     MycConfigValueSource, MycEffectiveConfigV1, parse_myc_config_v1,
+};
+pub use provider_contract::{
+    MYC_PROVIDER_CONCURRENCY_MAX, MYC_PROVIDER_CONTRACT_VERSION, MYC_PROVIDER_INPUT_MAX_BYTES,
+    MYC_PROVIDER_OUTPUT_MAX_BYTES, MYC_PROVIDER_REQUEST_DEADLINE_MAX_MS,
+    MYC_PROVIDER_REQUEST_MAX_BYTES, MYC_PROVIDER_RESPONSE_MAX_BYTES, MycLocalSignerLimits,
+    MycProviderBinding, MycProviderCapability, MycProviderCapabilitySet, MycProviderContract,
+    MycProviderContractError, MycProviderContractErrorKind, MycProviderCorrelationId,
+    MycProviderCredentialReference, MycProviderDeadlineUnixMs, MycProviderInstanceId,
+    MycProviderKind, MycProviderNip44Version, MycProviderOperation, MycProviderOperationId,
+    MycProviderOperationInput, MycProviderPublicIdentity, MycProviderRole,
+    MycUntrustedProviderOutput,
 };
 pub use radroots_runtime_paths::{
     INSTANCE_ID_MAX_BYTES, InstanceId, RadrootsHostEnvironment, RadrootsPathProfile,
