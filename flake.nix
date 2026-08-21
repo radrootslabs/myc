@@ -2,6 +2,10 @@
   description = "myc";
 
   inputs = {
+    lib = {
+      url = "github:radrootslabs/lib/b44119fbac5985be8127ad1bf56d2950e6399427";
+      flake = false;
+    };
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";

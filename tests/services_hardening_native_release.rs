@@ -7,6 +7,8 @@ use serde_json::json;
 const CONTRACT: &str = include_str!("../contracts/services_hardening/native_release.v1.json");
 const MANIFEST: &str = include_str!("../Cargo.toml");
 const LOCK: &str = include_str!("../Cargo.lock");
+const FLAKE: &str = include_str!("../flake.nix");
+const FLAKE_LOCK: &str = include_str!("../flake.lock");
 
 const LIB_REVISION: &str = "b44119fbac5985be8127ad1bf56d2950e6399427";
 const LIB_REPOSITORY: &str = "https://github.com/radrootslabs/lib";
@@ -181,6 +183,41 @@ fn every_radroots_dependency_is_exactly_source_locked() {
     assert_eq!(sources.len(), 1);
     let source = sources.into_iter().next().expect("Lib source");
     assert!(source.contains(&format!("?rev={LIB_REVISION}#{LIB_REVISION}")));
+
+    for required in [
+        "lib = {",
+        "github:radrootslabs/lib/b44119fbac5985be8127ad1bf56d2950e6399427",
+        "flake = false;",
+    ] {
+        assert!(
+            FLAKE.contains(required),
+            "flake source data is missing `{required}`"
+        );
+    }
+    let flake_lock: serde_json::Value =
+        serde_json::from_str(FLAKE_LOCK).expect("flake source lock");
+    assert_eq!(flake_lock["version"], 7);
+    assert_eq!(flake_lock["root"], "root");
+    assert_eq!(flake_lock["nodes"]["root"]["inputs"]["lib"], "lib");
+    assert_eq!(
+        flake_lock["nodes"]["lib"],
+        json!({
+            "locked": {
+                "lastModified": 1787301679_u64,
+                "narHash": "sha256-WOcgJuKhM9aP55yTuTM63uBf+/IroeBu26zy+lMkvpE=",
+                "owner": "radrootslabs",
+                "repo": "lib",
+                "rev": LIB_REVISION,
+                "type": "github"
+            },
+            "original": {
+                "owner": "radrootslabs",
+                "repo": "lib",
+                "rev": LIB_REVISION,
+                "type": "github"
+            }
+        })
+    );
 }
 
 #[test]

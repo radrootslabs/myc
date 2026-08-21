@@ -1,5 +1,21 @@
 {
   "nodes": {
+    "lib": {
+      "locked": {
+        "lastModified": 1787301679,
+        "narHash": "sha256-WOcgJuKhM9aP55yTuTM63uBf+/IroeBu26zy+lMkvpE=",
+        "owner": "radrootslabs",
+        "repo": "lib",
+        "rev": "b44119fbac5985be8127ad1bf56d2950e6399427",
+        "type": "github"
+      },
+      "original": {
+        "owner": "radrootslabs",
+        "repo": "lib",
+        "rev": "b44119fbac5985be8127ad1bf56d2950e6399427",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1774799055,
@@ -18,6 +34,7 @@
     },
     "root": {
       "inputs": {
+        "lib": "lib",
         "nixpkgs": "nixpkgs",
         "rust-overlay": "rust-overlay"
       }
