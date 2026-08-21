@@ -4,7 +4,8 @@ use sha2::{Digest, Sha256};
 
 const MANIFEST: &str = include_str!("../Cargo.toml");
 const RELEASE_ACCEPTANCE: &str = include_str!("../scripts/release-acceptance.sh");
-const SOURCE_LOCK: &str = include_str!("../radroots.lib.source-lock.v1.toml");
+const SOURCE_LOCK: &str = include_str!("../radroots.service.source-lock.v1.toml");
+const FLAKE_LOCK: &[u8] = include_bytes!("../flake.lock");
 
 #[test]
 fn manifest_freezes_the_final_rust_policy() {
@@ -68,12 +69,20 @@ fn release_acceptance_checks_both_feature_profiles() {
 #[test]
 fn source_lock_binds_the_current_cargo_lock() {
     let digest = hex::encode(Sha256::digest(include_bytes!("../Cargo.lock")));
-    assert!(SOURCE_LOCK.contains(&format!("lockfile_sha256 = \"{digest}\"")));
+    let flake_digest = hex::encode(Sha256::digest(FLAKE_LOCK));
+    assert!(SOURCE_LOCK.starts_with(
+        "schema = \"radroots.service.source-lock.v1\"\ncontract_version = 1\nservice = \"myc\"\n"
+    ));
+    assert!(SOURCE_LOCK.contains(&format!("cargo_lock_sha256 = \"{digest}\"")));
+    assert!(SOURCE_LOCK.contains(&format!("flake_lock_sha256 = \"{flake_digest}\"")));
     assert!(SOURCE_LOCK.contains("revision = \"b44119fbac5985be8127ad1bf56d2950e6399427\""));
     assert!(SOURCE_LOCK.contains(
         "workspace_catalog_sha256 = \"deca0c080deae187ff8186c0708903e42f41ea57f77c5f91581e23aa561164a4\""
     ));
     assert!(SOURCE_LOCK.contains(
         "source_archive_sha256 = \"975474804e6358b9228981add0a23181dbdd1afddf5ae12579c82220876bc379\""
+    ));
+    assert!(SOURCE_LOCK.ends_with(
+        "[contract_versions]\nconfig = 1\nstate = 7\nadmin = 1\nstatus = 1\nprovider = 1\n"
     ));
 }

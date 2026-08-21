@@ -1,0 +1,20 @@
+schema = "radroots.service.source-lock.v1"
+contract_version = 1
+service = "myc"
+repository = "https://github.com/radrootslabs/lib"
+revision = "b44119fbac5985be8127ad1bf56d2950e6399427"
+architecture = "radroots.crates.release.v2"
+workspace_catalog_sha256 = "deca0c080deae187ff8186c0708903e42f41ea57f77c5f91581e23aa561164a4"
+version = "0.1.0-alpha"
+source_archive_sha256 = "975474804e6358b9228981add0a23181dbdd1afddf5ae12579c82220876bc379"
+cargo_lock_sha256 = "04f566ee4c444c81002f090ac77e61b77000e8aeb1a337ae38447e2f0913a3b9"
+flake_lock_sha256 = "90a03f6f0794f3f6556b1f2bf6700812d48ce8dc1cee7c4f8bc62cea69b42bd1"
+rust_version = "1.97.1"
+host_feature_profile = "service-host"
+
+[contract_versions]
+config = 1
+state = 7
+admin = 1
+status = 1
+provider = 1

@@ -28,7 +28,7 @@
 ## 2. Authority and preflight
 
 - Before editing, read this file, `README`, `Cargo.toml`,
-  `radroots.lib.source-lock.v1.toml`, the relevant implementation and tests,
+  `radroots.service.source-lock.v1.toml`, the relevant implementation and tests,
   and `flake.nix` or migrations when they are in scope.
 - `.radroots-consumer-root` is the standalone source-lock identity and must
   remain exactly `myc`. The reserved pre-implementation control-plane

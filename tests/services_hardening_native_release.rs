@@ -223,6 +223,8 @@ fn every_radroots_dependency_is_exactly_source_locked() {
 #[test]
 fn removed_and_deferred_release_surfaces_cannot_be_smuggled_into_step_139() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert!(!root.join("radroots.lib.source-lock.v1.toml").exists());
+    assert!(root.join("radroots.service.source-lock.v1.toml").is_file());
     for forbidden in [
         ".github",
         "target",
