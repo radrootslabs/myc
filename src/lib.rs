@@ -3,6 +3,7 @@
 mod cli_v1;
 mod config_v1;
 mod provider_contract;
+mod provider_envelope;
 mod runtime_context;
 mod state_catalog;
 mod state_connection;
@@ -34,6 +35,13 @@ pub use provider_contract::{
     MycProviderKind, MycProviderNip44Version, MycProviderOperation, MycProviderOperationId,
     MycProviderOperationInput, MycProviderPublicIdentity, MycProviderRole,
     MycUntrustedProviderOutput,
+};
+pub use provider_envelope::{
+    MYC_ENCRYPTED_IDENTITY_BACKUP_INCLUDED, MYC_ENCRYPTED_IDENTITY_ENVELOPE_CONTRACT_VERSION,
+    MYC_ENCRYPTED_IDENTITY_ENVELOPE_MAX_BYTES, MycCredentialResolutionProof, MycDecryptedIdentity,
+    MycEncryptedIdentityEnvelopeError, MycEncryptedIdentityEnvelopeErrorKind,
+    MycEncryptedIdentityProvisioningMaterial, MycWrappingCredential, open_myc_encrypted_identity,
+    provision_myc_encrypted_identity,
 };
 pub use radroots_runtime_paths::{
     INSTANCE_ID_MAX_BYTES, InstanceId, RadrootsHostEnvironment, RadrootsPathProfile,

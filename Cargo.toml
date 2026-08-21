@@ -53,6 +53,7 @@ serde_json = "1.0"
 sha2 = "0.10"
 sqlx = { version = "0.9.0", default-features = false, features = ["derive", "sqlite-bundled"] }
 rand = "0.9"
+rustix = { version = "1", features = ["fs", "process", "std"] }
 thiserror = "2.0"
 tempfile = "3.17"
 tokio = { version = "1.48", default-features = false, features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }

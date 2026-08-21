@@ -43,6 +43,12 @@
   models. Provider wire encoding and result verification may refine only the
   later checkpoints that own those boundaries; they may not widen this
   contract.
+- The encrypted-file implementation is frozen by
+  `contracts/services_hardening/encrypted_identity_envelope.v1.json`. It must
+  use the source-locked `radroots_secrets` v2 context-bound envelope, explicit
+  caller-supplied entropy, create-new owner-only persistence, expected-public-
+  key verification, and state-backup exclusion. Credential artifact resolution
+  remains a separate boundary and may not introduce a sibling-key fallback.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

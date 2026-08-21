@@ -85,6 +85,19 @@ ordinary Debug, and performs no filesystem, credential, socket, clock, task,
 or cryptographic work. Envelope execution, credential resolution, Unix-socket
 transport, and independent result verification remain later checkpoints.
 
+The encrypted-file provider now uses the source-locked `radroots_secrets` v2
+context-bound envelope behind a sealed Myc boundary. Offline provisioning
+requires explicit identity, data-key, envelope-nonce, and wrapping-nonce
+material; verifies the derived public key before persistence; and creates one
+owner-only envelope without overwrite. Existing reads are bounded, no-follow,
+single-link, owner-only, context/reference checked, and independently verify
+the decrypted public key against the configured role identity. Protected
+material is zeroizing and absent from diagnostics. The service-state backup
+inventory remains exactly `state.sqlite`: encrypted identity envelopes,
+wrapping credentials, and plaintext identity material are excluded. Canonical
+credential artifact resolution remains Step 133 and ordinary run never
+provisions an identity.
+
 Signer-request admission validates bounded client, request, event, method,
 canonical request, injected operation entropy, and injected time evidence
 before storage. Stable domain-separated operation and correlation identities

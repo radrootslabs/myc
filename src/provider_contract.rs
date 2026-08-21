@@ -418,6 +418,13 @@ impl MycProviderBinding {
         }
     }
 
+    pub(crate) fn encrypted_envelope_path(&self) -> Option<&std::path::Path> {
+        match &self.location {
+            ProviderLocation::EncryptedFile { envelope_path, .. } => Some(envelope_path),
+            ProviderLocation::LocalSigner { .. } => None,
+        }
+    }
+
     fn location_is_valid(&self) -> bool {
         match &self.location {
             ProviderLocation::EncryptedFile {

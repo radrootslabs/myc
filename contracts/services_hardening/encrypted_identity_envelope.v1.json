@@ -1,0 +1,43 @@
+{
+  "schema": "radroots.myc.encrypted-identity-envelope",
+  "schema_version": 1,
+  "contract_version": 1,
+  "radroots_secrets_envelope_version": 2,
+  "encoded_max_bytes": 262144,
+  "identity_secret_bytes": 32,
+  "wrapping_credential_bytes": 32,
+  "provisioning_entropy": {
+    "data_key_bytes": 32,
+    "envelope_nonce_bytes": 24,
+    "wrapping_nonce_bytes": 24,
+    "caller_supplied": true
+  },
+  "authenticated_context": {
+    "purpose": "radroots.myc.encrypted_identity",
+    "subject_type": "provider_identity",
+    "subject_value": "<role>:<expected_public_key>",
+    "payload_schema": "radroots.myc.identity_secret.v1",
+    "credential_reference_bound": true
+  },
+  "artifact": {
+    "create_new": true,
+    "overwrite": false,
+    "symlink_follow": false,
+    "regular_file": true,
+    "single_link": true,
+    "owner_uid": "effective_uid",
+    "create_mode_octal": "0600",
+    "read_modes_octal": ["0400", "0600"]
+  },
+  "verification": {
+    "expected_identity_required": true,
+    "derived_public_key_must_match": true,
+    "legacy_envelope_accepted": false,
+    "ordinary_run_provisions": false
+  },
+  "backup": {
+    "state_backup_includes_envelope": false,
+    "state_backup_includes_wrapping_credential": false,
+    "state_backup_includes_plaintext_identity": false
+  }
+}
