@@ -47,6 +47,7 @@ radroots_runtime_paths = { git = "https://github.com/radrootslabs/lib", rev = "b
 radroots_service_sqlite = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha" }
 radroots_secrets = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha", features = ["std", "keyring"] }
 radroots_signing = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha", features = ["std"] }
+radroots_storage = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
@@ -65,6 +66,5 @@ zeroize = "1.8"
 
 [dev-dependencies]
 futures-util = "0.3.32"
-radroots_storage = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha", default-features = false }
 serial_test = "3"
 tokio-tungstenite = "0.26.2"

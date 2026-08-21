@@ -27,6 +27,7 @@ mod signing_adapter;
 pub mod sql;
 mod state_catalog;
 mod state_host;
+mod state_metadata;
 pub mod transport;
 
 pub use app::{
@@ -115,5 +116,10 @@ pub use state_catalog::{
 pub use state_host::{
     MycStateHost, MycStateHostError, MycStateHostErrorKind, MycStateHostMode, initialize_myc_state,
     open_myc_state_inspection, open_myc_state_read_write,
+};
+pub use state_metadata::{
+    MYC_OPERATOR_CONTRACT_VERSION, MYC_STATE_APPLICATION_ID, MycExpectedIdentities,
+    MycExpectedPublicIdentity, MycNormalizedConfigDigest, MycStateMetadata, MycStateMetadataError,
+    MycStateMetadataErrorKind, MycStatePolicyVersions,
 };
 pub use transport::{MycNostrTransport, MycRelayPublishResult, MycTransportSnapshot};

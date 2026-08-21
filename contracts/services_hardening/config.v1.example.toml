@@ -20,7 +20,7 @@ minimum_free_bytes = 268435456
 provider = "encrypted_file"
 envelope_path = "/var/lib/radroots/services/myc/primary/secrets/transport.identity.ncrypt"
 credential_reference = "transport_wrapping_key"
-expected_public_key = "1111111111111111111111111111111111111111111111111111111111111111"
+expected_public_key = "4444444444444444444444444444444444444444444444444444444444444444"
 
 [identity.user]
 provider = "local_signer"
@@ -70,8 +70,8 @@ attempt_deadline_ms = 15000
 
 [policy]
 connection_approval = "explicit_user"
-trusted_clients = ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
-denied_clients = ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]
+trusted_clients = ["7777777777777777777777777777777777777777777777777777777777777777"]
+denied_clients = ["8888888888888888888888888888888888888888888888888888888888888888"]
 permission_ceiling = ["nip04_decrypt", "nip04_encrypt", "nip44_decrypt", "nip44_encrypt", "sign_event:kind:1"]
 allowed_sign_event_kinds = [1]
 

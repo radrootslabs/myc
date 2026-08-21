@@ -1,21 +1,21 @@
 #![forbid(unsafe_code)]
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 
-use std::{error::Error, fs, num::NonZeroU32, os::unix::fs::PermissionsExt, path::Path};
+use std::{error::Error, fs, os::unix::fs::PermissionsExt, path::Path};
 
 use myc::{
-    MYC_STATE_SCHEMA_VERSION, MycStateHostErrorKind, MycStateHostMode, RadrootsHostEnvironment,
-    RadrootsPathResolver, RadrootsPlatform, initialize_myc_state, open_myc_state_inspection,
-    open_myc_state_read_write, parse_myc_cli_v1_from, resolve_myc_runtime_context,
+    MycConfigProfile, MycStateHostErrorKind, MycStateHostMode, MycStateMetadata,
+    RadrootsHostEnvironment, RadrootsPathResolver, RadrootsPlatform, initialize_myc_state,
+    open_myc_state_inspection, open_myc_state_read_write, parse_myc_cli_v1_from,
+    parse_myc_config_v1, resolve_myc_runtime_context,
 };
-use radroots_service_sqlite::{
-    MigrationAppliedAtUnixSeconds, MigrationBuildIdentity, ServiceDatabaseMetadata,
-    ServiceSqliteApplicationId, ServiceSqlitePaths,
-};
+use radroots_service_sqlite::{MigrationAppliedAtUnixSeconds, MigrationBuildIdentity};
 use radroots_storage::event::SourceGeneration;
 
 const HOST_SOURCE: &str = include_str!("../src/state_host.rs");
 const LIB_SOURCE: &str = include_str!("../src/lib.rs");
+const CONFIG_EXAMPLE: &[u8] =
+    include_bytes!("../contracts/services_hardening/config.v1.example.toml");
 
 fn runtime(root: &Path, instance: &str) -> myc::MycRuntimeContext {
     let root = root.to_str().expect("UTF-8 temporary root");
@@ -43,14 +43,14 @@ fn prepare_state_directory(runtime: &myc::MycRuntimeContext) {
     fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).expect("state mode");
 }
 
-fn metadata(runtime: &myc::MycRuntimeContext) -> ServiceDatabaseMetadata {
-    let paths = ServiceSqlitePaths::from_runtime_context(runtime.context()).expect("SQLite paths");
-    ServiceDatabaseMetadata::new(
-        &paths,
+fn metadata(runtime: &myc::MycRuntimeContext) -> MycStateMetadata {
+    let configuration =
+        parse_myc_config_v1(CONFIG_EXAMPLE, MycConfigProfile::RepoLocal).expect("configuration");
+    MycStateMetadata::new(
+        runtime,
+        &configuration,
         SourceGeneration::new([0x5a; 32]).expect("generation"),
-        NonZeroU32::new(MYC_STATE_SCHEMA_VERSION).expect("schema version"),
         1_725_000_000_000,
-        ServiceSqliteApplicationId::new(0x4d59_4331).expect("test application ID"),
     )
     .expect("metadata")
 }
@@ -80,7 +80,6 @@ async fn initialize_is_create_new_and_both_existing_open_modes_close_explicitly(
     let runtime = runtime(directory.path(), "primary");
     prepare_state_directory(&runtime);
     let metadata = metadata(&runtime);
-    let identity = metadata.identity();
     let state = runtime.artifacts().state_database();
     let lock = runtime.artifacts().state_lock();
 
@@ -105,7 +104,7 @@ async fn initialize_is_create_new_and_both_existing_open_modes_close_explicitly(
     assert_eq!(duplicate.kind(), MycStateHostErrorKind::Initialize);
 
     let (applied_at, build) = migration_evidence();
-    let writer = open_myc_state_read_write(&runtime, &identity, applied_at, &build)
+    let writer = open_myc_state_read_write(&runtime, &metadata, applied_at, &build)
         .await
         .expect("existing writable state");
     assert_eq!(writer.mode(), MycStateHostMode::ReadWriteExisting);
@@ -114,20 +113,20 @@ async fn initialize_is_create_new_and_both_existing_open_modes_close_explicitly(
         "MycStateHost { mode: ReadWriteExisting, state: \"[sealed]\" }"
     );
 
-    let contended = open_myc_state_inspection(&runtime, &identity)
+    let contended = open_myc_state_inspection(&runtime, &metadata)
         .await
         .expect_err("inspection must not bypass active writer authority");
     assert_eq!(contended.kind(), MycStateHostErrorKind::InspectionOpen);
     writer.close().await.expect("writer close");
     writer.close().await.expect("idempotent writer close");
 
-    let inspection = open_myc_state_inspection(&runtime, &identity)
+    let inspection = open_myc_state_inspection(&runtime, &metadata)
         .await
         .expect("existing inspection state");
     assert_eq!(inspection.mode(), MycStateHostMode::ReadOnlyInspection);
     inspection.close().await.expect("inspection close");
 
-    let writer = open_myc_state_read_write(&runtime, &identity, applied_at, &build)
+    let writer = open_myc_state_read_write(&runtime, &metadata, applied_at, &build)
         .await
         .expect("authority reacquisition after explicit close");
     writer.close().await.expect("reopened writer close");
@@ -140,10 +139,9 @@ async fn missing_state_and_mismatched_evidence_fail_before_database_creation() {
     let secondary = runtime(directory.path(), "secondary");
     prepare_state_directory(&primary);
     let primary_metadata = metadata(&primary);
-    let primary_identity = primary_metadata.identity();
     let (applied_at, build) = migration_evidence();
 
-    let missing = open_myc_state_read_write(&primary, &primary_identity, applied_at, &build)
+    let missing = open_myc_state_read_write(&primary, &primary_metadata, applied_at, &build)
         .await
         .expect_err("missing state is never created by open");
     assert_eq!(missing.kind(), MycStateHostErrorKind::ReadWriteOpen);

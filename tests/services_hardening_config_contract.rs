@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::SocketAddr;
 
+use nostr::PublicKey;
 use serde_json::{Map, Value, json};
 
 const CONFIG_SCHEMA: &str = include_str!("../contracts/services_hardening/config.v1.schema.json");
@@ -128,6 +129,14 @@ fn semantic_valid(value: &Value, profile: Profile) -> bool {
         );
     }
     if expected_role_keys.iter().collect::<BTreeSet<_>>().len() != expected_role_keys.len() {
+        return false;
+    }
+    if expected_role_keys
+        .iter()
+        .chain(trusted.iter())
+        .chain(denied.iter())
+        .any(|key| PublicKey::from_hex(key).map_or(true, |public_key| public_key.xonly().is_err()))
+    {
         return false;
     }
 
@@ -640,6 +649,17 @@ fn bounds_relationships_and_conditional_authority_fail_closed() {
     let mut overlap = value.clone();
     overlap["policy"]["denied_clients"] = overlap["policy"]["trusted_clients"].clone();
     assert_rejected(&overlap, Profile::Production);
+    for pointer in [
+        "/identity/transport/expected_public_key",
+        "/identity/user/expected_public_key",
+        "/identity/discovery/binding/expected_public_key",
+        "/policy/trusted_clients/0",
+        "/policy/denied_clients/0",
+    ] {
+        let mut invalid_key = value.clone();
+        *invalid_key.pointer_mut(pointer).expect("public key") = json!("f".repeat(64));
+        assert_rejected(&invalid_key, Profile::Production);
+    }
     let mut permission_mismatch = value.clone();
     permission_mismatch["policy"]["allowed_sign_event_kinds"] = json!([1, 7]);
     assert_rejected(&permission_mismatch, Profile::Production);

@@ -473,6 +473,7 @@
       "at_least_one_write_relay",
       "at_least_one_required_read_relay",
       "at_least_one_required_write_relay",
+      "configured_public_keys_are_valid_x_only_secp256k1",
       "enabled_role_expected_public_keys_unique",
       "trusted_and_denied_clients_disjoint",
       "permission_sign_event_kinds_equal_allowed_sign_event_kinds",

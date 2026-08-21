@@ -24,7 +24,7 @@ fn root_api_admits_the_canonical_document_and_exposes_only_redacted_effective_ou
         "/var/lib/radroots",
         "/run/radroots",
         "relay-primary.example.test",
-        "1111111111111111",
+        "4444444444444444",
         "transport_wrapping_key",
     ] {
         assert!(!effective.contains(forbidden));

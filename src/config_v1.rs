@@ -5,6 +5,7 @@ use std::error::Error;
 use std::fmt;
 use std::net::SocketAddr;
 
+use nostr::PublicKey;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 use url::Url;
@@ -185,6 +186,10 @@ impl MycConfigDocumentV1 {
             .pointer("/relays")
             .and_then(Value::as_array)
             .map_or(0, Vec::len)
+    }
+
+    pub(crate) const fn normalized(&self) -> &Value {
+        &self.normalized
     }
 }
 
@@ -692,7 +697,9 @@ fn validate_unique_role_keys(document: &Value) -> Result<(), MycConfigV1Error> {
             "/identity/discovery/binding/expected_public_key",
         )?);
     }
-    if keys.iter().copied().collect::<BTreeSet<_>>().len() != keys.len() {
+    if keys.iter().any(|key| !valid_nostr_public_key(key))
+        || keys.iter().copied().collect::<BTreeSet<_>>().len() != keys.len()
+    {
         return relationship_error();
     }
     Ok(())
@@ -701,7 +708,12 @@ fn validate_unique_role_keys(document: &Value) -> Result<(), MycConfigV1Error> {
 fn validate_client_policy(document: &Value) -> Result<(), MycConfigV1Error> {
     let trusted = string_set(document, "/policy/trusted_clients")?;
     let denied = string_set(document, "/policy/denied_clients")?;
-    if !trusted.is_disjoint(&denied) {
+    if trusted
+        .iter()
+        .chain(denied.iter())
+        .any(|key| !valid_nostr_public_key(key))
+        || !trusted.is_disjoint(&denied)
+    {
         return relationship_error();
     }
     let permission_kinds = string_set(document, "/policy/permission_ceiling")?
@@ -721,6 +733,10 @@ fn validate_client_policy(document: &Value) -> Result<(), MycConfigV1Error> {
         return relationship_error();
     }
     Ok(())
+}
+
+fn valid_nostr_public_key(value: &str) -> bool {
+    PublicKey::from_hex(value).is_ok_and(|public_key| public_key.xonly().is_ok())
 }
 
 fn validate_challenges(document: &Value) -> Result<(), MycConfigV1Error> {
@@ -1062,8 +1078,8 @@ mod tests {
         for forbidden in [
             "/var/lib/radroots",
             "/run/radroots",
-            "1111111111111111",
-            "aaaaaaaaaaaaaaaa",
+            "4444444444444444",
+            "7777777777777777",
             "relay-primary.example.test",
             "myc.example.test",
             "transport_wrapping_key",
@@ -1207,8 +1223,8 @@ mod tests {
             ),
             replace(
                 EXAMPLE,
-                "trusted_clients = [\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]",
-                "trusted_clients = [\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"]",
+                "trusted_clients = [\"7777777777777777777777777777777777777777777777777777777777777777\"]",
+                "trusted_clients = [\"8888888888888888888888888888888888888888888888888888888888888888\"]",
             ),
             replace(
                 EXAMPLE,

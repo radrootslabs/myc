@@ -4,15 +4,14 @@ use core::fmt;
 use std::{error::Error, path::PathBuf};
 
 use radroots_service_sqlite::{
-    MigrationAppliedAtUnixSeconds, MigrationBuildIdentity, OpenMode, ServiceDatabaseIdentity,
-    ServiceDatabaseMetadata, ServiceSqliteConnectionOptions, ServiceSqliteHost, ServiceSqlitePaths,
-    initialize_database,
+    MigrationAppliedAtUnixSeconds, MigrationBuildIdentity, OpenMode,
+    ServiceSqliteConnectionOptions, ServiceSqliteHost, ServiceSqlitePaths, initialize_database,
 };
 use sqlx::{ConnectOptions, Connection, SqliteConnection, sqlite::SqliteConnectOptions};
 
 use crate::{
-    MYC_STATE_SCHEMA_VERSION, MycRuntimeContext, myc_migration_catalog, myc_schema_catalog,
-    validate_myc_state_catalogs,
+    MYC_STATE_SCHEMA_VERSION, MycRuntimeContext, MycStateMetadata, myc_migration_catalog,
+    myc_schema_catalog, validate_myc_state_catalogs,
 };
 
 /// Stable lifecycle mode of one opened Myc state host.
@@ -124,6 +123,7 @@ impl Error for MycStateHostError {}
 pub struct MycStateHost {
     host: ServiceSqliteHost,
     mode: MycStateHostMode,
+    metadata: MycStateMetadata,
 }
 
 impl MycStateHost {
@@ -131,6 +131,12 @@ impl MycStateHost {
     #[must_use]
     pub const fn mode(&self) -> MycStateHostMode {
         self.mode
+    }
+
+    /// Returns the immutable Myc metadata bound to this host session.
+    #[must_use]
+    pub const fn metadata(&self) -> &MycStateMetadata {
+        &self.metadata
     }
 
     /// Drains the shared host and explicitly releases retained authority.
@@ -159,7 +165,7 @@ impl fmt::Debug for MycStateHost {
 /// its exact application and configuration bindings.
 pub async fn initialize_myc_state(
     runtime: &MycRuntimeContext,
-    metadata: &ServiceDatabaseMetadata,
+    metadata: &MycStateMetadata,
 ) -> Result<(), MycStateHostError> {
     let paths = state_paths(runtime)?;
     require_metadata(runtime, metadata)?;
@@ -167,7 +173,7 @@ pub async fn initialize_myc_state(
     let mut authority = initialize_database(
         &paths,
         OpenMode::Initialize,
-        metadata,
+        metadata.database(),
         &schema,
         initialize_empty_catalog,
     )
@@ -187,16 +193,17 @@ pub async fn initialize_myc_state(
 /// empty.
 pub async fn open_myc_state_read_write(
     runtime: &MycRuntimeContext,
-    identity: &ServiceDatabaseIdentity,
+    metadata: &MycStateMetadata,
     applied_at: MigrationAppliedAtUnixSeconds,
     build: &MigrationBuildIdentity,
 ) -> Result<MycStateHost, MycStateHostError> {
     let paths = state_paths(runtime)?;
-    require_identity(runtime, identity)?;
+    require_metadata(runtime, metadata)?;
+    let identity = metadata.database_identity();
     let (migrations, schema) = catalogs()?;
     let (host, outcome) = ServiceSqliteHost::open_read_write_existing(
         &paths,
-        identity,
+        &identity,
         &migrations,
         &schema,
         ServiceSqliteConnectionOptions::reviewed(),
@@ -216,20 +223,22 @@ pub async fn open_myc_state_read_write(
     Ok(MycStateHost {
         host,
         mode: MycStateHostMode::ReadWriteExisting,
+        metadata: metadata.clone(),
     })
 }
 
 /// Opens an already initialized Myc catalog for immutable inspection.
 pub async fn open_myc_state_inspection(
     runtime: &MycRuntimeContext,
-    identity: &ServiceDatabaseIdentity,
+    metadata: &MycStateMetadata,
 ) -> Result<MycStateHost, MycStateHostError> {
     let paths = state_paths(runtime)?;
-    require_identity(runtime, identity)?;
+    require_metadata(runtime, metadata)?;
+    let identity = metadata.database_identity();
     let (migrations, schema) = catalogs()?;
     let host = ServiceSqliteHost::open_read_only_inspection(
         &paths,
-        identity,
+        &identity,
         &migrations,
         &schema,
         ServiceSqliteConnectionOptions::reviewed(),
@@ -239,6 +248,7 @@ pub async fn open_myc_state_inspection(
     Ok(MycStateHost {
         host,
         mode: MycStateHostMode::ReadOnlyInspection,
+        metadata: metadata.clone(),
     })
 }
 
@@ -249,23 +259,13 @@ fn state_paths(runtime: &MycRuntimeContext) -> Result<ServiceSqlitePaths, MycSta
 
 fn require_metadata(
     runtime: &MycRuntimeContext,
-    metadata: &ServiceDatabaseMetadata,
+    metadata: &MycStateMetadata,
 ) -> Result<(), MycStateHostError> {
-    let matches = metadata.service() == runtime.context().service()
-        && metadata.instance() == runtime.context().instance()
-        && metadata.state_schema_version().get() == MYC_STATE_SCHEMA_VERSION;
-    matches
-        .then_some(())
-        .ok_or_else(|| MycStateHostError::new(MycStateHostErrorKind::InvalidEvidence))
-}
-
-fn require_identity(
-    runtime: &MycRuntimeContext,
-    identity: &ServiceDatabaseIdentity,
-) -> Result<(), MycStateHostError> {
-    let matches = identity.service() == runtime.context().service()
-        && identity.instance() == runtime.context().instance()
-        && identity.supported_state_schema_version().get() == MYC_STATE_SCHEMA_VERSION;
+    let database = metadata.database();
+    let matches = metadata.matches_runtime(runtime)
+        && database.service() == runtime.context().service()
+        && database.instance() == runtime.context().instance()
+        && database.state_schema_version().get() == MYC_STATE_SCHEMA_VERSION;
     matches
         .then_some(())
         .ok_or_else(|| MycStateHostError::new(MycStateHostErrorKind::InvalidEvidence))
