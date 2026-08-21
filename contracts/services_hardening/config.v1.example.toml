@@ -1,0 +1,156 @@
+schema = "radroots.myc.config"
+schema_version = 1
+
+[service]
+shutdown_grace_ms = 30000
+
+[logging]
+level = "info"
+format = "json"
+
+[operations]
+enabled = false
+
+[database]
+busy_timeout_ms = 5000
+max_connections = 8
+minimum_free_bytes = 268435456
+
+[identity.transport]
+provider = "encrypted_file"
+envelope_path = "/var/lib/radroots/services/myc/primary/secrets/transport.identity.ncrypt"
+credential_reference = "transport_wrapping_key"
+expected_public_key = "1111111111111111111111111111111111111111111111111111111111111111"
+
+[identity.user]
+provider = "local_signer"
+socket_path = "/run/radroots/services/myc/primary/user-signer.sock"
+request_deadline_ms = 15000
+request_max_bytes = 65536
+response_max_bytes = 1048576
+concurrency = 32
+expected_public_key = "2222222222222222222222222222222222222222222222222222222222222222"
+
+[identity.discovery]
+enabled = true
+
+[identity.discovery.binding]
+provider = "encrypted_file"
+envelope_path = "/var/lib/radroots/services/myc/primary/secrets/discovery.identity.ncrypt"
+credential_reference = "discovery_wrapping_key"
+expected_public_key = "3333333333333333333333333333333333333333333333333333333333333333"
+
+[[relays]]
+id = "primary"
+url = "wss://relay-primary.example.test/"
+read = true
+write = true
+required = true
+authentication = "required"
+
+[[relays]]
+id = "secondary"
+url = "wss://relay-secondary.example.test/"
+read = true
+write = true
+required = true
+authentication = "required"
+
+[transport]
+connect_deadline_ms = 10000
+
+[transport.delivery_policy]
+mode = "all_required"
+
+[transport.publish_retry]
+max_attempts = 5
+initial_backoff_ms = 250
+maximum_backoff_ms = 30000
+attempt_deadline_ms = 15000
+
+[policy]
+connection_approval = "explicit_user"
+trusted_clients = ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+denied_clients = ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]
+permission_ceiling = ["nip04_decrypt", "nip04_encrypt", "nip44_decrypt", "nip44_encrypt", "sign_event:kind:1"]
+allowed_sign_event_kinds = [1]
+
+[policy.challenges]
+enabled = true
+url = "https://myc.example.test/auth/challenge"
+pending_lifetime_ms = 900000
+authorized_lifetime_ms = 3600000
+
+[policy.retention]
+terminal_connections_ms = 604800000
+terminal_challenges_ms = 86400000
+request_dedup_ms = 604800000
+audit_ms = 2592000000
+completed_outbox_ms = 604800000
+
+[rate_limits.connection_admission]
+scope = "global_and_relay"
+window_ms = 60000
+max_attempts = 10
+retention_ms = 3600000
+maximum_tracked_subjects = 4096
+
+[rate_limits.challenge_creation]
+scope = "connection"
+window_ms = 120000
+max_attempts = 5
+retention_ms = 86400000
+maximum_tracked_subjects = 16384
+
+[rate_limits.challenge_authorization]
+scope = "connection"
+window_ms = 120000
+max_attempts = 5
+retention_ms = 86400000
+maximum_tracked_subjects = 16384
+
+[resource_limits.admin]
+header_count = 32
+header_bytes = 16384
+request_body_utf8_bytes = 65536
+response_body_utf8_bytes = 1048576
+concurrent_connections = 32
+request_deadline_ms = 15000
+idle_timeout_ms = 30000
+query_items = 100
+
+[resource_limits.events]
+wire_bytes = 262144
+content_bytes = 131072
+tag_count = 1024
+tag_total_elements = 4096
+tag_element_bytes = 4096
+tag_total_bytes = 131072
+decrypted_plaintext_bytes = 262144
+
+[resource_limits.queues]
+ingress = 1024
+provider = 64
+outbox = 4096
+discovery = 64
+
+[resource_limits.metrics]
+descriptors = 64
+samples = 512
+labels_per_sample = 8
+render_utf8_bytes = 1048576
+
+[discovery]
+enabled = true
+domain = "myc.example.test"
+handler_identifier = "myc"
+public_relay_ids = ["primary", "secondary"]
+publish_relay_ids = ["primary", "secondary"]
+nostrconnect_url_template = "https://myc.example.test/connect?uri=<nostrconnect>"
+
+[discovery.metadata]
+name = "myc"
+display_name = "Radroots Myc"
+about = "NIP-46 signer"
+website = "https://myc.example.test/"
+picture = "https://myc.example.test/myc.png"

@@ -6,4 +6,4 @@ workspace_catalog_sha256 = "deca0c080deae187ff8186c0708903e42f41ea57f77c5f91581e
 version = "0.1.0-alpha"
 source_archive_sha256 = "975474804e6358b9228981add0a23181dbdd1afddf5ae12579c82220876bc379"
 lockfile = "Cargo.lock"
-lockfile_sha256 = "395d6703fdd37ba43558475ac739d6878d27d305c479ac1c07b19afe4c5d5867"
+lockfile_sha256 = "06df285eb4b6ae0e88a70e4bf55710744f8bbf320fa2d1873c241138208823b5"

@@ -3,6 +3,20 @@
 This is the README for `myc` which provides a Nostr remote signer for
 standalone and application-embedded clients.
 
+## Hardened v1 configuration contract
+
+The target service configuration is frozen by
+`contracts/services_hardening/config.v1.schema.json` and the canonical
+non-secret `config.v1.example.toml`. It is one strict, immutable TOML document
+with explicit identity, relay, authorization, rate, and discovery authority.
+Only reviewed bounded operational leaves have defaults. Bootstrap profile,
+instance, repo-local root, and config-path selection are CLI concerns and are
+not document fields.
+
+The current runtime loader remains transitional until its ordered replacement
+steps are complete. Existing environment variables and `.env.example` are
+prototype evidence, not authority to change or weaken the v1 contract.
+
 ## NIP-46 runtime contract
 
 Myc listens for encrypted kind-24133 requests on the ordered relay set in

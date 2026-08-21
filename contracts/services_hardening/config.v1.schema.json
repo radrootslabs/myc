@@ -1,0 +1,508 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/radrootslabs/myc/contracts/services_hardening/config.v1.schema.json",
+  "title": "Radroots Myc configuration v1",
+  "description": "Strict, immutable, non-secret Myc service configuration.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "service",
+    "logging",
+    "operations",
+    "database",
+    "identity",
+    "relays",
+    "transport",
+    "policy",
+    "rate_limits",
+    "resource_limits",
+    "discovery"
+  ],
+  "properties": {
+    "schema": { "const": "radroots.myc.config" },
+    "schema_version": { "const": 1 },
+    "service": { "$ref": "#/$defs/service" },
+    "logging": { "$ref": "#/$defs/logging" },
+    "operations": { "$ref": "#/$defs/operations" },
+    "database": { "$ref": "#/$defs/database" },
+    "identity": { "$ref": "#/$defs/identity" },
+    "relays": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/relay" }
+    },
+    "transport": { "$ref": "#/$defs/transport" },
+    "policy": { "$ref": "#/$defs/policy" },
+    "rate_limits": { "$ref": "#/$defs/rate_limits" },
+    "resource_limits": { "$ref": "#/$defs/resource_limits" },
+    "discovery": { "$ref": "#/$defs/discovery" }
+  },
+  "$defs": {
+    "absolute_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "x-radroots-maximum-utf8-bytes": 4096,
+      "pattern": "^/"
+    },
+    "bounded_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "x-radroots-maximum-utf8-bytes": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+    },
+    "relay_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "x-radroots-maximum-utf8-bytes": 64,
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+    },
+    "credential_reference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "x-radroots-maximum-utf8-bytes": 128,
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$"
+    },
+    "public_key": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "relay_url": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "x-radroots-maximum-utf8-bytes": 2048,
+      "pattern": "^(wss://|ws://(localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[1-9][0-9]{0,4})?(?:/|$))"
+    },
+    "https_url": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "x-radroots-maximum-utf8-bytes": 2048,
+      "pattern": "^https://"
+    },
+    "nostrconnect_url_template": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "x-radroots-maximum-utf8-bytes": 2048,
+      "pattern": "^https://[^ ]*<nostrconnect>[^ ]*$"
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shutdown_grace_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300000,
+          "default": 30000,
+          "x-radroots-default-source": "engineering_safety"
+        }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["trace", "debug", "info", "warn", "error"],
+          "default": "info",
+          "x-radroots-default-source": "engineering_safety"
+        },
+        "format": {
+          "const": "json",
+          "default": "json",
+          "x-radroots-default-source": "accepted_service_authority"
+        }
+      }
+    },
+    "operations_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "header_count": { "type": "integer", "minimum": 1, "maximum": 64, "default": 32, "x-radroots-default-source": "radroots_service_host" },
+        "header_bytes": { "type": "integer", "minimum": 1, "maximum": 32768, "default": 16384, "x-radroots-default-source": "radroots_service_host" },
+        "response_body_utf8_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576, "default": 1048576, "x-radroots-default-source": "radroots_service_host" },
+        "concurrent_connections": { "type": "integer", "minimum": 1, "maximum": 64, "default": 32, "x-radroots-default-source": "radroots_service_host" },
+        "request_deadline_ms": { "type": "integer", "minimum": 1, "maximum": 30000, "default": 15000, "x-radroots-default-source": "radroots_service_host" },
+        "idle_timeout_ms": { "type": "integer", "minimum": 1, "maximum": 60000, "default": 30000, "x-radroots-default-source": "radroots_service_host" }
+      }
+    },
+    "operations": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": { "enabled": { "const": false } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "listen", "bind_policy"],
+          "properties": {
+            "enabled": { "const": true },
+            "listen": { "type": "string", "minLength": 1, "maxLength": 128, "x-radroots-maximum-utf8-bytes": 128 },
+            "bind_policy": { "type": "string", "enum": ["loopback_only", "public"] },
+            "limits": { "$ref": "#/$defs/operations_limits" }
+          }
+        }
+      ]
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_free_bytes"],
+      "properties": {
+        "busy_timeout_ms": { "type": "integer", "minimum": 1, "maximum": 60000, "default": 5000, "x-radroots-default-source": "radroots_service_sqlite" },
+        "max_connections": { "type": "integer", "minimum": 1, "maximum": 8, "default": 8, "x-radroots-default-source": "radroots_service_sqlite" },
+        "minimum_free_bytes": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 }
+      }
+    },
+    "encrypted_file_provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "envelope_path", "credential_reference", "expected_public_key"],
+      "properties": {
+        "provider": { "const": "encrypted_file" },
+        "envelope_path": { "$ref": "#/$defs/absolute_path" },
+        "credential_reference": { "$ref": "#/$defs/credential_reference" },
+        "expected_public_key": { "$ref": "#/$defs/public_key" }
+      }
+    },
+    "local_signer_provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "socket_path", "request_deadline_ms", "request_max_bytes", "response_max_bytes", "concurrency", "expected_public_key"],
+      "properties": {
+        "provider": { "const": "local_signer" },
+        "socket_path": { "$ref": "#/$defs/absolute_path" },
+        "request_deadline_ms": { "type": "integer", "minimum": 1, "maximum": 30000 },
+        "request_max_bytes": { "type": "integer", "minimum": 1, "maximum": 65536 },
+        "response_max_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+        "concurrency": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "expected_public_key": { "$ref": "#/$defs/public_key" }
+      }
+    },
+    "provider": {
+      "oneOf": [
+        { "$ref": "#/$defs/encrypted_file_provider" },
+        { "$ref": "#/$defs/local_signer_provider" }
+      ]
+    },
+    "discovery_identity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": { "enabled": { "const": false } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "binding"],
+          "properties": {
+            "enabled": { "const": true },
+            "binding": { "$ref": "#/$defs/provider" }
+          }
+        }
+      ]
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transport", "user", "discovery"],
+      "properties": {
+        "transport": { "$ref": "#/$defs/provider" },
+        "user": { "$ref": "#/$defs/provider" },
+        "discovery": { "$ref": "#/$defs/discovery_identity" }
+      }
+    },
+    "relay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "url", "read", "write", "required", "authentication"],
+      "properties": {
+        "id": { "$ref": "#/$defs/relay_id" },
+        "url": { "$ref": "#/$defs/relay_url" },
+        "read": { "type": "boolean" },
+        "write": { "type": "boolean" },
+        "required": { "type": "boolean" },
+        "authentication": { "type": "string", "enum": ["disabled", "required"] }
+      }
+    },
+    "delivery_policy": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": { "mode": { "enum": ["all_required", "at_least_one_required"] } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "required_acknowledgements"],
+          "properties": {
+            "mode": { "const": "required_quorum" },
+            "required_acknowledgements": { "type": "integer", "minimum": 1, "maximum": 32 }
+          }
+        }
+      ]
+    },
+    "publish_retry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_attempts": { "type": "integer", "minimum": 1, "maximum": 32, "default": 5, "x-radroots-default-source": "engineering_safety" },
+        "initial_backoff_ms": { "type": "integer", "minimum": 1, "maximum": 30000, "default": 250, "x-radroots-default-source": "engineering_safety" },
+        "maximum_backoff_ms": { "type": "integer", "minimum": 1, "maximum": 300000, "default": 30000, "x-radroots-default-source": "engineering_safety" },
+        "attempt_deadline_ms": { "type": "integer", "minimum": 1, "maximum": 30000, "default": 15000, "x-radroots-default-source": "radroots_service_host" }
+      }
+    },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["delivery_policy"],
+      "properties": {
+        "connect_deadline_ms": { "type": "integer", "minimum": 1, "maximum": 30000, "default": 10000, "x-radroots-default-source": "engineering_safety" },
+        "delivery_policy": { "$ref": "#/$defs/delivery_policy" },
+        "publish_retry": { "$ref": "#/$defs/publish_retry" }
+      }
+    },
+    "permission": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "x-radroots-maximum-utf8-bytes": 64,
+      "pattern": "^(nip04_decrypt|nip04_encrypt|nip44_decrypt|nip44_encrypt|switch_relays|sign_event:kind:(0|[1-9][0-9]{0,9}))$"
+    },
+    "challenges": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": { "enabled": { "const": false } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "url", "pending_lifetime_ms", "authorized_lifetime_ms"],
+          "properties": {
+            "enabled": { "const": true },
+            "url": { "$ref": "#/$defs/https_url" },
+            "pending_lifetime_ms": { "type": "integer", "minimum": 1000, "maximum": 86400000 },
+            "authorized_lifetime_ms": { "type": "integer", "minimum": 1000, "maximum": 2592000000 }
+          }
+        }
+      ]
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["terminal_connections_ms", "terminal_challenges_ms", "request_dedup_ms", "audit_ms", "completed_outbox_ms"],
+      "properties": {
+        "terminal_connections_ms": { "type": "integer", "minimum": 1, "maximum": 31536000000 },
+        "terminal_challenges_ms": { "type": "integer", "minimum": 1, "maximum": 31536000000 },
+        "request_dedup_ms": { "type": "integer", "minimum": 1, "maximum": 31536000000 },
+        "audit_ms": { "type": "integer", "minimum": 1, "maximum": 31536000000 },
+        "completed_outbox_ms": { "type": "integer", "minimum": 1, "maximum": 31536000000 }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["connection_approval", "trusted_clients", "denied_clients", "permission_ceiling", "allowed_sign_event_kinds", "challenges", "retention"],
+      "properties": {
+        "connection_approval": { "const": "explicit_user" },
+        "trusted_clients": { "type": "array", "maxItems": 1024, "uniqueItems": true, "items": { "$ref": "#/$defs/public_key" } },
+        "denied_clients": { "type": "array", "maxItems": 1024, "uniqueItems": true, "items": { "$ref": "#/$defs/public_key" } },
+        "permission_ceiling": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/permission" } },
+        "allowed_sign_event_kinds": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": { "type": "integer", "minimum": 0, "maximum": 4294967295 } },
+        "challenges": { "$ref": "#/$defs/challenges" },
+        "retention": { "$ref": "#/$defs/retention" }
+      }
+    },
+    "rate_limit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "window_ms", "max_attempts", "retention_ms", "maximum_tracked_subjects"],
+      "properties": {
+        "scope": { "type": "string", "enum": ["global_and_relay", "connection"] },
+        "window_ms": { "type": "integer", "minimum": 1, "maximum": 86400000 },
+        "max_attempts": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "retention_ms": { "type": "integer", "minimum": 1, "maximum": 2592000000 },
+        "maximum_tracked_subjects": { "type": "integer", "minimum": 1, "maximum": 65536 }
+      }
+    },
+    "rate_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["connection_admission", "challenge_creation", "challenge_authorization"],
+      "properties": {
+        "connection_admission": { "$ref": "#/$defs/rate_limit" },
+        "challenge_creation": { "$ref": "#/$defs/rate_limit" },
+        "challenge_authorization": { "$ref": "#/$defs/rate_limit" }
+      }
+    },
+    "admin_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "header_count": { "type": "integer", "minimum": 1, "maximum": 64, "default": 32, "x-radroots-default-source": "radroots_service_host" },
+        "header_bytes": { "type": "integer", "minimum": 1, "maximum": 32768, "default": 16384, "x-radroots-default-source": "radroots_service_host" },
+        "request_body_utf8_bytes": { "type": "integer", "minimum": 1, "maximum": 65536, "default": 65536, "x-radroots-default-source": "radroots_service_host" },
+        "response_body_utf8_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576, "default": 1048576, "x-radroots-default-source": "radroots_service_host" },
+        "concurrent_connections": { "type": "integer", "minimum": 1, "maximum": 64, "default": 32, "x-radroots-default-source": "radroots_service_host" },
+        "request_deadline_ms": { "type": "integer", "minimum": 1, "maximum": 30000, "default": 15000, "x-radroots-default-source": "radroots_service_host" },
+        "idle_timeout_ms": { "type": "integer", "minimum": 1, "maximum": 60000, "default": 30000, "x-radroots-default-source": "radroots_service_host" },
+        "query_items": { "type": "integer", "minimum": 1, "maximum": 200, "default": 100, "x-radroots-default-source": "radroots_service_host" }
+      }
+    },
+    "event_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wire_bytes": { "type": "integer", "minimum": 1, "maximum": 524288, "default": 262144, "x-radroots-default-source": "radroots_event" },
+        "content_bytes": { "type": "integer", "minimum": 1, "maximum": 131072, "default": 131072, "x-radroots-default-source": "radroots_event" },
+        "tag_count": { "type": "integer", "minimum": 1, "maximum": 1024, "default": 1024, "x-radroots-default-source": "radroots_event" },
+        "tag_total_elements": { "type": "integer", "minimum": 1, "maximum": 4096, "default": 4096, "x-radroots-default-source": "radroots_event" },
+        "tag_element_bytes": { "type": "integer", "minimum": 1, "maximum": 4096, "default": 4096, "x-radroots-default-source": "radroots_event" },
+        "tag_total_bytes": { "type": "integer", "minimum": 1, "maximum": 131072, "default": 131072, "x-radroots-default-source": "radroots_event" },
+        "decrypted_plaintext_bytes": { "type": "integer", "minimum": 1, "maximum": 262144, "default": 262144, "x-radroots-default-source": "radroots_nostr_connect" }
+      }
+    },
+    "queue_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ingress": { "type": "integer", "minimum": 1, "maximum": 65536, "default": 1024, "x-radroots-default-source": "engineering_safety" },
+        "provider": { "type": "integer", "minimum": 1, "maximum": 1024, "default": 64, "x-radroots-default-source": "engineering_safety" },
+        "outbox": { "type": "integer", "minimum": 1, "maximum": 65536, "default": 4096, "x-radroots-default-source": "engineering_safety" },
+        "discovery": { "type": "integer", "minimum": 1, "maximum": 1024, "default": 64, "x-radroots-default-source": "engineering_safety" }
+      }
+    },
+    "metrics_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "descriptors": { "type": "integer", "minimum": 1, "maximum": 64, "default": 64, "x-radroots-default-source": "radroots_service_host" },
+        "samples": { "type": "integer", "minimum": 1, "maximum": 512, "default": 512, "x-radroots-default-source": "radroots_service_host" },
+        "labels_per_sample": { "type": "integer", "minimum": 1, "maximum": 8, "default": 8, "x-radroots-default-source": "radroots_service_host" },
+        "render_utf8_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576, "default": 1048576, "x-radroots-default-source": "radroots_service_host" }
+      }
+    },
+    "resource_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "admin": { "$ref": "#/$defs/admin_limits" },
+        "events": { "$ref": "#/$defs/event_limits" },
+        "queues": { "$ref": "#/$defs/queue_limits" },
+        "metrics": { "$ref": "#/$defs/metrics_limits" }
+      }
+    },
+    "discovery_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "display_name", "about", "website", "picture"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 128, "x-radroots-maximum-utf8-bytes": 128 },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 128, "x-radroots-maximum-utf8-bytes": 128 },
+        "about": { "type": "string", "maxLength": 1024, "x-radroots-maximum-utf8-bytes": 1024 },
+        "website": { "$ref": "#/$defs/https_url" },
+        "picture": { "$ref": "#/$defs/https_url" }
+      }
+    },
+    "discovery": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": { "enabled": { "const": false } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "domain", "handler_identifier", "public_relay_ids", "publish_relay_ids", "nostrconnect_url_template", "metadata"],
+          "properties": {
+            "enabled": { "const": true },
+            "domain": { "type": "string", "minLength": 1, "maxLength": 253, "x-radroots-maximum-utf8-bytes": 253, "pattern": "^[a-z0-9.-]+$" },
+            "handler_identifier": { "$ref": "#/$defs/bounded_id" },
+            "public_relay_ids": { "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": { "$ref": "#/$defs/relay_id" } },
+            "publish_relay_ids": { "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": { "$ref": "#/$defs/relay_id" } },
+            "nostrconnect_url_template": { "$ref": "#/$defs/nostrconnect_url_template" },
+            "metadata": { "$ref": "#/$defs/discovery_metadata" }
+          }
+        }
+      ]
+    }
+  },
+  "x-radroots-contract": {
+    "schema": "radroots.myc.configuration-contract.v1",
+    "contract_version": 1,
+    "document_format": "toml_utf8",
+    "document_max_utf8_bytes": 1048576,
+    "unknown_fields": "reject_at_every_object_boundary",
+    "duplicate_keys": "reject_on_original_wire",
+    "null_values": "reject_on_original_wire",
+    "environment_overlay": "forbidden",
+    "protected_material": "forbidden",
+    "effective_output": "deterministic_redacted_with_exact_provenance",
+    "bootstrap_only": ["profile", "instance", "repo_local_root", "config_path"],
+    "safe_default_sources": ["radroots_service_host", "radroots_service_sqlite", "radroots_event", "radroots_nostr_connect", "accepted_service_authority", "engineering_safety"],
+    "semantic_relationships": [
+      "relay_ids_unique",
+      "relay_urls_canonical_unique",
+      "relay_read_or_write",
+      "required_relay_read_or_write",
+      "production_relays_wss_only",
+      "repo_local_plaintext_relays_loopback_only",
+      "at_least_one_read_relay",
+      "at_least_one_write_relay",
+      "at_least_one_required_read_relay",
+      "at_least_one_required_write_relay",
+      "enabled_role_expected_public_keys_unique",
+      "trusted_and_denied_clients_disjoint",
+      "permission_sign_event_kinds_equal_allowed_sign_event_kinds",
+      "challenge_rate_limits_present_even_when_challenges_disabled",
+      "rate_retention_not_less_than_window",
+      "challenge_authorized_lifetime_not_less_than_pending_lifetime",
+      "delivery_quorum_not_greater_than_required_write_relays",
+      "publish_initial_backoff_not_greater_than_maximum_backoff",
+      "discovery_enabled_iff_discovery_identity_enabled",
+      "discovery_public_relay_ids_reference_read_relays",
+      "discovery_publish_relay_ids_reference_write_relays",
+      "operations_public_bind_requires_explicit_public_policy"
+    ],
+    "forbidden_prototype_fields": [
+      "paths",
+      "custody",
+      "persistence",
+      "audit",
+      "observability",
+      "env_file",
+      "worker",
+      "signer_state_backend",
+      "runtime_audit_backend",
+      "output_dir",
+      "stdout",
+      "external_command",
+      "host_vault",
+      "keyring",
+      "managed_account",
+      "plaintext_file"
+    ]
+  }
+}

@@ -181,10 +181,11 @@ all-target checking and testing, warnings-denied all-target Clippy, rustdoc with
 warnings denied, and diff hygiene. Run any gate not yet covered by the current
 release script explicitly; do not describe the script as sufficient until it
 enforces the complete contract. Run additional SQLx freshness, source-lock,
-independently produced OCI, systemd, package, SBOM, checksum, notice, and
-fresh-install gates when their surfaces change. Checked-in Nix material remains
-deferred source data through RCLD-RSHR-170 and is not a verification gate. Use
-narrower checked-in commands only for iteration, and never claim a command
+systemd, package, SBOM, checksum, notice, and fresh-install gates when their
+surfaces change. Checked-in Nix material remains deferred source data through
+RCLD-RSHR-170 and is not a verification gate. Every OCI production or
+qualification path is likewise deferred and unclaimed through RCLD-RSHR-170.
+Use narrower checked-in commands only for iteration, and never claim a command
 passed unless it ran successfully.
 
 ## 10. Commits and irreversible actions
