@@ -1,0 +1,54 @@
+{
+  "schema": "radroots.myc.runtime-foundation",
+  "schema_version": 1,
+  "contract_version": 1,
+  "state_open": {
+    "mode": "read_write_existing",
+    "initialize_if_missing": false,
+    "raw_sqlite_authority_exposed": false
+  },
+  "provider_startup": {
+    "encrypted_file": "supervised_joined_one_shot",
+    "local_signer": "constructed_without_io_pending_handshake",
+    "database_transaction_held": false,
+    "detached_tasks": false,
+    "protected_values_exposed": false
+  },
+  "readiness_prerequisites": [
+    { "id": "existing_state", "condition": "always", "reason": "database_schema_mismatch" },
+    { "id": "transport_provider", "condition": "always", "reason": "signer_provider_unavailable" },
+    { "id": "user_provider", "condition": "always", "reason": "signer_provider_unavailable" },
+    { "id": "discovery_provider", "condition": "discovery_enabled", "reason": "signer_provider_unavailable" },
+    { "id": "outbox_recovery", "condition": "always", "reason": "outbox_invariant_failed" },
+    { "id": "required_relay_connectivity", "condition": "required_relay_present", "reason": "required_relay_unavailable" },
+    { "id": "required_relay_subscription", "condition": "required_read_relay_present", "reason": "subscriber_not_active" },
+    { "id": "admin_listener", "condition": "always", "reason": "admin_listener_failed" },
+    { "id": "operations_listener", "condition": "operations_enabled", "reason": "operations_listener_failed" }
+  ],
+  "initial_satisfaction": {
+    "existing_state": "after_exact_existing_open",
+    "encrypted_file_provider": "after_joined_identity_verification",
+    "local_signer_provider": "not_before_verified_describe_handshake",
+    "remaining_prerequisites": "later_owning_rcld"
+  },
+  "task_ownership": {
+    "shared_supervisor": "radroots_service_host::TaskSupervisor",
+    "startup_tasks": "one_shot",
+    "lifetime_task": "critical_until_cancellation",
+    "task_handles_exposed": false,
+    "library_runtime_creation": false,
+    "signal_installation": false,
+    "process_exit": false
+  },
+  "deferred": [
+    "provider_handshake",
+    "outbox_recovery",
+    "relay_connectivity",
+    "relay_subscription",
+    "admin_listener",
+    "operations_listener",
+    "cached_status",
+    "signals",
+    "final_supervised_task_graph"
+  ]
+}

@@ -302,6 +302,17 @@ impl MycStateMetadata {
         ServiceSqlitePaths::from_runtime_context(runtime.context())
             .is_ok_and(|paths| paths == self.paths)
     }
+
+    pub(crate) fn matches_configuration(
+        &self,
+        runtime: &MycRuntimeContext,
+        configuration: &MycConfigDocumentV1,
+    ) -> bool {
+        self.matches_runtime(runtime)
+            && require_profile_binding(runtime.profile(), configuration.profile()).is_ok()
+            && normalized_config_digest(configuration.profile(), configuration.normalized())
+                .is_ok_and(|digest| digest == self.configuration)
+    }
 }
 
 impl fmt::Debug for MycStateMetadata {

@@ -77,6 +77,12 @@
   surfaces. Do not restore those files, dependencies, or Tokio process
   capability; `radroots_nostr_connect` remains only as the active NIP-46
   protocol dependency.
+- Step 137 owns only the existing-state runtime foundation and exact startup
+  prerequisite inventory. Encrypted-file opening runs in joined one-shot
+  supervisor tasks; local-signer construction performs no probe, and no
+  provider is ready before its governed verification. Do not add detached
+  handles, a library runtime, signals, process exit, relay/admin execution, or
+  a false readiness transition here.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

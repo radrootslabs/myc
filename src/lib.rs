@@ -8,6 +8,7 @@ mod provider_envelope;
 mod provider_local_signer;
 mod provider_verification;
 mod runtime_context;
+mod runtime_foundation;
 mod state_catalog;
 mod state_connection;
 mod state_delivery;
@@ -68,6 +69,11 @@ pub use radroots_runtime_paths::{
 pub use runtime_context::{
     MycRuntimeContext, MycRuntimeContextError, MycRuntimeContextErrorKind,
     resolve_myc_runtime_context,
+};
+pub use runtime_foundation::{
+    MYC_RUNTIME_FOUNDATION_CONTRACT_VERSION, MycRuntimeFoundation, MycRuntimeFoundationError,
+    MycRuntimeFoundationErrorKind, MycRuntimePrerequisite, MycRuntimeReadiness,
+    open_myc_runtime_foundation,
 };
 pub use state_catalog::{
     MYC_MIGRATION_CATALOG_SHA256, MYC_STATE_BASE_SCHEMA_VERSION, MYC_STATE_SCHEMA_CATALOG_SHA256,

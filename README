@@ -139,6 +139,15 @@ Tokio process capability are absent from the locked graph; the active typed
 provider contract, encrypted envelope, credential resolver, local-signer
 transport, and independent verifier are the only provider boundaries.
 
+The existing-only runtime foundation owns the writable state host, retained
+provider capabilities, and a shared Lib task supervisor. Encrypted-file
+identities open only in synchronously joined one-shot startup tasks;
+local-signer clients perform no construction-time I/O and remain unready until
+their later governed handshake. A passive closed prerequisite snapshot keeps
+state, providers, recovery, required relays, admin, and optional operations
+conditions explicit without claiming the later status cache or final daemon
+task graph.
+
 Signer-request admission validates bounded client, request, event, method,
 canonical request, injected operation entropy, and injected time evidence
 before storage. Stable domain-separated operation and correlation identities
