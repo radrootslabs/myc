@@ -3,6 +3,7 @@
 mod cli_v1;
 mod config_v1;
 mod provider_contract;
+mod provider_credential;
 mod provider_envelope;
 mod runtime_context;
 mod state_catalog;
@@ -36,9 +37,14 @@ pub use provider_contract::{
     MycProviderOperationInput, MycProviderPublicIdentity, MycProviderRole,
     MycUntrustedProviderOutput,
 };
+pub use provider_credential::{
+    MYC_WRAPPING_CREDENTIAL_ARTIFACT_BYTES, MYC_WRAPPING_CREDENTIAL_CONTRACT_VERSION,
+    MycCredentialResolutionError, MycCredentialResolutionErrorKind,
+    resolve_myc_wrapping_credential,
+};
 pub use provider_envelope::{
     MYC_ENCRYPTED_IDENTITY_BACKUP_INCLUDED, MYC_ENCRYPTED_IDENTITY_ENVELOPE_CONTRACT_VERSION,
-    MYC_ENCRYPTED_IDENTITY_ENVELOPE_MAX_BYTES, MycCredentialResolutionProof, MycDecryptedIdentity,
+    MYC_ENCRYPTED_IDENTITY_ENVELOPE_MAX_BYTES, MycDecryptedIdentity,
     MycEncryptedIdentityEnvelopeError, MycEncryptedIdentityEnvelopeErrorKind,
     MycEncryptedIdentityProvisioningMaterial, MycWrappingCredential, open_myc_encrypted_identity,
     provision_myc_encrypted_identity,

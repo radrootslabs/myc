@@ -98,6 +98,16 @@ wrapping credentials, and plaintext identity material are excluded. Canonical
 credential artifact resolution remains Step 133 and ordinary run never
 provisions an identity.
 
+Wrapping credentials now resolve only from the shared validated
+`ServiceCredentialArtifactName` beneath the sealed runtime context's canonical
+instance secrets root. The resolver accepts no path or credential bytes and
+reads only an existing exact 32-byte, euid-owned, single-link artifact through
+descriptor-relative no-follow admission. Service-host deployments inject or
+mount that fixed file; repo-local developers provision it offline. Interactive
+resolution is unsupported, and TOML, environment, process arguments, adjacent
+envelope files, ordinary run, and state backup neither carry nor create the
+credential.
+
 Signer-request admission validates bounded client, request, event, method,
 canonical request, injected operation entropy, and injected time evidence
 before storage. Stable domain-separated operation and correlation identities

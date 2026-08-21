@@ -122,12 +122,10 @@ fn public_error_and_protected_types_are_dependency_and_path_free() {
         "pub enum MycEncryptedIdentityEnvelopeErrorKind",
         "pub struct MycEncryptedIdentityEnvelopeError",
         "pub struct MycWrappingCredential(",
-        "pub struct MycCredentialResolutionProof",
         "pub struct MycEncryptedIdentityProvisioningMaterial",
         "pub struct MycDecryptedIdentity",
         "formatter.write_str(\"MycWrappingCredential([redacted])\")",
         "impl Error for MycEncryptedIdentityEnvelopeError {}",
-        "pub fn from_resolution(\n        proof: MycCredentialResolutionProof,",
     ] {
         assert!(
             ENVELOPE_SOURCE.contains(required),
@@ -144,6 +142,8 @@ fn public_error_and_protected_types_are_dependency_and_path_free() {
         "pub wrapping_nonce:",
         "pub fn expose_secret",
         "pub fn encrypted_envelope_path",
+        "pub struct MycCredentialResolutionProof",
+        "pub fn from_resolution",
     ] {
         assert!(!ENVELOPE_SOURCE.contains(forbidden));
     }

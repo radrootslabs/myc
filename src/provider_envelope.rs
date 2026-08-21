@@ -157,7 +157,7 @@ const fn envelope_error(
 pub struct MycWrappingCredential(Zeroizing<[u8; WRAPPING_CREDENTIAL_BYTES]>);
 
 /// Non-forgeable proof that owns credential bytes admitted by the governed resolver.
-pub struct MycCredentialResolutionProof {
+pub(crate) struct MycCredentialResolutionProof {
     credential: Zeroizing<[u8; WRAPPING_CREDENTIAL_BYTES]>,
 }
 
@@ -168,8 +168,7 @@ impl fmt::Debug for MycCredentialResolutionProof {
 }
 
 impl MycWrappingCredential {
-    /// Consumes exact credential bytes sealed inside governed resolution proof.
-    pub fn from_resolution(
+    pub(crate) fn from_resolution(
         proof: MycCredentialResolutionProof,
     ) -> Result<Self, MycEncryptedIdentityEnvelopeError> {
         if proof.credential.iter().all(|byte| *byte == 0) {
@@ -332,6 +331,17 @@ pub fn open_myc_encrypted_identity(
     futures_executor::block_on(open_decoded_envelope(
         binding, credential, envelope, &context,
     ))
+}
+
+pub(crate) fn load_resolved_wrapping_credential(
+    path: &Path,
+) -> Result<MycWrappingCredential, MycEncryptedIdentityEnvelopeError> {
+    ensure_supported_platform()?;
+    validate_requested_path(path)?;
+    let encoded = Zeroizing::new(read_existing_exact(path, WRAPPING_CREDENTIAL_BYTES)?);
+    let mut credential = Zeroizing::new([0_u8; WRAPPING_CREDENTIAL_BYTES]);
+    credential.copy_from_slice(&encoded);
+    MycWrappingCredential::from_resolution(MycCredentialResolutionProof { credential })
 }
 
 fn require_wire_version(encoded: &[u8]) -> Result<(), MycEncryptedIdentityEnvelopeError> {
@@ -729,7 +739,11 @@ mod native {
             file.write_all(encoded)
                 .and_then(|()| file.sync_all())
                 .map_err(|_| envelope_error(MycEncryptedIdentityEnvelopeErrorKind::Io))?;
-            file_identity(&file, Some(encoded.len()))?;
+            file_identity(
+                &file,
+                Some(encoded.len()),
+                MYC_ENCRYPTED_IDENTITY_ENVELOPE_MAX_BYTES,
+            )?;
             validate_current_binding(
                 &path,
                 &parent,
@@ -737,6 +751,7 @@ mod native {
                 &file,
                 identity,
                 encoded.len(),
+                MYC_ENCRYPTED_IDENTITY_ENVELOPE_MAX_BYTES,
             )?;
             parent
                 .sync_all()
@@ -748,6 +763,7 @@ mod native {
                 &file,
                 identity,
                 encoded.len(),
+                MYC_ENCRYPTED_IDENTITY_ENVELOPE_MAX_BYTES,
             )
         })();
         if result.is_err() {
@@ -757,6 +773,21 @@ mod native {
     }
 
     pub(super) fn read_existing(path: &Path) -> Result<Vec<u8>, MycEncryptedIdentityEnvelopeError> {
+        read_existing_bounded(path, MYC_ENCRYPTED_IDENTITY_ENVELOPE_MAX_BYTES, None)
+    }
+
+    pub(super) fn read_existing_exact(
+        path: &Path,
+        expected_length: usize,
+    ) -> Result<Vec<u8>, MycEncryptedIdentityEnvelopeError> {
+        read_existing_bounded(path, expected_length, Some(expected_length))
+    }
+
+    fn read_existing_bounded(
+        path: &Path,
+        maximum_length: usize,
+        expected_length: Option<usize>,
+    ) -> Result<Vec<u8>, MycEncryptedIdentityEnvelopeError> {
         let path = ArtifactPath::parse(path)?;
         let parent = open_parent(&path.parent_path, false)?;
         let parent_identity = directory_identity(&parent, false)?;
@@ -778,7 +809,7 @@ mod native {
         let mut file = File::from(descriptor);
         let status = fstat(&file)
             .map_err(|_| envelope_error(MycEncryptedIdentityEnvelopeErrorKind::InsecureArtifact))?;
-        let length = validate_file_status(&status, None)?;
+        let length = validate_file_status(&status, expected_length, maximum_length)?;
         let identity = status_identity(
             &status,
             MycEncryptedIdentityEnvelopeErrorKind::InsecureArtifact,
@@ -795,7 +826,15 @@ mod native {
                 MycEncryptedIdentityEnvelopeErrorKind::InsecureArtifact,
             ));
         }
-        validate_current_binding(&path, &parent, parent_identity, &file, identity, length)?;
+        validate_current_binding(
+            &path,
+            &parent,
+            parent_identity,
+            &file,
+            identity,
+            length,
+            maximum_length,
+        )?;
         Ok(encoded)
     }
 
@@ -854,10 +893,11 @@ mod native {
     fn file_identity(
         file: &File,
         expected_length: Option<usize>,
+        maximum_length: usize,
     ) -> Result<Identity, MycEncryptedIdentityEnvelopeError> {
         let status = fstat(file)
             .map_err(|_| envelope_error(MycEncryptedIdentityEnvelopeErrorKind::InsecureArtifact))?;
-        validate_file_status(&status, expected_length)?;
+        validate_file_status(&status, expected_length, maximum_length)?;
         status_identity(
             &status,
             MycEncryptedIdentityEnvelopeErrorKind::InsecureArtifact,
@@ -889,6 +929,7 @@ mod native {
     fn validate_file_status(
         status: &rustix::fs::Stat,
         expected_length: Option<usize>,
+        maximum_length: usize,
     ) -> Result<usize, MycEncryptedIdentityEnvelopeError> {
         let mode = native_mode(status.st_mode) & 0o777;
         let length = usize::try_from(status.st_size)
@@ -898,7 +939,7 @@ mod native {
             || status.st_uid != geteuid().as_raw()
             || !matches!(mode, 0o400 | 0o600)
             || length == 0
-            || length > MYC_ENCRYPTED_IDENTITY_ENVELOPE_MAX_BYTES
+            || length > maximum_length
             || expected_length.is_some_and(|expected| expected != length)
         {
             return Err(envelope_error(
@@ -915,6 +956,7 @@ mod native {
         held_file: &File,
         expected_file: Identity,
         expected_length: usize,
+        maximum_length: usize,
     ) -> Result<(), MycEncryptedIdentityEnvelopeError> {
         let current_parent = open_parent(&path.parent_path, false)?;
         if directory_identity(held_parent, false)? != expected_parent
@@ -933,8 +975,8 @@ mod native {
             )
             .map_err(|_| envelope_error(MycEncryptedIdentityEnvelopeErrorKind::InsecureArtifact))?,
         );
-        if file_identity(held_file, Some(expected_length))? != expected_file
-            || file_identity(&current_file, Some(expected_length))? != expected_file
+        if file_identity(held_file, Some(expected_length), maximum_length)? != expected_file
+            || file_identity(&current_file, Some(expected_length), maximum_length)? != expected_file
         {
             return Err(envelope_error(
                 MycEncryptedIdentityEnvelopeErrorKind::InsecureArtifact,
@@ -984,7 +1026,7 @@ mod native {
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-use native::{persist_create_new, read_existing, validate_requested_path};
+use native::{persist_create_new, read_existing, read_existing_exact, validate_requested_path};
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 const fn ensure_supported_platform() -> Result<(), MycEncryptedIdentityEnvelopeError> {
@@ -1017,6 +1059,16 @@ fn persist_create_new(
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn read_existing(_path: &Path) -> Result<Vec<u8>, MycEncryptedIdentityEnvelopeError> {
+    Err(envelope_error(
+        MycEncryptedIdentityEnvelopeErrorKind::UnsupportedPlatform,
+    ))
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn read_existing_exact(
+    _path: &Path,
+    _expected_length: usize,
+) -> Result<Vec<u8>, MycEncryptedIdentityEnvelopeError> {
     Err(envelope_error(
         MycEncryptedIdentityEnvelopeErrorKind::UnsupportedPlatform,
     ))

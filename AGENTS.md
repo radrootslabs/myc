@@ -49,6 +49,14 @@
   caller-supplied entropy, create-new owner-only persistence, expected-public-
   key verification, and state-backup exclusion. Credential artifact resolution
   remains a separate boundary and may not introduce a sibling-key fallback.
+- Wrapping-credential resolution is frozen by
+  `contracts/services_hardening/wrapping_credential_resolution.v1.json`. It
+  derives one validated shared artifact name beneath the canonical instance
+  secrets root, reads only an existing exact owner-only artifact, and exposes
+  neither a caller path nor caller bytes. Production injection/mounting and
+  repo-local provisioning are external/offline; ordinary run, TOML,
+  environment, arguments, envelope siblings, and state backup never create or
+  carry the credential.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.
