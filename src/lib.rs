@@ -25,6 +25,7 @@ mod runtime_context;
 pub mod signer;
 mod signing_adapter;
 pub mod sql;
+mod state_catalog;
 pub mod transport;
 
 pub use app::{
@@ -103,5 +104,11 @@ pub use radroots_runtime_paths::{
 pub use runtime_context::{
     MycRuntimeContext, MycRuntimeContextError, MycRuntimeContextErrorKind,
     resolve_myc_runtime_context,
+};
+pub use state_catalog::{
+    MYC_MIGRATION_CATALOG_SHA256, MYC_STATE_SCHEMA_CATALOG_SHA256, MYC_STATE_SCHEMA_VERSION,
+    MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT, MYC_STATE_SCHEMA_VERSION_1_SHA256,
+    MycStateCatalogError, MycStateCatalogErrorKind, myc_migration_catalog, myc_schema_catalog,
+    validate_myc_state_catalogs,
 };
 pub use transport::{MycNostrTransport, MycRelayPublishResult, MycTransportSnapshot};

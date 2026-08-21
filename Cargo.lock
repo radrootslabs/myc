@@ -798,6 +798,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "futures"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -805,6 +815,7 @@ checksum = "8b147ee9d1f6d097cef9ce628cd2ee62288d963e16fb287bd9286455b241382d"
 dependencies = [
  "futures-channel",
  "futures-core",
+ "futures-executor",
  "futures-io",
  "futures-sink",
  "futures-task",
@@ -1411,9 +1422,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.30.1"
+version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e99fb7a497b1e3339bc746195567ed8d3e24945ecd636e3619d20b9de9e9149"
+checksum = "b1f111c8c41e7c61a49cd34e44c7619462967221a6443b0ec299e0ac30cfb9b1"
 dependencies = [
  "cc",
  "pkg-config",
@@ -1533,6 +1544,7 @@ dependencies = [
  "radroots_nostr_connect",
  "radroots_runtime_paths",
  "radroots_secrets",
+ "radroots_service_sqlite",
  "radroots_signing",
  "rand 0.9.2",
  "serde",
@@ -2073,6 +2085,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "radroots_service_sqlite"
+version = "0.1.0-alpha"
+source = "git+https://github.com/radrootslabs/lib?rev=b44119fbac5985be8127ad1bf56d2950e6399427#b44119fbac5985be8127ad1bf56d2950e6399427"
+dependencies = [
+ "fs2",
+ "futures",
+ "libsqlite3-sys",
+ "radroots_runtime_paths",
+ "radroots_storage",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
 name = "radroots_signing"
 version = "0.1.0-alpha"
 source = "git+https://github.com/radrootslabs/lib?rev=b44119fbac5985be8127ad1bf56d2950e6399427#b44119fbac5985be8127ad1bf56d2950e6399427"
@@ -2083,6 +2113,40 @@ dependencies = [
  "radroots_identity",
  "radroots_protocol",
  "serde",
+ "sha2",
+]
+
+[[package]]
+name = "radroots_storage"
+version = "0.1.0-alpha"
+source = "git+https://github.com/radrootslabs/lib?rev=b44119fbac5985be8127ad1bf56d2950e6399427#b44119fbac5985be8127ad1bf56d2950e6399427"
+dependencies = [
+ "radroots_event",
+ "radroots_event_codec",
+ "radroots_protocol",
+ "radroots_trade",
+ "radroots_transport",
+ "sha2",
+]
+
+[[package]]
+name = "radroots_trade"
+version = "0.1.0-alpha"
+source = "git+https://github.com/radrootslabs/lib?rev=b44119fbac5985be8127ad1bf56d2950e6399427#b44119fbac5985be8127ad1bf56d2950e6399427"
+dependencies = [
+ "radroots_core",
+ "radroots_event",
+ "radroots_identity",
+]
+
+[[package]]
+name = "radroots_transport"
+version = "0.1.0-alpha"
+source = "git+https://github.com/radrootslabs/lib?rev=b44119fbac5985be8127ad1bf56d2950e6399427#b44119fbac5985be8127ad1bf56d2950e6399427"
+dependencies = [
+ "radroots_event",
+ "radroots_identity",
+ "radroots_protocol",
  "sha2",
 ]
 
@@ -2605,6 +2669,8 @@ dependencies = [
  "sha2",
  "smallvec",
  "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
  "tracing",
  "url",
 ]
@@ -2641,6 +2707,7 @@ dependencies = [
  "sqlx-core",
  "sqlx-sqlite",
  "syn 2.0.117",
+ "tokio",
  "url",
 ]
 
@@ -2910,6 +2977,17 @@ dependencies = [
  "either",
  "futures-util",
  "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-stream"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3d06f0b082ba57c26b79407372e57cf2a1e28124f78e9479fe80322cf53420b"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
  "tokio",
 ]
 
@@ -3375,6 +3453,28 @@ checksum = "22cfaf3c063993ff62e73cb4311efde4db1efb31ab78a3e5c457939ad5cc0bed"
 dependencies = [
  "rustls-pki-types",
 ]
+
+[[package]]
+name = "winapi"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
+dependencies = [
+ "winapi-i686-pc-windows-gnu",
+ "winapi-x86_64-pc-windows-gnu",
+]
+
+[[package]]
+name = "winapi-i686-pc-windows-gnu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
+
+[[package]]
+name = "winapi-x86_64-pc-windows-gnu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windows-link"
