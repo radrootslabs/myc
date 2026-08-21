@@ -10,6 +10,11 @@ use sha2::{Digest, Sha256};
 use sqlx::Row;
 use url::{Host, Url};
 
+use crate::state_governance::{
+    AuditEvidence, GovernanceOperationError, MycAuditCorrelationId, MycAuditKind, MycAuditOutcome,
+    MycAuditReasonCode, MycRateLimitClass, MycRateLimitPolicy, MycRateRelayId, connection_subject,
+    global_subject, govern_rate_attempt, record_audit, relay_subject,
+};
 use crate::state_repository::{
     MycStateRepository, MycStateRepositoryError, MycStateRepositoryErrorKind, PersistedMetadata,
     RepositoryOperationError, require_expected_metadata,
@@ -26,6 +31,8 @@ const CHALLENGE_ID_DOMAIN: &[u8] = b"radroots.myc.authorization_challenge.v1\0";
 const PERMISSION_SET_DOMAIN: &[u8] = b"radroots.myc.connection_permissions.v1\0";
 
 const READ_REQUEST_BINDING_SQL: &str = r#"SELECT
+    CASE WHEN typeof(correlation_id) = 'blob' AND length(correlation_id) = 32
+        THEN correlation_id ELSE NULL END AS correlation_id,
     CASE WHEN typeof(client_public_key) = 'text'
         AND length(CAST(client_public_key AS BLOB)) = 64
         THEN client_public_key ELSE NULL END AS client_public_key,
@@ -521,6 +528,7 @@ pub struct MycConnectionAdmissionRequest {
     observed_at: MycConnectionTimeUnixMs,
     authorized_until: Option<MycConnectionTimeUnixMs>,
     policy: MycConnectionAdmissionPolicy,
+    relay_id: MycRateRelayId,
 }
 
 impl MycConnectionAdmissionRequest {
@@ -535,6 +543,7 @@ impl MycConnectionAdmissionRequest {
         observed_at: MycConnectionTimeUnixMs,
         authorized_until: Option<MycConnectionTimeUnixMs>,
         policy: MycConnectionAdmissionPolicy,
+        relay_id: MycRateRelayId,
     ) -> Result<Self, MycConnectionStateError> {
         if (matches!(policy, MycConnectionAdmissionPolicy::Trusted)
             && authorized_until.is_some_and(|until| until <= observed_at))
@@ -554,6 +563,7 @@ impl MycConnectionAdmissionRequest {
             observed_at,
             authorized_until,
             policy,
+            relay_id,
         })
     }
 
@@ -567,6 +577,7 @@ impl MycConnectionAdmissionRequest {
             observed_at: self.observed_at,
             authorized_until: self.authorized_until,
             policy: self.policy,
+            relay_id: self.relay_id.clone(),
         }
     }
 }
@@ -720,13 +731,15 @@ impl fmt::Debug for MycConnectionDecisionRecord {
 pub enum MycConnectionAdmission {
     Admitted(MycConnectionDecisionRecord),
     ExactReplay(MycConnectionDecisionRecord),
+    RateLimited,
 }
 
 impl MycConnectionAdmission {
     #[must_use]
-    pub const fn record(&self) -> &MycConnectionDecisionRecord {
+    pub const fn record(&self) -> Option<&MycConnectionDecisionRecord> {
         match self {
-            Self::Admitted(record) | Self::ExactReplay(record) => record,
+            Self::Admitted(record) | Self::ExactReplay(record) => Some(record),
+            Self::RateLimited => None,
         }
     }
 }
@@ -736,6 +749,7 @@ impl fmt::Debug for MycConnectionAdmission {
         formatter.write_str(match self {
             Self::Admitted(_) => "MycConnectionAdmission::Admitted([redacted])",
             Self::ExactReplay(_) => "MycConnectionAdmission::ExactReplay([redacted])",
+            Self::RateLimited => "MycConnectionAdmission::RateLimited",
         })
     }
 }
@@ -956,13 +970,15 @@ impl fmt::Debug for MycAuthorizationChallengeRecord {
 pub enum MycAuthorizationChallengeAdmission {
     Created(MycAuthorizationChallengeRecord),
     ExactReplay(MycAuthorizationChallengeRecord),
+    RateLimited,
 }
 
 impl MycAuthorizationChallengeAdmission {
     #[must_use]
-    pub const fn record(&self) -> &MycAuthorizationChallengeRecord {
+    pub const fn record(&self) -> Option<&MycAuthorizationChallengeRecord> {
         match self {
-            Self::Created(record) | Self::ExactReplay(record) => record,
+            Self::Created(record) | Self::ExactReplay(record) => Some(record),
+            Self::RateLimited => None,
         }
     }
 }
@@ -972,6 +988,37 @@ impl fmt::Debug for MycAuthorizationChallengeAdmission {
         formatter.write_str(match self {
             Self::Created(_) => "MycAuthorizationChallengeAdmission::Created([redacted])",
             Self::ExactReplay(_) => "MycAuthorizationChallengeAdmission::ExactReplay([redacted])",
+            Self::RateLimited => "MycAuthorizationChallengeAdmission::RateLimited",
+        })
+    }
+}
+
+/// New, replayed, or rate-limited authorization result.
+#[derive(Clone, PartialEq, Eq)]
+pub enum MycAuthorizationChallengeAuthorization {
+    Resolved(MycAuthorizationChallengeRecord),
+    ExactReplay(MycAuthorizationChallengeRecord),
+    RateLimited,
+}
+
+impl MycAuthorizationChallengeAuthorization {
+    #[must_use]
+    pub const fn record(&self) -> Option<&MycAuthorizationChallengeRecord> {
+        match self {
+            Self::Resolved(record) | Self::ExactReplay(record) => Some(record),
+            Self::RateLimited => None,
+        }
+    }
+}
+
+impl fmt::Debug for MycAuthorizationChallengeAuthorization {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Resolved(_) => "MycAuthorizationChallengeAuthorization::Resolved([redacted])",
+            Self::ExactReplay(_) => {
+                "MycAuthorizationChallengeAuthorization::ExactReplay([redacted])"
+            }
+            Self::RateLimited => "MycAuthorizationChallengeAuthorization::RateLimited",
         })
     }
 }
@@ -982,13 +1029,21 @@ impl MycStateRepository<'_> {
         &self,
         request: &MycConnectionAdmissionRequest,
     ) -> Result<MycConnectionAdmission, MycStateRepositoryError> {
+        if !self.expected().admits_rate_relay(&request.relay_id) {
+            return Err(MycStateRepositoryError::new(
+                MycStateRepositoryErrorKind::Binding,
+            ));
+        }
         let request = request.owned();
+        let rate_policy = self
+            .expected()
+            .governance_rate_policy(MycRateLimitClass::ConnectionAdmission);
         let expected = PersistedMetadata::from(self.expected());
         self.host()
             .transaction(move |transaction| {
                 Box::pin(async move {
                     verify_metadata(transaction, &expected).await?;
-                    admit_connection(transaction, &request).await
+                    admit_connection(transaction, &request, rate_policy).await
                 })
             })
             .await
@@ -1002,6 +1057,7 @@ impl MycStateRepository<'_> {
         connection_id: MycConnectionId,
         policy_generation: MycConnectionPolicyGeneration,
         observed_at: MycConnectionTimeUnixMs,
+        audit_correlation: MycAuditCorrelationId,
         decision: MycConnectionOperatorDecision,
     ) -> Result<MycConnectionRecord, MycStateRepositoryError> {
         let expected = PersistedMetadata::from(self.expected());
@@ -1015,6 +1071,7 @@ impl MycStateRepository<'_> {
                         connection_id,
                         policy_generation,
                         observed_at,
+                        audit_correlation,
                         decision,
                     )
                     .await
@@ -1030,6 +1087,7 @@ impl MycStateRepository<'_> {
         connection_id: MycConnectionId,
         policy_generation: MycConnectionPolicyGeneration,
         observed_at: MycConnectionTimeUnixMs,
+        audit_correlation: MycAuditCorrelationId,
     ) -> Result<MycConnectionRecord, MycStateRepositoryError> {
         let expected = PersistedMetadata::from(self.expected());
         self.host()
@@ -1041,6 +1099,12 @@ impl MycStateRepository<'_> {
                         return Err(ConnectionOperationError::Binding);
                     }
                     if before.status == MycConnectionStatus::Expired {
+                        record_connection_expiry_audit(
+                            transaction,
+                            audit_correlation,
+                            before.updated_at,
+                        )
+                        .await?;
                         return Ok(before);
                     }
                     if before.status != MycConnectionStatus::Active
@@ -1059,7 +1123,10 @@ impl MycStateRepository<'_> {
                         .await
                         .map_err(|_| ConnectionOperationError::Storage)?;
                     require_one(result.rows_affected())?;
-                    read_connection(transaction, connection_id).await
+                    let record = read_connection(transaction, connection_id).await?;
+                    record_connection_expiry_audit(transaction, audit_correlation, observed_at)
+                        .await?;
+                    Ok(record)
                 })
             })
             .await
@@ -1072,12 +1139,15 @@ impl MycStateRepository<'_> {
         request: &MycAuthorizationChallengeRequest,
     ) -> Result<MycAuthorizationChallengeAdmission, MycStateRepositoryError> {
         let request = request.owned();
+        let rate_policy = self
+            .expected()
+            .governance_rate_policy(MycRateLimitClass::ChallengeCreation);
         let expected = PersistedMetadata::from(self.expected());
         self.host()
             .transaction(move |transaction| {
                 Box::pin(async move {
                     verify_metadata(transaction, &expected).await?;
-                    issue_challenge(transaction, &request).await
+                    issue_challenge(transaction, &request, rate_policy).await
                 })
             })
             .await
@@ -1092,7 +1162,10 @@ impl MycStateRepository<'_> {
         operation_id: MycSignerOperationId,
         policy_generation: MycConnectionPolicyGeneration,
         observed_at: MycConnectionTimeUnixMs,
-    ) -> Result<MycAuthorizationChallengeRecord, MycStateRepositoryError> {
+    ) -> Result<MycAuthorizationChallengeAuthorization, MycStateRepositoryError> {
+        let rate_policy = self
+            .expected()
+            .governance_rate_policy(MycRateLimitClass::ChallengeAuthorization);
         let expected = PersistedMetadata::from(self.expected());
         self.host()
             .transaction(move |transaction| {
@@ -1105,6 +1178,7 @@ impl MycStateRepository<'_> {
                         operation_id,
                         policy_generation,
                         observed_at,
+                        rate_policy,
                     )
                     .await
                 })
@@ -1114,10 +1188,38 @@ impl MycStateRepository<'_> {
     }
 }
 
+async fn record_connection_expiry_audit(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    correlation: MycAuditCorrelationId,
+    occurred_at: MycConnectionTimeUnixMs,
+) -> Result<(), ConnectionOperationError> {
+    record_audit(
+        transaction,
+        AuditEvidence {
+            correlation,
+            occurred_at,
+            operation_id: None,
+        },
+        MycAuditKind::ConnectionExpiry,
+        MycAuditOutcome::Succeeded,
+        MycAuditReasonCode::ConnectionExpired,
+    )
+    .await
+    .map_err(map_governance_error)?;
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConnectionOperationError {
     Binding,
     Storage,
+}
+
+const fn map_governance_error(error: GovernanceOperationError) -> ConnectionOperationError {
+    match error {
+        GovernanceOperationError::Binding => ConnectionOperationError::Binding,
+        GovernanceOperationError::Storage => ConnectionOperationError::Storage,
+    }
 }
 
 async fn verify_metadata(
@@ -1135,6 +1237,7 @@ async fn verify_metadata(
 async fn admit_connection(
     transaction: &mut ServiceSqliteTransaction<'_>,
     request: &MycConnectionAdmissionRequest,
+    rate_policy: MycRateLimitPolicy,
 ) -> Result<MycConnectionAdmission, ConnectionOperationError> {
     let binding = read_request_binding(transaction, request.operation_id).await?;
     if binding.client_public_key != request.client_public_key
@@ -1160,6 +1263,25 @@ async fn admit_connection(
         return Ok(MycConnectionAdmission::ExactReplay(record));
     }
 
+    let evidence = AuditEvidence {
+        correlation: binding.correlation,
+        occurred_at: request.observed_at,
+        operation_id: Some(request.operation_id),
+    };
+    if !govern_rate_attempt(
+        transaction,
+        rate_policy,
+        MycRateLimitClass::ConnectionAdmission,
+        &[global_subject(), relay_subject(&request.relay_id)],
+        evidence,
+        MycAuditKind::ConnectionAdmission,
+    )
+    .await
+    .map_err(map_governance_error)?
+    {
+        return Ok(MycConnectionAdmission::RateLimited);
+    }
+
     let decision = request.policy.decision();
     let connection_id = if request.policy == MycConnectionAdmissionPolicy::Denied {
         None
@@ -1183,9 +1305,29 @@ async fn admit_connection(
     let persisted = read_decision(transaction, request.operation_id)
         .await?
         .ok_or(ConnectionOperationError::Binding)?;
-    decision_record(transaction, request.operation_id, persisted)
-        .await
-        .map(MycConnectionAdmission::Admitted)
+    let record = decision_record(transaction, request.operation_id, persisted).await?;
+    let (outcome, reason) = match request.policy {
+        MycConnectionAdmissionPolicy::Trusted => {
+            (MycAuditOutcome::Succeeded, MycAuditReasonCode::Trusted)
+        }
+        MycConnectionAdmissionPolicy::ExplicitApproval => (
+            MycAuditOutcome::Succeeded,
+            MycAuditReasonCode::ApprovalRequired,
+        ),
+        MycConnectionAdmissionPolicy::Denied => {
+            (MycAuditOutcome::Rejected, MycAuditReasonCode::PolicyDenied)
+        }
+    };
+    record_audit(
+        transaction,
+        evidence,
+        MycAuditKind::ConnectionAdmission,
+        outcome,
+        reason,
+    )
+    .await
+    .map_err(map_governance_error)?;
+    Ok(MycConnectionAdmission::Admitted(record))
 }
 
 async fn insert_connection(
@@ -1256,6 +1398,7 @@ async fn decide_connection(
     connection_id: MycConnectionId,
     policy_generation: MycConnectionPolicyGeneration,
     observed_at: MycConnectionTimeUnixMs,
+    audit_correlation: MycAuditCorrelationId,
     decision: MycConnectionOperatorDecision,
 ) -> Result<MycConnectionRecord, ConnectionOperationError> {
     let existing_decision = read_decision(transaction, operation_id)
@@ -1271,7 +1414,7 @@ async fn decide_connection(
         return Err(ConnectionOperationError::Binding);
     }
 
-    match decision {
+    let (audit_outcome, audit_reason) = match decision {
         MycConnectionOperatorDecision::Approve {
             granted_permissions,
             authorized_until,
@@ -1284,10 +1427,19 @@ async fn decide_connection(
             if connection.status == MycConnectionStatus::Active
                 && existing_decision.decision == MycConnectionDecision::Allowed
             {
-                return (connection.granted_permissions == granted_permissions
+                let replay = (connection.granted_permissions == granted_permissions
                     && connection.authorized_until == authorized_until)
                     .then_some(connection)
-                    .ok_or(ConnectionOperationError::Binding);
+                    .ok_or(ConnectionOperationError::Binding)?;
+                record_operator_audit(
+                    transaction,
+                    audit_correlation,
+                    replay.updated_at,
+                    MycAuditOutcome::Succeeded,
+                    MycAuditReasonCode::OperatorApproved,
+                )
+                .await?;
+                return Ok(replay);
             }
             if connection.status != MycConnectionStatus::Pending
                 || existing_decision.decision != MycConnectionDecision::PendingApproval
@@ -1315,11 +1467,23 @@ async fn decide_connection(
                 "operator_approved",
             )
             .await?;
+            (
+                MycAuditOutcome::Succeeded,
+                MycAuditReasonCode::OperatorApproved,
+            )
         }
         MycConnectionOperatorDecision::Deny => {
             if connection.status == MycConnectionStatus::Denied
                 && existing_decision.decision == MycConnectionDecision::Denied
             {
+                record_operator_audit(
+                    transaction,
+                    audit_correlation,
+                    connection.updated_at,
+                    MycAuditOutcome::Rejected,
+                    MycAuditReasonCode::OperatorDenied,
+                )
+                .await?;
                 return Ok(connection);
             }
             if connection.status != MycConnectionStatus::Pending
@@ -1346,9 +1510,45 @@ async fn decide_connection(
                 "operator_denied",
             )
             .await?;
+            (
+                MycAuditOutcome::Rejected,
+                MycAuditReasonCode::OperatorDenied,
+            )
         }
-    }
-    read_connection(transaction, connection_id).await
+    };
+    let record = read_connection(transaction, connection_id).await?;
+    record_operator_audit(
+        transaction,
+        audit_correlation,
+        observed_at,
+        audit_outcome,
+        audit_reason,
+    )
+    .await?;
+    Ok(record)
+}
+
+async fn record_operator_audit(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    correlation: MycAuditCorrelationId,
+    occurred_at: MycConnectionTimeUnixMs,
+    outcome: MycAuditOutcome,
+    reason: MycAuditReasonCode,
+) -> Result<(), ConnectionOperationError> {
+    record_audit(
+        transaction,
+        AuditEvidence {
+            correlation,
+            occurred_at,
+            operation_id: None,
+        },
+        MycAuditKind::ConnectionOperatorDecision,
+        outcome,
+        reason,
+    )
+    .await
+    .map_err(map_governance_error)?;
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1377,6 +1577,7 @@ async fn update_approval_decision(
 async fn issue_challenge(
     transaction: &mut ServiceSqliteTransaction<'_>,
     request: &MycAuthorizationChallengeRequest,
+    rate_policy: MycRateLimitPolicy,
 ) -> Result<MycAuthorizationChallengeAdmission, ConnectionOperationError> {
     let binding = read_request_binding(transaction, request.operation_id).await?;
     if binding.method == MycSignerRequestMethod::Connect {
@@ -1414,6 +1615,24 @@ async fn issue_challenge(
     {
         return Err(ConnectionOperationError::Binding);
     }
+    let evidence = AuditEvidence {
+        correlation: binding.correlation,
+        occurred_at: request.issued_at,
+        operation_id: Some(request.operation_id),
+    };
+    if !govern_rate_attempt(
+        transaction,
+        rate_policy,
+        MycRateLimitClass::ChallengeCreation,
+        &[connection_subject(request.connection_id)],
+        evidence,
+        MycAuditKind::ChallengeCreation,
+    )
+    .await
+    .map_err(map_governance_error)?
+    {
+        return Ok(MycAuthorizationChallengeAdmission::RateLimited);
+    }
     let challenge_id =
         derive_challenge_id(request.operation_id, request.connection_id, &request.nonce);
     let result = sqlx::query(INSERT_CHALLENGE_SQL)
@@ -1444,6 +1663,15 @@ async fn issue_challenge(
     let record = read_challenge(transaction, request.operation_id)
         .await?
         .ok_or(ConnectionOperationError::Binding)?;
+    record_audit(
+        transaction,
+        evidence,
+        MycAuditKind::ChallengeCreation,
+        MycAuditOutcome::Succeeded,
+        MycAuditReasonCode::ChallengeRequired,
+    )
+    .await
+    .map_err(map_governance_error)?;
     Ok(MycAuthorizationChallengeAdmission::Created(record))
 }
 
@@ -1455,7 +1683,8 @@ async fn authorize_challenge(
     operation_id: MycSignerOperationId,
     policy_generation: MycConnectionPolicyGeneration,
     observed_at: MycConnectionTimeUnixMs,
-) -> Result<MycAuthorizationChallengeRecord, ConnectionOperationError> {
+    rate_policy: MycRateLimitPolicy,
+) -> Result<MycAuthorizationChallengeAuthorization, ConnectionOperationError> {
     let before = read_challenge(transaction, operation_id)
         .await?
         .ok_or(ConnectionOperationError::Binding)?;
@@ -1476,7 +1705,25 @@ async fn authorize_challenge(
         return Err(ConnectionOperationError::Binding);
     }
     if before.state != MycAuthorizationChallengeState::Pending {
-        return Ok(before);
+        return Ok(MycAuthorizationChallengeAuthorization::ExactReplay(before));
+    }
+    let evidence = AuditEvidence {
+        correlation: request_binding.correlation,
+        occurred_at: observed_at,
+        operation_id: Some(operation_id),
+    };
+    if !govern_rate_attempt(
+        transaction,
+        rate_policy,
+        MycRateLimitClass::ChallengeAuthorization,
+        &[connection_subject(connection_id)],
+        evidence,
+        MycAuditKind::ChallengeAuthorization,
+    )
+    .await
+    .map_err(map_governance_error)?
+    {
+        return Ok(MycAuthorizationChallengeAuthorization::RateLimited);
     }
     let connection_expired = connection.status != MycConnectionStatus::Active
         || connection
@@ -1518,12 +1765,36 @@ async fn authorize_challenge(
         .await
         .map_err(|_| ConnectionOperationError::Storage)?;
     require_one(result.rows_affected())?;
-    read_challenge(transaction, operation_id)
+    let record = read_challenge(transaction, operation_id)
         .await?
-        .ok_or(ConnectionOperationError::Binding)
+        .ok_or(ConnectionOperationError::Binding)?;
+    let (outcome, audit_reason) = match state {
+        MycAuthorizationChallengeState::Authorized => (
+            MycAuditOutcome::Succeeded,
+            MycAuditReasonCode::ChallengeAuthorized,
+        ),
+        MycAuthorizationChallengeState::Expired => (
+            MycAuditOutcome::Rejected,
+            MycAuditReasonCode::ChallengeExpired,
+        ),
+        MycAuthorizationChallengeState::Pending => {
+            return Err(ConnectionOperationError::Binding);
+        }
+    };
+    record_audit(
+        transaction,
+        evidence,
+        MycAuditKind::ChallengeAuthorization,
+        outcome,
+        audit_reason,
+    )
+    .await
+    .map_err(map_governance_error)?;
+    Ok(MycAuthorizationChallengeAuthorization::Resolved(record))
 }
 
 struct RequestBinding {
+    correlation: MycAuditCorrelationId,
     client_public_key: MycNip46ClientPublicKey,
     method: MycSignerRequestMethod,
     received_at: MycConnectionTimeUnixMs,
@@ -1542,6 +1813,7 @@ async fn read_request_binding(
         return Err(ConnectionOperationError::Binding);
     }
     let row = &rows[0];
+    let correlation = MycAuditCorrelationId::new(exact_digest(row, "correlation_id")?);
     let client = row
         .try_get::<Option<&str>, _>("client_public_key")
         .map_err(|_| ConnectionOperationError::Binding)?
@@ -1555,6 +1827,7 @@ async fn read_request_binding(
         .and_then(MycSignerRequestMethod::parse)
         .ok_or(ConnectionOperationError::Binding)?;
     Ok(RequestBinding {
+        correlation,
         client_public_key: client,
         method,
         received_at: time(row, "received_at_unix_ms")?,

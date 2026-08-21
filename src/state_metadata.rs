@@ -11,6 +11,9 @@ use radroots_service_sqlite::{
 use radroots_storage::event::SourceGeneration;
 use sha2::{Digest, Sha256};
 
+use crate::state_governance::{
+    MycGovernancePolicies, MycRateLimitClass, MycRateLimitPolicy, MycRateRelayId,
+};
 use crate::{
     MYC_CONFIG_SCHEMA_VERSION, MYC_SIGNER_STATUS_CONTRACT_VERSION, MYC_STATE_BASE_SCHEMA_VERSION,
     MYC_STATE_SCHEMA_VERSION, MycBootstrapProfileV1, MycConfigDocumentV1, MycConfigProfile,
@@ -167,6 +170,7 @@ pub struct MycStateMetadata {
     database_identity: ServiceDatabaseIdentity,
     configuration: MycNormalizedConfigDigest,
     identities: MycExpectedIdentities,
+    governance: MycGovernancePolicies,
     policy_versions: MycStatePolicyVersions,
 }
 
@@ -204,6 +208,7 @@ impl MycStateMetadata {
             application_id,
         );
         let normalized = configuration.normalized();
+        let governance = governance_policies(normalized)?;
         let configuration = normalized_config_digest(configuration.profile(), normalized)?;
         let identities = expected_identities(normalized)?;
         let policy_versions = MycStatePolicyVersions::governed();
@@ -225,6 +230,7 @@ impl MycStateMetadata {
             database_identity,
             configuration,
             identities,
+            governance,
             policy_versions,
         })
     }
@@ -259,6 +265,21 @@ impl MycStateMetadata {
         self.policy_versions
     }
 
+    pub(crate) const fn governance_rate_policy(
+        &self,
+        class: MycRateLimitClass,
+    ) -> MycRateLimitPolicy {
+        self.governance.rate_policy(class)
+    }
+
+    pub(crate) fn admits_rate_relay(&self, relay: &MycRateRelayId) -> bool {
+        self.governance.admits_relay(relay)
+    }
+
+    pub(crate) const fn governance_audit_retention_ms(&self) -> u64 {
+        self.governance.audit_retention_ms()
+    }
+
     pub(crate) fn matches_runtime(&self, runtime: &MycRuntimeContext) -> bool {
         ServiceSqlitePaths::from_runtime_context(runtime.context())
             .is_ok_and(|paths| paths == self.paths)
@@ -273,6 +294,7 @@ impl fmt::Debug for MycStateMetadata {
             .field("database_identity", &self.database_identity)
             .field("configuration", &self.configuration)
             .field("identities", &self.identities)
+            .field("governance", &"[redacted]")
             .field("policy_versions", &self.policy_versions)
             .field("paths", &"[redacted]")
             .finish()
@@ -365,6 +387,62 @@ fn normalized_config_digest(
     hasher.update(length.to_be_bytes());
     hasher.update(bytes);
     Ok(MycNormalizedConfigDigest(hasher.finalize().into()))
+}
+
+fn governance_policies(
+    normalized: &serde_json::Value,
+) -> Result<MycGovernancePolicies, MycStateMetadataError> {
+    let integer = |pointer: &str| {
+        normalized
+            .pointer(pointer)
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant))
+    };
+    let policy = |class, name: &str| {
+        let prefix = format!("/rate_limits/{name}");
+        MycRateLimitPolicy::new(
+            class,
+            integer(&format!("{prefix}/window_ms"))?,
+            u32::try_from(integer(&format!("{prefix}/max_attempts"))?)
+                .map_err(|_| MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant))?,
+            integer(&format!("{prefix}/retention_ms"))?,
+            u32::try_from(integer(&format!("{prefix}/maximum_tracked_subjects"))?)
+                .map_err(|_| MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant))?,
+        )
+        .map_err(|_| MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant))
+    };
+    let relays = normalized
+        .pointer("/relays")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant))?
+        .iter()
+        .map(|relay| {
+            relay
+                .pointer("/id")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant))
+                .and_then(|id| {
+                    MycRateRelayId::new(id).map_err(|_| {
+                        MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant)
+                    })
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_boxed_slice();
+    MycGovernancePolicies::new(
+        policy(
+            MycRateLimitClass::ConnectionAdmission,
+            "connection_admission",
+        )?,
+        policy(MycRateLimitClass::ChallengeCreation, "challenge_creation")?,
+        policy(
+            MycRateLimitClass::ChallengeAuthorization,
+            "challenge_authorization",
+        )?,
+        integer("/policy/retention/audit_ms")?,
+        relays,
+    )
+    .map_err(|_| MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant))
 }
 
 fn expected_identities(

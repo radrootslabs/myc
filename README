@@ -47,10 +47,10 @@ without changing the canonical common artifact inventory.
 
 Create-new initialization reserves the shared schema-v1 metadata and migration
 ledger, retains exclusive writer authority, applies the exact Myc schema-v2
-through schema-v4 migrations, binds the normalized configuration, expected
+through schema-v5 migrations, binds the normalized configuration, expected
 identity roles, and policy versions through a sealed typed repository, and
 explicitly closes the host before reporting success. Existing writable open can
-resume the exact v1, v2, or v3 prefix; read-only inspection requires the current
+resume any exact v1 through v4 prefix; read-only inspection requires the current
 catalog and exact immutable Myc binding.
 
 The public Myc repository exposes no raw pool, connection, transaction-control
@@ -59,8 +59,9 @@ inside the shared `ServiceSqliteTransaction` runner. Provider and relay work
 cannot occur inside that transaction boundary. The v2 binding table, v3
 request/dedup tables, and v4 connection, permission, request-decision, and
 authorization-challenge tables and guards are checksum-pinned service-owned
-schema objects; later workflow tables remain owned by their ordered repository
-steps.
+schema objects. Schema v5 adds checksum-pinned audit-sequence, safe operation
+audit, request-audit binding, and bounded rate-window objects; later workflow
+tables remain owned by their ordered repository steps.
 
 Signer-request admission validates bounded client, request, event, method,
 canonical request, injected operation entropy, and injected time evidence
@@ -84,6 +85,18 @@ bound to an active connection, use an operator-owned canonical URL plus
 injected entropy and time, and transition once to authorized or expired.
 Exact retries return the original durable identity or terminal state, including
 after explicit close and reopen.
+
+Connection admission uses one bounded global window plus one configured relay
+window, so arbitrary client keys cannot create persistent subjects before a
+connection exists. Challenge creation and authorization use distinct stable
+connection-scoped windows. Exact saturation creates no connection, decision,
+challenge, or authorization transition beyond the accepted bound, and a
+retained rate rejection is replay-stable. Safe audit records preserve exact
+typed operation/correlation bindings and use closed category, outcome, and
+reason vocabularies; snapshot pagination is bounded and Debug output redacts
+identity. Explicit bounded compaction is correlation-idempotent and retires
+only expired rate-window and old safe-audit evidence. It never removes schema
+history, metadata, connections, decisions, permissions, or challenges.
 
 Writable hosts expose Myc-bound online-backup and active-integrity operations.
 Backup verification retains the exact admitted member inode, and

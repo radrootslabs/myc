@@ -10,8 +10,9 @@ use myc::{
     MYC_STATE_SCHEMA_VERSION_3_MIGRATION_SHA256, MYC_STATE_SCHEMA_VERSION_3_OBJECT_COUNT,
     MYC_STATE_SCHEMA_VERSION_3_SHA256, MYC_STATE_SCHEMA_VERSION_4_MIGRATION_SHA256,
     MYC_STATE_SCHEMA_VERSION_4_OBJECT_COUNT, MYC_STATE_SCHEMA_VERSION_4_SHA256,
-    MycStateCatalogErrorKind, myc_migration_catalog, myc_schema_catalog,
-    validate_myc_state_catalogs,
+    MYC_STATE_SCHEMA_VERSION_5_MIGRATION_SHA256, MYC_STATE_SCHEMA_VERSION_5_OBJECT_COUNT,
+    MYC_STATE_SCHEMA_VERSION_5_SHA256, MycStateCatalogErrorKind, myc_migration_catalog,
+    myc_schema_catalog, validate_myc_state_catalogs,
 };
 use radroots_service_sqlite::{
     MigrationCatalog, MigrationChecksum, MigrationDescriptor, SchemaCatalog, SchemaDigest,
@@ -23,13 +24,13 @@ const LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const MANIFEST: &str = include_str!("../Cargo.toml");
 
 #[test]
-fn schema_v1_through_v4_and_all_migrations_have_exact_literal_identities() {
+fn schema_v1_through_v5_and_all_migrations_have_exact_literal_identities() {
     let migrations = myc_migration_catalog().expect("Myc migration catalog");
     let schema = myc_schema_catalog().expect("Myc schema catalog");
 
     assert_eq!(MYC_STATE_BASE_SCHEMA_VERSION, 1);
-    assert_eq!(MYC_STATE_SCHEMA_VERSION, 4);
-    assert_eq!(migrations.descriptors().len(), 3);
+    assert_eq!(MYC_STATE_SCHEMA_VERSION, 5);
+    assert_eq!(migrations.descriptors().len(), 4);
     let metadata = &migrations.descriptors()[0];
     assert_eq!(metadata.target_version(), 2);
     assert_eq!(metadata.name().as_str(), "create_myc_state_metadata");
@@ -54,13 +55,23 @@ fn schema_v1_through_v4_and_all_migrations_have_exact_literal_identities() {
         connection.checksum().as_bytes(),
         &MYC_STATE_SCHEMA_VERSION_4_MIGRATION_SHA256
     );
-    assert_eq!(migrations.current_version(), 4);
+    let governance = &migrations.descriptors()[3];
+    assert_eq!(governance.target_version(), 5);
+    assert_eq!(
+        governance.name().as_str(),
+        "create_bounded_governance_state"
+    );
+    assert_eq!(
+        governance.checksum().as_bytes(),
+        &MYC_STATE_SCHEMA_VERSION_5_MIGRATION_SHA256
+    );
+    assert_eq!(migrations.current_version(), 5);
     assert_eq!(
         migrations.digest().as_bytes(),
         &MYC_MIGRATION_CATALOG_SHA256
     );
 
-    assert_eq!(schema.versions().len(), 4);
+    assert_eq!(schema.versions().len(), 5);
     assert_eq!(schema.versions()[0].version(), 1);
     assert_eq!(
         schema.versions()[0].object_count(),
@@ -100,6 +111,16 @@ fn schema_v1_through_v4_and_all_migrations_have_exact_literal_identities() {
         schema.versions()[3].digest().as_bytes(),
         &MYC_STATE_SCHEMA_VERSION_4_SHA256
     );
+    assert_eq!(schema.versions()[4].version(), 5);
+    assert_eq!(
+        schema.versions()[4].object_count(),
+        MYC_STATE_SCHEMA_VERSION_5_OBJECT_COUNT
+    );
+    assert_eq!(schema.versions()[4].object_count(), 34);
+    assert_eq!(
+        schema.versions()[4].digest().as_bytes(),
+        &MYC_STATE_SCHEMA_VERSION_5_SHA256
+    );
     assert_eq!(schema.digest().as_bytes(), &MYC_STATE_SCHEMA_CATALOG_SHA256);
     assert_eq!(schema.migration_catalog_digest(), migrations.digest());
     validate_myc_state_catalogs(&migrations, &schema).expect("exact catalogs");
@@ -110,7 +131,7 @@ fn schema_v1_through_v4_and_all_migrations_have_exact_literal_identities() {
     );
     assert_eq!(
         hex::encode(MYC_MIGRATION_CATALOG_SHA256),
-        "453d99f4c19c094c592f1a3fe7e28e82c1dea674514a9e7d063bc466c20bd4bd"
+        "1d069996435560217dbd3692d5430612ad3a5667ee0b12b1919f0b5edf2cbe7d"
     );
     assert_eq!(
         hex::encode(MYC_STATE_SCHEMA_VERSION_1_SHA256),
@@ -122,7 +143,7 @@ fn schema_v1_through_v4_and_all_migrations_have_exact_literal_identities() {
     );
     assert_eq!(
         hex::encode(MYC_STATE_SCHEMA_CATALOG_SHA256),
-        "a47d9f0af804202bfa07268e08fb484ded590b785cc42a01094d1a8b9f37eeca"
+        "2119efefcfd4ac5477609655341aa4c5b9b9a1befb88cc168a2b9373e99ebbd5"
     );
     assert_eq!(
         hex::encode(MYC_STATE_SCHEMA_VERSION_3_MIGRATION_SHA256),
@@ -139,6 +160,14 @@ fn schema_v1_through_v4_and_all_migrations_have_exact_literal_identities() {
     assert_eq!(
         hex::encode(MYC_STATE_SCHEMA_VERSION_4_SHA256),
         "479863d37d91e6c269fa3573db6c2e767cdd3b24a93ab482d774bcec0218c174"
+    );
+    assert_eq!(
+        hex::encode(MYC_STATE_SCHEMA_VERSION_5_MIGRATION_SHA256),
+        "0e004fcb5d0bc7c951b16f4334533d10efcb18a826f624de0922d86dc8504b33"
+    );
+    assert_eq!(
+        hex::encode(MYC_STATE_SCHEMA_VERSION_5_SHA256),
+        "fe89d4af7de4eded78a3f062dc9d300f06cf0f4cfca5fa5cffc93af1146f21c5"
     );
 }
 
@@ -184,8 +213,19 @@ fn independent_validator_rejects_migration_or_schema_drift() {
     let v4_digest =
         SchemaVersionCatalog::computed_digest(4, [object.clone()]).expect("schema-v4 digest");
     let v4 = SchemaVersionCatalog::new(4, [object], v4_digest).expect("schema v4");
-    let schema =
-        SchemaCatalog::new(&expected_migrations, [v1, v2, v3, v4]).expect("drift schema catalog");
+    let object = SchemaObject::new(
+        SchemaObjectKind::Table,
+        "unexpected",
+        "unexpected",
+        SQL,
+        object_digest,
+    )
+    .expect("schema object");
+    let v5_digest =
+        SchemaVersionCatalog::computed_digest(5, [object.clone()]).expect("schema-v5 digest");
+    let v5 = SchemaVersionCatalog::new(5, [object], v5_digest).expect("schema v5");
+    let schema = SchemaCatalog::new(&expected_migrations, [v1, v2, v3, v4, v5])
+        .expect("drift schema catalog");
     assert_eq!(
         validate_myc_state_catalogs(&expected_migrations, &schema)
             .expect_err("schema drift")

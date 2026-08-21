@@ -458,7 +458,7 @@ async fn concurrent_identical_admission_creates_one_request_and_bounded_replay_e
 }
 
 #[tokio::test]
-async fn exact_schema_v3_state_advances_to_v4_before_request_admission() {
+async fn exact_schema_v3_state_advances_to_v5_before_request_admission() {
     let directory = tempfile::tempdir().expect("temporary root");
     let runtime = runtime(directory.path());
     prepare_state_directory(&runtime);
@@ -500,6 +500,11 @@ async fn exact_schema_v3_state_advances_to_v4_before_request_admission() {
         "DROP TRIGGER radroots_service_metadata_guard_update",
         "DROP TRIGGER myc_state_metadata_no_update",
         "DROP TRIGGER schema_migrations_no_delete",
+        "DROP TRIGGER connection_rate_windows_guard_update",
+        "DROP TRIGGER nip46_request_audit_no_update",
+        "DROP TRIGGER operation_audit_no_update",
+        "DROP TRIGGER myc_audit_state_no_delete",
+        "DROP TRIGGER myc_audit_state_guard_update",
         "DROP TRIGGER connection_auth_challenges_no_delete",
         "DROP TRIGGER connection_auth_challenges_guard_update",
         "DROP TRIGGER nip46_request_decisions_no_delete",
@@ -508,13 +513,17 @@ async fn exact_schema_v3_state_advances_to_v4_before_request_admission() {
         "DROP TRIGGER connection_permissions_no_update",
         "DROP TRIGGER connections_no_delete",
         "DROP TRIGGER connections_guard_update",
+        "DROP TABLE nip46_request_audit",
+        "DROP TABLE operation_audit",
+        "DROP TABLE connection_rate_windows",
+        "DROP TABLE myc_audit_state",
         "DROP TABLE nip46_request_decisions",
         "DROP TABLE connection_auth_challenges",
         "DROP TABLE connection_permissions",
         "DROP TABLE connections",
         "UPDATE radroots_service_metadata SET state_schema_version = 3 WHERE singleton = 1",
         "UPDATE myc_state_metadata SET state_contract_version = 3 WHERE singleton = 1",
-        "DELETE FROM schema_migrations WHERE version = 4",
+        "DELETE FROM schema_migrations WHERE version IN (4, 5)",
     ] {
         sqlx::query(sql)
             .execute(&mut connection)

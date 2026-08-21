@@ -12,7 +12,7 @@ use radroots_service_sqlite::{
 pub const MYC_STATE_BASE_SCHEMA_VERSION: u32 = 1;
 
 /// The newest governed Myc state schema understood by this binary.
-pub const MYC_STATE_SCHEMA_VERSION: u32 = 4;
+pub const MYC_STATE_SCHEMA_VERSION: u32 = 5;
 
 /// The shared metadata and migration-ledger objects present at schema v1.
 pub const MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT: u32 = 6;
@@ -25,6 +25,9 @@ pub const MYC_STATE_SCHEMA_VERSION_3_OBJECT_COUNT: u32 = 13;
 
 /// The shared objects plus Myc metadata, request, and connection objects at schema v4.
 pub const MYC_STATE_SCHEMA_VERSION_4_OBJECT_COUNT: u32 = 25;
+
+/// The shared objects plus all Myc metadata, request, connection, and governance objects at v5.
+pub const MYC_STATE_SCHEMA_VERSION_5_OBJECT_COUNT: u32 = 34;
 
 /// SHA-256 identity of the exact schema-v1 object snapshot.
 pub const MYC_STATE_SCHEMA_VERSION_1_SHA256: [u8; 32] = [
@@ -40,14 +43,14 @@ pub const MYC_STATE_SCHEMA_VERSION_2_SHA256: [u8; 32] = [
 
 /// SHA-256 identity of the ordered Myc migration catalog.
 pub const MYC_MIGRATION_CATALOG_SHA256: [u8; 32] = [
-    0x45, 0x3d, 0x99, 0xf4, 0xc1, 0x9c, 0x09, 0x4c, 0x59, 0x2f, 0x1a, 0x3f, 0xe7, 0xe2, 0x8e, 0x82,
-    0xc1, 0xde, 0xa6, 0x74, 0x51, 0x4a, 0x9e, 0x7d, 0x06, 0x3b, 0xc4, 0x66, 0xc2, 0x0b, 0xd4, 0xbd,
+    0x1d, 0x06, 0x99, 0x96, 0x43, 0x55, 0x60, 0x21, 0x7d, 0xbd, 0x36, 0x92, 0xd5, 0x43, 0x06, 0x12,
+    0xad, 0x3a, 0x56, 0x67, 0xee, 0x0b, 0x12, 0xb1, 0x91, 0x9f, 0x0b, 0x5e, 0xdf, 0x2c, 0xbe, 0x7d,
 ];
 
 /// SHA-256 identity of the schema catalog bound to the migration catalog.
 pub const MYC_STATE_SCHEMA_CATALOG_SHA256: [u8; 32] = [
-    0xa4, 0x7d, 0x9f, 0x0a, 0xf8, 0x04, 0x20, 0x2b, 0xfa, 0x07, 0x26, 0x8e, 0x08, 0xfb, 0x48, 0x4d,
-    0xed, 0x59, 0x0b, 0x78, 0x5c, 0xc4, 0x2a, 0x01, 0x09, 0x4d, 0x1a, 0x8b, 0x9f, 0x37, 0xee, 0xca,
+    0x21, 0x19, 0xef, 0xef, 0xcf, 0xd4, 0xac, 0x54, 0x77, 0x60, 0x96, 0x55, 0x34, 0x1a, 0xa4, 0xc5,
+    0xb9, 0xb9, 0xa1, 0xbe, 0xfb, 0x88, 0xcc, 0x16, 0x8a, 0x2b, 0x93, 0x73, 0xe9, 0x9e, 0xbb, 0xd5,
 ];
 
 /// SHA-256 identity of the schema-v2 migration content.
@@ -78,6 +81,18 @@ pub const MYC_STATE_SCHEMA_VERSION_4_MIGRATION_SHA256: [u8; 32] = [
 pub const MYC_STATE_SCHEMA_VERSION_4_SHA256: [u8; 32] = [
     0x47, 0x98, 0x63, 0xd3, 0x7d, 0x91, 0xe6, 0xc2, 0x69, 0xfa, 0x35, 0x73, 0xdb, 0x6c, 0x2e, 0x76,
     0x7c, 0xdd, 0x3b, 0x24, 0xa9, 0x3a, 0xb4, 0x82, 0xd7, 0x74, 0xbc, 0xec, 0x02, 0x18, 0xc1, 0x74,
+];
+
+/// SHA-256 identity of the schema-v5 migration content.
+pub const MYC_STATE_SCHEMA_VERSION_5_MIGRATION_SHA256: [u8; 32] = [
+    0x0e, 0x00, 0x4f, 0xcb, 0x5d, 0x0b, 0xc7, 0xc9, 0x51, 0xb1, 0x6f, 0x43, 0x34, 0x53, 0x3d, 0x10,
+    0xef, 0xcb, 0x18, 0xa8, 0x26, 0xf6, 0x24, 0xde, 0x09, 0x22, 0xd8, 0x6d, 0xc8, 0x50, 0x4b, 0x33,
+];
+
+/// SHA-256 identity of the schema-v5 object snapshot.
+pub const MYC_STATE_SCHEMA_VERSION_5_SHA256: [u8; 32] = [
+    0xfe, 0x89, 0xd4, 0xaf, 0x7d, 0xe4, 0xed, 0xed, 0x78, 0xa3, 0xf0, 0x62, 0xdc, 0x9d, 0x30, 0x0f,
+    0x06, 0xcf, 0x0f, 0x4c, 0xfc, 0xa5, 0xfa, 0x5c, 0xff, 0xc9, 0x3a, 0xf1, 0x14, 0x6f, 0x21, 0xc5,
 ];
 
 /// SHA-256 identity of the Myc metadata table definition.
@@ -567,6 +582,218 @@ const CREATE_CONNECTION_STATE_MIGRATION_SQL: &str = concat!(
     connection_auth_challenges_no_delete_sql!(),
 );
 
+macro_rules! myc_audit_state_table_sql {
+    () => {
+        r#"CREATE TABLE myc_audit_state (
+    singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
+    next_sequence INTEGER NOT NULL CHECK (next_sequence BETWEEN 0 AND 9223372036854775807)
+) STRICT"#
+    };
+}
+
+macro_rules! operation_audit_table_sql {
+    () => {
+        r#"CREATE TABLE operation_audit (
+    audit_sequence INTEGER NOT NULL PRIMARY KEY
+        CHECK (audit_sequence BETWEEN 1 AND 9223372036854775807),
+    audit_id BLOB NOT NULL UNIQUE CHECK (length(audit_id) = 32),
+    correlation_id BLOB NOT NULL CHECK (length(correlation_id) = 32),
+    audit_kind TEXT NOT NULL CHECK (audit_kind IN (
+        'connection_admission',
+        'connection_operator_decision',
+        'connection_expiry',
+        'challenge_creation',
+        'challenge_authorization',
+        'governance_compaction'
+    )),
+    outcome TEXT NOT NULL CHECK (outcome IN ('succeeded', 'rejected', 'failed')),
+    reason_code TEXT NOT NULL CHECK (reason_code IN (
+        'trusted',
+        'approval_required',
+        'policy_denied',
+        'operator_approved',
+        'operator_denied',
+        'connection_expired',
+        'challenge_required',
+        'challenge_authorized',
+        'challenge_expired',
+        'rate_limited',
+        'compacted'
+    )),
+    occurred_at_unix_ms INTEGER NOT NULL
+        CHECK (occurred_at_unix_ms BETWEEN 1 AND 9223372036854775807),
+    UNIQUE (correlation_id, audit_kind)
+) STRICT"#
+    };
+}
+
+macro_rules! nip46_request_audit_table_sql {
+    () => {
+        r#"CREATE TABLE nip46_request_audit (
+    operation_id BLOB NOT NULL CHECK (length(operation_id) = 32)
+        REFERENCES nip46_requests(operation_id),
+    audit_kind TEXT NOT NULL CHECK (audit_kind IN (
+        'connection_admission', 'challenge_creation', 'challenge_authorization'
+    )),
+    audit_sequence INTEGER NOT NULL UNIQUE
+        CHECK (audit_sequence BETWEEN 1 AND 9223372036854775807)
+        REFERENCES operation_audit(audit_sequence),
+    PRIMARY KEY (operation_id, audit_kind)
+) STRICT"#
+    };
+}
+
+macro_rules! connection_rate_windows_table_sql {
+    () => {
+        r#"CREATE TABLE connection_rate_windows (
+    rate_kind TEXT NOT NULL CHECK (rate_kind IN (
+        'connection_admission', 'challenge_creation', 'challenge_authorization'
+    )),
+    subject_scope TEXT NOT NULL CHECK (subject_scope IN ('global', 'relay', 'connection')),
+    subject_sha256 BLOB NOT NULL CHECK (length(subject_sha256) = 32),
+    window_started_at_unix_ms INTEGER NOT NULL
+        CHECK (window_started_at_unix_ms BETWEEN 1 AND 9223372036854775807),
+    window_ends_at_unix_ms INTEGER NOT NULL
+        CHECK (window_ends_at_unix_ms BETWEEN window_started_at_unix_ms AND 9223372036854775807),
+    accepted_count INTEGER NOT NULL CHECK (accepted_count BETWEEN 0 AND 10000),
+    rejected_count INTEGER NOT NULL CHECK (rejected_count BETWEEN 0 AND 9223372036854775807),
+    lifetime_accepted_count INTEGER NOT NULL
+        CHECK (lifetime_accepted_count BETWEEN accepted_count AND 9223372036854775807),
+    lifetime_rejected_count INTEGER NOT NULL
+        CHECK (lifetime_rejected_count BETWEEN rejected_count AND 9223372036854775807),
+    last_observed_at_unix_ms INTEGER NOT NULL
+        CHECK (last_observed_at_unix_ms BETWEEN window_started_at_unix_ms AND 9223372036854775807),
+    retention_expires_at_unix_ms INTEGER NOT NULL
+        CHECK (retention_expires_at_unix_ms BETWEEN last_observed_at_unix_ms AND 9223372036854775807),
+    CHECK (
+        (rate_kind = 'connection_admission' AND subject_scope IN ('global', 'relay'))
+        OR (rate_kind IN ('challenge_creation', 'challenge_authorization')
+            AND subject_scope = 'connection')
+    ),
+    PRIMARY KEY (rate_kind, subject_scope, subject_sha256)
+) STRICT"#
+    };
+}
+
+macro_rules! myc_audit_state_guard_update_sql {
+    () => {
+        r#"CREATE TRIGGER myc_audit_state_guard_update
+BEFORE UPDATE ON myc_audit_state
+WHEN NEW.singleton != OLD.singleton
+    OR OLD.next_sequence = 9223372036854775807
+    OR NEW.next_sequence != OLD.next_sequence + 1
+BEGIN
+    SELECT RAISE(ABORT, 'audit sequence transition is invalid');
+END"#
+    };
+}
+
+macro_rules! myc_audit_state_no_delete_sql {
+    () => {
+        r#"CREATE TRIGGER myc_audit_state_no_delete
+BEFORE DELETE ON myc_audit_state
+BEGIN
+    SELECT RAISE(ABORT, 'audit sequence authority is retained');
+END"#
+    };
+}
+
+macro_rules! operation_audit_no_update_sql {
+    () => {
+        r#"CREATE TRIGGER operation_audit_no_update
+BEFORE UPDATE ON operation_audit
+BEGIN
+    SELECT RAISE(ABORT, 'operation audit is immutable');
+END"#
+    };
+}
+
+macro_rules! nip46_request_audit_no_update_sql {
+    () => {
+        r#"CREATE TRIGGER nip46_request_audit_no_update
+BEFORE UPDATE ON nip46_request_audit
+BEGIN
+    SELECT RAISE(ABORT, 'request audit binding is immutable');
+END"#
+    };
+}
+
+macro_rules! connection_rate_windows_guard_update_sql {
+    () => {
+        r#"CREATE TRIGGER connection_rate_windows_guard_update
+BEFORE UPDATE ON connection_rate_windows
+WHEN NEW.rate_kind != OLD.rate_kind
+    OR NEW.subject_scope != OLD.subject_scope
+    OR NEW.subject_sha256 != OLD.subject_sha256
+    OR NEW.window_started_at_unix_ms < OLD.window_started_at_unix_ms
+    OR NEW.window_ends_at_unix_ms < NEW.window_started_at_unix_ms
+    OR NEW.lifetime_accepted_count < OLD.lifetime_accepted_count
+    OR NEW.lifetime_rejected_count < OLD.lifetime_rejected_count
+    OR NEW.last_observed_at_unix_ms < OLD.last_observed_at_unix_ms
+    OR NEW.retention_expires_at_unix_ms < NEW.last_observed_at_unix_ms
+    OR NOT (
+        (NEW.window_started_at_unix_ms = OLD.window_started_at_unix_ms
+            AND NEW.window_ends_at_unix_ms = OLD.window_ends_at_unix_ms
+            AND (
+                (NEW.accepted_count = OLD.accepted_count + 1
+                    AND NEW.rejected_count = OLD.rejected_count
+                    AND NEW.lifetime_accepted_count = OLD.lifetime_accepted_count + 1
+                    AND NEW.lifetime_rejected_count = OLD.lifetime_rejected_count)
+                OR (NEW.accepted_count = OLD.accepted_count
+                    AND NEW.rejected_count = OLD.rejected_count + 1
+                    AND NEW.lifetime_accepted_count = OLD.lifetime_accepted_count
+                    AND NEW.lifetime_rejected_count = OLD.lifetime_rejected_count + 1)
+            ))
+        OR (NEW.window_started_at_unix_ms > OLD.window_ends_at_unix_ms
+            AND NEW.window_ends_at_unix_ms > NEW.window_started_at_unix_ms
+            AND ((NEW.accepted_count = 1 AND NEW.rejected_count = 0)
+                OR (NEW.accepted_count = 0 AND NEW.rejected_count = 1))
+            AND NEW.lifetime_accepted_count = OLD.lifetime_accepted_count + NEW.accepted_count
+            AND NEW.lifetime_rejected_count = OLD.lifetime_rejected_count + NEW.rejected_count)
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'rate-window transition is invalid');
+END"#
+    };
+}
+
+const CREATE_MYC_AUDIT_STATE_TABLE_SQL: &str = myc_audit_state_table_sql!();
+const CREATE_OPERATION_AUDIT_TABLE_SQL: &str = operation_audit_table_sql!();
+const CREATE_NIP46_REQUEST_AUDIT_TABLE_SQL: &str = nip46_request_audit_table_sql!();
+const CREATE_CONNECTION_RATE_WINDOWS_TABLE_SQL: &str = connection_rate_windows_table_sql!();
+const CREATE_MYC_AUDIT_STATE_GUARD_UPDATE_SQL: &str = myc_audit_state_guard_update_sql!();
+const CREATE_MYC_AUDIT_STATE_NO_DELETE_SQL: &str = myc_audit_state_no_delete_sql!();
+const CREATE_OPERATION_AUDIT_NO_UPDATE_SQL: &str = operation_audit_no_update_sql!();
+const CREATE_NIP46_REQUEST_AUDIT_NO_UPDATE_SQL: &str = nip46_request_audit_no_update_sql!();
+const CREATE_CONNECTION_RATE_WINDOWS_GUARD_UPDATE_SQL: &str =
+    connection_rate_windows_guard_update_sql!();
+
+const CREATE_GOVERNANCE_STATE_MIGRATION_SQL: &str = concat!(
+    "DROP TRIGGER myc_state_metadata_no_update;\n",
+    "UPDATE myc_state_metadata SET state_contract_version = CASE ",
+    "WHEN state_contract_version = 4 THEN 5 ELSE 0 END WHERE singleton = 1;\n",
+    myc_state_metadata_no_update_sql!(),
+    ";\n",
+    myc_audit_state_table_sql!(),
+    ";\n",
+    "INSERT INTO myc_audit_state (singleton, next_sequence) VALUES (1, 0);\n",
+    operation_audit_table_sql!(),
+    ";\n",
+    nip46_request_audit_table_sql!(),
+    ";\n",
+    connection_rate_windows_table_sql!(),
+    ";\n",
+    myc_audit_state_guard_update_sql!(),
+    ";\n",
+    myc_audit_state_no_delete_sql!(),
+    ";\n",
+    operation_audit_no_update_sql!(),
+    ";\n",
+    nip46_request_audit_no_update_sql!(),
+    ";\n",
+    connection_rate_windows_guard_update_sql!(),
+);
+
 const CONNECTIONS_TABLE_SHA256: [u8; 32] = [
     0x72, 0xd5, 0xd8, 0xba, 0x24, 0x68, 0x9c, 0x93, 0x34, 0xb3, 0x8f, 0xbf, 0x64, 0x21, 0xe1, 0x65,
     0xfd, 0xc3, 0x80, 0x46, 0xf1, 0x3f, 0x56, 0x49, 0x3a, 0xef, 0xd7, 0x42, 0xc4, 0xe6, 0x49, 0x85,
@@ -614,6 +841,42 @@ const CONNECTION_AUTH_CHALLENGES_GUARD_UPDATE_SHA256: [u8; 32] = [
 const CONNECTION_AUTH_CHALLENGES_NO_DELETE_SHA256: [u8; 32] = [
     0xf3, 0xf8, 0xd1, 0x48, 0xbc, 0xde, 0x89, 0xd3, 0x34, 0xcd, 0xde, 0x51, 0x4b, 0x83, 0xa2, 0x19,
     0x16, 0xe5, 0xd6, 0x72, 0xb7, 0xc3, 0x1e, 0x59, 0xcb, 0xdf, 0x3a, 0x3c, 0x33, 0x80, 0x21, 0x4f,
+];
+const MYC_AUDIT_STATE_TABLE_SHA256: [u8; 32] = [
+    0xc8, 0x6b, 0x49, 0xf6, 0x55, 0xac, 0x2c, 0xa4, 0xcb, 0x13, 0xed, 0x31, 0xff, 0x9e, 0xce, 0xe3,
+    0x2f, 0xd4, 0x2a, 0x3e, 0xb0, 0xf1, 0xc8, 0x52, 0x9d, 0x92, 0xae, 0x5b, 0x48, 0x63, 0x38, 0x3b,
+];
+const OPERATION_AUDIT_TABLE_SHA256: [u8; 32] = [
+    0xc1, 0x8d, 0x0b, 0x72, 0x34, 0xff, 0x8b, 0x21, 0x9f, 0x54, 0x20, 0x7f, 0x6c, 0x0b, 0x64, 0xae,
+    0xd6, 0x8d, 0xd6, 0x1b, 0x48, 0xb3, 0x5b, 0xbe, 0x13, 0x2c, 0x0d, 0xb0, 0x9b, 0xea, 0x16, 0x2d,
+];
+const NIP46_REQUEST_AUDIT_TABLE_SHA256: [u8; 32] = [
+    0xe2, 0x42, 0x82, 0x0b, 0xbb, 0xb2, 0x31, 0xa3, 0x8e, 0x9e, 0x7d, 0xf3, 0xf0, 0xe4, 0xd3, 0xc6,
+    0x85, 0x93, 0x19, 0xe1, 0x2e, 0x47, 0x84, 0x48, 0x98, 0x8b, 0xc0, 0xdf, 0xdf, 0x96, 0xc6, 0xe3,
+];
+const CONNECTION_RATE_WINDOWS_TABLE_SHA256: [u8; 32] = [
+    0x57, 0x53, 0xdf, 0x7b, 0x74, 0x44, 0x96, 0x9d, 0x88, 0x56, 0xe6, 0x1f, 0x15, 0x36, 0xdc, 0xab,
+    0xa0, 0x02, 0x0a, 0x78, 0x77, 0x8e, 0x48, 0xa2, 0x80, 0x97, 0xc6, 0x37, 0xa6, 0x31, 0x17, 0xfc,
+];
+const MYC_AUDIT_STATE_GUARD_UPDATE_SHA256: [u8; 32] = [
+    0xda, 0xba, 0xc9, 0x86, 0x0f, 0x2a, 0xd8, 0xa0, 0x60, 0x75, 0x4b, 0x87, 0x78, 0xc8, 0xd8, 0xce,
+    0x78, 0xa3, 0x57, 0x6e, 0xea, 0x08, 0x2b, 0x0c, 0x9c, 0x56, 0x5d, 0xa2, 0xb5, 0x6c, 0x68, 0xad,
+];
+const MYC_AUDIT_STATE_NO_DELETE_SHA256: [u8; 32] = [
+    0x0a, 0x88, 0xa1, 0xbe, 0xe8, 0x23, 0x1f, 0xf0, 0xaf, 0x41, 0x91, 0xd7, 0x38, 0x64, 0x67, 0xb6,
+    0xa8, 0xac, 0xda, 0xf0, 0x38, 0x8e, 0xd4, 0xb0, 0xac, 0x2c, 0xb6, 0xf2, 0x0a, 0xa1, 0xf5, 0x5c,
+];
+const OPERATION_AUDIT_NO_UPDATE_SHA256: [u8; 32] = [
+    0xd8, 0xe4, 0x39, 0x63, 0x67, 0x74, 0x97, 0x4c, 0xa7, 0x97, 0x54, 0x6c, 0xed, 0x39, 0x9a, 0x7b,
+    0xbc, 0x6c, 0x36, 0xc5, 0xd7, 0x8e, 0xf4, 0x08, 0xbd, 0xfd, 0xb7, 0x9b, 0xd0, 0x36, 0x74, 0x40,
+];
+const NIP46_REQUEST_AUDIT_NO_UPDATE_SHA256: [u8; 32] = [
+    0x8a, 0x4a, 0x99, 0x4c, 0x13, 0x5f, 0x8d, 0x4d, 0x85, 0xd1, 0x25, 0x1d, 0x65, 0x47, 0x4d, 0x23,
+    0x37, 0x62, 0xb7, 0x27, 0xb6, 0x7f, 0x31, 0xd4, 0x9c, 0x93, 0xe5, 0xce, 0x18, 0x43, 0xba, 0x81,
+];
+const CONNECTION_RATE_WINDOWS_GUARD_UPDATE_SHA256: [u8; 32] = [
+    0x59, 0x3c, 0xfb, 0xff, 0x20, 0x95, 0x32, 0x4e, 0x61, 0xdc, 0xd6, 0x09, 0xea, 0x7b, 0x1b, 0x1d,
+    0xc4, 0xb9, 0xb7, 0x38, 0xcf, 0x80, 0x56, 0x00, 0xa5, 0x3b, 0xb4, 0xcd, 0x02, 0xcd, 0xe1, 0xef,
 ];
 
 /// Stable classes for invalid embedded Myc catalog definitions.
@@ -708,10 +971,17 @@ pub fn myc_migration_catalog() -> Result<MigrationCatalog, MycStateCatalogError>
         MigrationChecksum::from_bytes(MYC_STATE_SCHEMA_VERSION_4_MIGRATION_SHA256),
     )
     .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
-    let catalog = MigrationCatalog::new([metadata, requests, connections])
+    let governance = MigrationDescriptor::sql(
+        5,
+        "create_bounded_governance_state",
+        CREATE_GOVERNANCE_STATE_MIGRATION_SQL,
+        MigrationChecksum::from_bytes(MYC_STATE_SCHEMA_VERSION_5_MIGRATION_SHA256),
+    )
+    .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
+    let catalog = MigrationCatalog::new([metadata, requests, connections, governance])
         .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
     if catalog.current_version() != MYC_STATE_SCHEMA_VERSION
-        || catalog.descriptors().len() != 3
+        || catalog.descriptors().len() != 4
         || catalog.digest().as_bytes() != &MYC_MIGRATION_CATALOG_SHA256
     {
         return Err(MycStateCatalogError::new(
@@ -748,9 +1018,21 @@ pub fn myc_schema_catalog() -> Result<SchemaCatalog, MycStateCatalogError> {
         SchemaDigest::from_bytes(MYC_STATE_SCHEMA_VERSION_4_SHA256),
     )
     .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
+    let version_five = SchemaVersionCatalog::new(
+        5,
+        myc_state_governance_objects()?,
+        SchemaDigest::from_bytes(MYC_STATE_SCHEMA_VERSION_5_SHA256),
+    )
+    .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
     let catalog = SchemaCatalog::new(
         &migrations,
-        [version_one, version_two, version_three, version_four],
+        [
+            version_one,
+            version_two,
+            version_three,
+            version_four,
+            version_five,
+        ],
     )
     .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
     validate_myc_state_catalogs(&migrations, &catalog)?;
@@ -935,6 +1217,80 @@ fn myc_state_connection_objects() -> Result<[SchemaObject; 19], MycStateCatalogE
     ])
 }
 
+fn myc_state_governance_objects() -> Result<Vec<SchemaObject>, MycStateCatalogError> {
+    let mut objects = Vec::from(myc_state_connection_objects()?);
+    let object = |kind, name, table, sql, digest| {
+        SchemaObject::new(kind, name, table, sql, SchemaDigest::from_bytes(digest))
+            .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))
+    };
+    objects.extend([
+        object(
+            SchemaObjectKind::Table,
+            "myc_audit_state",
+            "myc_audit_state",
+            CREATE_MYC_AUDIT_STATE_TABLE_SQL,
+            MYC_AUDIT_STATE_TABLE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Table,
+            "operation_audit",
+            "operation_audit",
+            CREATE_OPERATION_AUDIT_TABLE_SQL,
+            OPERATION_AUDIT_TABLE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Table,
+            "nip46_request_audit",
+            "nip46_request_audit",
+            CREATE_NIP46_REQUEST_AUDIT_TABLE_SQL,
+            NIP46_REQUEST_AUDIT_TABLE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Table,
+            "connection_rate_windows",
+            "connection_rate_windows",
+            CREATE_CONNECTION_RATE_WINDOWS_TABLE_SQL,
+            CONNECTION_RATE_WINDOWS_TABLE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "myc_audit_state_guard_update",
+            "myc_audit_state",
+            CREATE_MYC_AUDIT_STATE_GUARD_UPDATE_SQL,
+            MYC_AUDIT_STATE_GUARD_UPDATE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "myc_audit_state_no_delete",
+            "myc_audit_state",
+            CREATE_MYC_AUDIT_STATE_NO_DELETE_SQL,
+            MYC_AUDIT_STATE_NO_DELETE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "operation_audit_no_update",
+            "operation_audit",
+            CREATE_OPERATION_AUDIT_NO_UPDATE_SQL,
+            OPERATION_AUDIT_NO_UPDATE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "nip46_request_audit_no_update",
+            "nip46_request_audit",
+            CREATE_NIP46_REQUEST_AUDIT_NO_UPDATE_SQL,
+            NIP46_REQUEST_AUDIT_NO_UPDATE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "connection_rate_windows_guard_update",
+            "connection_rate_windows",
+            CREATE_CONNECTION_RATE_WINDOWS_GUARD_UPDATE_SQL,
+            CONNECTION_RATE_WINDOWS_GUARD_UPDATE_SHA256,
+        )?,
+    ]);
+    Ok(objects)
+}
+
 /// Independently validates exact catalog versions, counts, and digests.
 pub fn validate_myc_state_catalogs(
     migrations: &MigrationCatalog,
@@ -943,7 +1299,7 @@ pub fn validate_myc_state_catalogs(
     let versions = schema.versions();
     let descriptors = migrations.descriptors();
     let valid = migrations.current_version() == MYC_STATE_SCHEMA_VERSION
-        && descriptors.len() == 3
+        && descriptors.len() == 4
         && descriptors[0].target_version() == 2
         && descriptors[0].name().as_str() == "create_myc_state_metadata"
         && descriptors[0].checksum().as_bytes() == &MYC_STATE_SCHEMA_VERSION_2_MIGRATION_SHA256
@@ -953,9 +1309,12 @@ pub fn validate_myc_state_catalogs(
         && descriptors[2].target_version() == 4
         && descriptors[2].name().as_str() == "create_connection_authorization_state"
         && descriptors[2].checksum().as_bytes() == &MYC_STATE_SCHEMA_VERSION_4_MIGRATION_SHA256
+        && descriptors[3].target_version() == 5
+        && descriptors[3].name().as_str() == "create_bounded_governance_state"
+        && descriptors[3].checksum().as_bytes() == &MYC_STATE_SCHEMA_VERSION_5_MIGRATION_SHA256
         && migrations.digest().as_bytes() == &MYC_MIGRATION_CATALOG_SHA256
         && schema.migration_catalog_digest() == migrations.digest()
-        && versions.len() == 4
+        && versions.len() == 5
         && versions[0].version() == MYC_STATE_BASE_SCHEMA_VERSION
         && versions[0].object_count() == MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT
         && versions[0].digest().as_bytes() == &MYC_STATE_SCHEMA_VERSION_1_SHA256
@@ -968,6 +1327,9 @@ pub fn validate_myc_state_catalogs(
         && versions[3].version() == 4
         && versions[3].object_count() == MYC_STATE_SCHEMA_VERSION_4_OBJECT_COUNT
         && versions[3].digest().as_bytes() == &MYC_STATE_SCHEMA_VERSION_4_SHA256
+        && versions[4].version() == 5
+        && versions[4].object_count() == MYC_STATE_SCHEMA_VERSION_5_OBJECT_COUNT
+        && versions[4].digest().as_bytes() == &MYC_STATE_SCHEMA_VERSION_5_SHA256
         && schema.digest().as_bytes() == &MYC_STATE_SCHEMA_CATALOG_SHA256;
     if valid {
         Ok(())
