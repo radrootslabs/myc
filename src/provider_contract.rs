@@ -15,6 +15,7 @@ pub const MYC_PROVIDER_CONTRACT_VERSION: u32 = 1;
 pub const MYC_PROVIDER_INPUT_MAX_BYTES: usize = 262_144;
 /// Maximum untrusted provider output admitted before semantic verification.
 pub const MYC_PROVIDER_OUTPUT_MAX_BYTES: usize = 1_048_576;
+pub(crate) const MYC_PROVIDER_NIP44_PLAINTEXT_MAX_BYTES: usize = 65_536 - 128;
 /// Maximum configured local-signer request deadline.
 pub const MYC_PROVIDER_REQUEST_DEADLINE_MAX_MS: u64 = 30_000;
 /// Maximum configured local-signer request body.
@@ -145,7 +146,7 @@ impl MycProviderCapabilitySet {
         Ok(Self(bits))
     }
 
-    const fn for_role(role: MycProviderRole) -> Self {
+    pub(crate) const fn for_role(role: MycProviderRole) -> Self {
         let common =
             MycProviderCapability::Describe.bit() | MycProviderCapability::PublicIdentity.bit();
         match role {
@@ -739,11 +740,14 @@ impl MycProviderOperationInput {
         version: MycProviderNip44Version,
         plaintext: &[u8],
     ) -> Result<Self, MycProviderContractError> {
+        if plaintext.len() > MYC_PROVIDER_NIP44_PLAINTEXT_MAX_BYTES {
+            return Err(contract_error(MycProviderContractErrorKind::InvalidInput));
+        }
         Ok(Self {
             kind: ProviderOperationInputKind::Nip44Encrypt {
                 peer,
                 version,
-                plaintext: copy_input(plaintext, true)?,
+                plaintext: copy_input(plaintext, false)?,
             },
         })
     }
@@ -1154,6 +1158,22 @@ mod tests {
         assert_eq!(
             encrypt.nip44_version().map(MycProviderNip44Version::as_u8),
             Some(2)
+        );
+        assert!(
+            MycProviderOperationInput::nip44_encrypt(
+                MycProviderPublicIdentity::new(&"2".repeat(64)).expect("peer"),
+                MycProviderNip44Version::V2,
+                &vec![0; MYC_PROVIDER_NIP44_PLAINTEXT_MAX_BYTES]
+            )
+            .is_ok()
+        );
+        assert!(
+            MycProviderOperationInput::nip44_encrypt(
+                MycProviderPublicIdentity::new(&"2".repeat(64)).expect("peer"),
+                MycProviderNip44Version::V2,
+                &vec![0; MYC_PROVIDER_NIP44_PLAINTEXT_MAX_BYTES + 1]
+            )
+            .is_err()
         );
 
         assert!(MycUntrustedProviderOutput::new(&vec![0; MYC_PROVIDER_OUTPUT_MAX_BYTES]).is_ok());

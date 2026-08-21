@@ -121,29 +121,44 @@ const fn transport_error(kind: MycLocalSignerTransportErrorKind) -> MycLocalSign
 /// prove that the external signer performed no operation, and this value never
 /// represents publication.
 pub struct MycLocalSignerUntrustedResponse {
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    outer_correlation_id: radroots_service_host::AdminCorrelationId,
+    outer_correlation_id: Box<str>,
     response: LocalSignerResponse,
+}
+
+impl MycLocalSignerUntrustedResponse {
+    #[cfg(test)]
+    pub(crate) fn from_parts(parts: LocalSignerUntrustedParts) -> Self {
+        Self {
+            outer_correlation_id: parts.outer_correlation_id,
+            response: parts.response,
+        }
+    }
+
+    pub(crate) fn into_parts(self) -> LocalSignerUntrustedParts {
+        LocalSignerUntrustedParts {
+            outer_correlation_id: self.outer_correlation_id,
+            response: self.response,
+        }
+    }
+}
+
+pub(crate) struct LocalSignerUntrustedParts {
+    pub(crate) outer_correlation_id: Box<str>,
+    pub(crate) response: LocalSignerResponse,
 }
 
 impl fmt::Debug for MycLocalSignerUntrustedResponse {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("MycLocalSignerUntrustedResponse")
-            .field("correlation_id", &{
-                #[cfg(any(target_os = "linux", target_os = "macos"))]
-                {
-                    if self.outer_correlation_id.as_str().is_empty() {
-                        "[invalid]"
-                    } else {
-                        "[redacted]"
-                    }
-                }
-                #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-                {
+            .field(
+                "correlation_id",
+                &if self.outer_correlation_id.is_empty() {
+                    "[invalid]"
+                } else {
                     "[redacted]"
-                }
-            })
+                },
+            )
             .field("provider_instance", &self.response.provider_instance)
             .field("role", &self.response.role)
             .field("capability", &self.response.capability)
@@ -245,7 +260,7 @@ impl MycLocalSignerClient {
         .await
         .map_err(|_| transport_error(MycLocalSignerTransportErrorKind::Deadline))??;
         Ok(MycLocalSignerUntrustedResponse {
-            outer_correlation_id: response.correlation_id().clone(),
+            outer_correlation_id: response.correlation_id().as_str().into(),
             response: response.into_result(),
         })
     }
@@ -324,7 +339,7 @@ fn map_admin_error(error: radroots_service_host::AdminClientError) -> MycLocalSi
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum WireRole {
+pub(crate) enum WireRole {
     Transport,
     User,
     Discovery,
@@ -342,7 +357,7 @@ impl From<MycProviderRole> for WireRole {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum WireProviderInstance {
+pub(crate) enum WireProviderInstance {
     Transport,
     User,
     Discovery,
@@ -360,7 +375,7 @@ impl From<MycProviderInstanceId> for WireProviderInstance {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum WireCapability {
+pub(crate) enum WireCapability {
     Describe,
     PublicIdentity,
     SignEvent,
@@ -501,21 +516,21 @@ impl WireProviderInput {
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct LocalSignerResponse {
-    contract_version: u32,
-    provider_instance: WireProviderInstance,
-    role: WireRole,
-    operation_id: String,
-    correlation_id: String,
-    absolute_deadline_unix_ms: u64,
-    expected_identity: String,
-    capability: WireCapability,
-    result: WireProviderResult,
+pub(crate) struct LocalSignerResponse {
+    pub(crate) contract_version: u32,
+    pub(crate) provider_instance: WireProviderInstance,
+    pub(crate) role: WireRole,
+    pub(crate) operation_id: String,
+    pub(crate) correlation_id: String,
+    pub(crate) absolute_deadline_unix_ms: u64,
+    pub(crate) expected_identity: String,
+    pub(crate) capability: WireCapability,
+    pub(crate) result: WireProviderResult,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-enum WireProviderResult {
+pub(crate) enum WireProviderResult {
     Describe {
         public_identity: String,
         protocol_version: u32,
@@ -529,26 +544,30 @@ enum WireProviderResult {
         payload_hex: ProtectedWireHex,
     },
     Nip04Encrypt {
+        peer: String,
         payload_hex: ProtectedWireHex,
     },
     Nip04Decrypt {
+        peer: String,
         payload_hex: ProtectedWireHex,
     },
     Nip44Encrypt {
+        peer: String,
         version: u8,
         payload_hex: ProtectedWireHex,
     },
     Nip44Decrypt {
+        peer: String,
         version: u8,
         payload_hex: ProtectedWireHex,
     },
 }
 
-struct ProtectedWireHex(Zeroizing<String>);
+pub(crate) struct ProtectedWireHex(Zeroizing<String>);
 
 impl ProtectedWireHex {
     #[cfg(any(test, target_os = "linux", target_os = "macos"))]
-    fn from_bytes(bytes: &[u8]) -> Self {
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Self {
         Self(Zeroizing::new(hex::encode(bytes)))
     }
 
@@ -562,6 +581,12 @@ impl ProtectedWireHex {
             return Err(transport_error(MycLocalSignerTransportErrorKind::Response));
         }
         Ok(Self(Zeroizing::new(value)))
+    }
+
+    pub(crate) fn into_bytes(self) -> Result<Zeroizing<Vec<u8>>, MycLocalSignerTransportError> {
+        hex::decode(self.0.as_bytes())
+            .map(Zeroizing::new)
+            .map_err(|_| transport_error(MycLocalSignerTransportErrorKind::Response))
     }
 }
 
@@ -852,7 +877,7 @@ mod tests {
             let client = MycLocalSignerClient::new(&binding).expect("client");
             let response = client.execute(&operation).await.expect("transport success");
             assert_eq!(
-                response.outer_correlation_id.as_str(),
+                response.outer_correlation_id.as_ref(),
                 hex::encode(operation.correlation_id().as_bytes())
             );
             assert_eq!(response.response.contract_version, 1);

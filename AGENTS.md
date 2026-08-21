@@ -63,6 +63,14 @@
   socket, carries the complete provider-operation binding in closed tagged
   request/response models, enforces configured body/deadline/concurrency
   limits, and returns only semantically untrusted output for Step 135.
+- Provider verification is frozen by
+  `contracts/services_hardening/provider_verification.v1.json`. It requires
+  injected observation time, rebinds the complete response to the configured
+  provider and original operation, verifies peer/direction/version and exact
+  protocol shapes, cryptographically verifies signed events, retains their
+  exact canonical bytes, and returns only a sealed redacted result.
+  Verification is not publication and performs no provider execution or
+  database mutation.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

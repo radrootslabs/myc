@@ -52,19 +52,19 @@ fn machine_contract_freezes_the_complete_local_signer_transport() {
                 },
                 "nip04_encrypt": {
                     "input_fields": ["peer", "payload_hex"],
-                    "result_fields": ["payload_hex"]
+                    "result_fields": ["peer", "payload_hex"]
                 },
                 "nip04_decrypt": {
                     "input_fields": ["peer", "payload_hex"],
-                    "result_fields": ["payload_hex"]
+                    "result_fields": ["peer", "payload_hex"]
                 },
                 "nip44_encrypt": {
                     "input_fields": ["peer", "version", "payload_hex"],
-                    "result_fields": ["version", "payload_hex"]
+                    "result_fields": ["peer", "version", "payload_hex"]
                 },
                 "nip44_decrypt": {
                     "input_fields": ["peer", "version", "payload_hex"],
-                    "result_fields": ["version", "payload_hex"]
+                    "result_fields": ["peer", "version", "payload_hex"]
                 }
             },
             "protected_payload_encoding": "lowercase_hex",

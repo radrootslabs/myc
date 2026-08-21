@@ -1,0 +1,70 @@
+{
+  "schema": "radroots.myc.provider-verification",
+  "schema_version": 1,
+  "provider_contract_version": 1,
+  "local_signer_transport_contract_version": 1,
+  "observation_time": {
+    "source": "injected",
+    "minimum_unix_ms": 1,
+    "maximum_unix_ms": 9223372036854775807
+  },
+  "verification_order": [
+    "configured_binding",
+    "absolute_deadline",
+    "outer_correlation",
+    "response_envelope_binding",
+    "result_shape",
+    "semantic_result"
+  ],
+  "response_binding": [
+    "contract_version",
+    "provider_instance",
+    "role",
+    "operation_id",
+    "correlation_id",
+    "absolute_deadline_unix_ms",
+    "expected_identity",
+    "capability"
+  ],
+  "describe": {
+    "identity": "exact_expected",
+    "protocol_version": 1,
+    "capabilities": "closed_unique_contains_role_requirements",
+    "maximum_request_bytes": "exact_configured_limit"
+  },
+  "public_identity": "exact_expected",
+  "sign_event": [
+    "canonical_unsigned_json",
+    "exact_unsigned_fields",
+    "exact_expected_author",
+    "computed_event_id",
+    "valid_schnorr_signature",
+    "canonical_signed_json",
+    "retain_exact_verified_bytes"
+  ],
+  "nip04": {
+    "direction": "exact_result_tag",
+    "peer": "exact_echo",
+    "ciphertext": "canonical_base64_aes_cbc_shape",
+    "encrypt_length": "exact_plaintext_padding_length",
+    "decrypt_length": "less_than_ciphertext_block_capacity"
+  },
+  "nip44": {
+    "direction": "exact_result_tag",
+    "peer": "exact_echo",
+    "version": 2,
+    "plaintext_max_bytes": 65408,
+    "ciphertext": "canonical_base64_v2_shape",
+    "encrypt_length": "exact_v2_plaintext_padding_length",
+    "decrypt_length": "bounded_by_ciphertext_padding_capacity"
+  },
+  "semantic_output_max_bytes": 1048576,
+  "verified_result_sealed": true,
+  "verified_result_serializable": false,
+  "safe_errors_source_free": true,
+  "late_result_usable": false,
+  "ambiguous_result_is_publication": false,
+  "signing_is_publication": false,
+  "database_transaction_allowed": false,
+  "provider_execution_allowed": false
+}

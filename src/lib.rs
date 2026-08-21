@@ -6,6 +6,7 @@ mod provider_contract;
 mod provider_credential;
 mod provider_envelope;
 mod provider_local_signer;
+mod provider_verification;
 mod runtime_context;
 mod state_catalog;
 mod state_connection;
@@ -54,6 +55,10 @@ pub use provider_local_signer::{
     MYC_LOCAL_SIGNER_ENDPOINT, MYC_LOCAL_SIGNER_TRANSPORT_CONTRACT_VERSION, MycLocalSignerClient,
     MycLocalSignerTransportError, MycLocalSignerTransportErrorKind,
     MycLocalSignerUntrustedResponse,
+};
+pub use provider_verification::{
+    MycProviderResponseObservedAtUnixMs, MycProviderVerificationError,
+    MycProviderVerificationErrorKind, MycVerifiedProviderResponse,
 };
 pub use radroots_runtime_paths::{
     INSTANCE_ID_MAX_BYTES, InstanceId, RadrootsHostEnvironment, RadrootsPathProfile,

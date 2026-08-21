@@ -119,6 +119,18 @@ Step 135 verification; cancellation does not prove the signer had no effect,
 and signing is never publication. No TCP, browser origin, or child process is
 part of this boundary.
 
+Independent provider verification uses injected completion time and rejects a
+late result before semantic exposure. It rebinds the configured role,
+instance, identity, operation/correlation IDs, deadline, capability, NIP peer,
+direction, and version. Describe/public-identity results must match the
+configured identity and limits; signed Nostr events must preserve the exact
+canonical unsigned fields, pass event-ID and Schnorr verification, and retain
+the exact verified canonical response bytes; NIP-04 and NIP-44 ciphertext must
+have canonical protocol shape and exact padding length where the plaintext is
+known. NIP-44 v2 plaintext is admitted only through its exact 65,408-byte
+implementation ceiling. Verified output remains sealed and redacted, and
+neither verification nor signing constitutes publication.
+
 Signer-request admission validates bounded client, request, event, method,
 canonical request, injected operation entropy, and injected time evidence
 before storage. Stable domain-separated operation and correlation identities
