@@ -41,4 +41,11 @@ fn release_acceptance_checks_both_feature_profiles() {
 fn source_lock_binds_the_current_cargo_lock() {
     let digest = hex::encode(Sha256::digest(include_bytes!("../Cargo.lock")));
     assert!(SOURCE_LOCK.contains(&format!("lockfile_sha256 = \"{digest}\"")));
+    assert!(SOURCE_LOCK.contains("revision = \"b44119fbac5985be8127ad1bf56d2950e6399427\""));
+    assert!(SOURCE_LOCK.contains(
+        "workspace_catalog_sha256 = \"deca0c080deae187ff8186c0708903e42f41ea57f77c5f91581e23aa561164a4\""
+    ));
+    assert!(SOURCE_LOCK.contains(
+        "source_archive_sha256 = \"975474804e6358b9228981add0a23181dbdd1afddf5ae12579c82220876bc379\""
+    ));
 }

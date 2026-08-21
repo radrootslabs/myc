@@ -36,25 +36,23 @@ impl Signer for MycActiveIdentity {
         Box::pin(async move {
             let now = now_unix_ms();
             request.ensure_active(now)?;
-            let plan = request.plan();
-            if plan.author() != &self.public_identity().public_key() {
+            if request.expected_author() != &self.public_identity().public_key() {
                 return Err(Error::new(SigningErrorKind::AuthorizationDenied));
             }
             report_progress(&request, SignProgressStage::Validating)?;
 
-            let kind = u16::try_from(plan.body().kind())
+            let kind = u16::try_from(request.kind())
                 .map_err(|_| Error::new(SigningErrorKind::InvalidArgument))?;
-            let tags = plan
-                .body()
+            let tags = request
                 .tags()
                 .iter()
                 .cloned()
                 .map(Tag::parse)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|source| Error::with_source(SigningErrorKind::InvalidArgument, source))?;
-            let unsigned = EventBuilder::new(Kind::Custom(kind), plan.body().content())
+            let unsigned = EventBuilder::new(Kind::Custom(kind), request.content())
                 .tags(tags)
-                .custom_created_at(Timestamp::from(plan.created_at()))
+                .custom_created_at(Timestamp::from(request.created_at()))
                 .build(self.public_key());
             let event = self
                 .sign_unsigned_event(unsigned, "final signing request")
