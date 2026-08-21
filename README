@@ -47,10 +47,10 @@ without changing the canonical common artifact inventory.
 
 Create-new initialization reserves the shared schema-v1 metadata and migration
 ledger, retains exclusive writer authority, applies the exact Myc schema-v2
-through schema-v6 migrations, binds the normalized configuration, expected
+through schema-v7 migrations, binds the normalized configuration, expected
 identity roles, and policy versions through a sealed typed repository, and
 explicitly closes the host before reporting success. Existing writable open can
-resume any exact v1 through v5 prefix; read-only inspection requires the current
+resume any exact v1 through v6 prefix; read-only inspection requires the current
 catalog and exact immutable Myc binding.
 
 The public Myc repository exposes no raw pool, connection, transaction-control
@@ -62,8 +62,17 @@ authorization-challenge tables and guards are checksum-pinned service-owned
 schema objects. Schema v5 adds checksum-pinned audit-sequence, safe operation
 audit, request-audit binding, and bounded rate-window objects. Schema v6 adds
 checksum-pinned publication-job, target, attempt, transition-guard, and
-no-delete objects; discovery and exact signed-event storage remain owned by
-their later ordered repository steps.
+no-delete objects. Schema v7 adds desired/current discovery state, exact signed
+NIP-89 event bytes, deterministic NIP-05 projection inputs, and their delivery
+binding.
+
+The earlier JSON signer store, JSONL audit log, separate signer/audit/outbox
+SQLite databases, prototype import/backup adapter, independent migration
+directories, and their runtime/operability consumers have been removed. The
+only authoritative service-state database is the canonical `state.sqlite` and
+the only writer authority is its retained `state.lock`; there is no backend
+selection, compatibility reader, prototype importer, or secondary migration
+engine.
 
 Signer-request admission validates bounded client, request, event, method,
 canonical request, injected operation entropy, and injected time evidence

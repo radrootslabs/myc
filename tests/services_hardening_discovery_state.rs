@@ -3,11 +3,6 @@
 
 use std::{error::Error, fs, os::unix::fs::PermissionsExt, path::Path};
 
-use myc::host_identity::RadrootsIdentity;
-use myc::nostr_contract::{
-    RadrootsNostrApplicationHandlerSpec, RadrootsNostrMetadata, RadrootsNostrTimestamp,
-    radroots_nostr_build_application_handler_event,
-};
 use myc::{
     MYC_DISCOVERY_DOCUMENT_MAX_BYTES, MYC_STATE_SCHEMA_VERSION, MycConfigProfile,
     MycDeliveryAttemptNonce, MycDeliveryAttemptOutcome, MycDeliveryClaim, MycDeliveryJobStatus,
@@ -16,6 +11,12 @@ use myc::{
     MycStateRepositoryErrorKind, RadrootsHostEnvironment, RadrootsPathResolver, RadrootsPlatform,
     initialize_myc_state, open_myc_state_read_write, parse_myc_cli_v1_from, parse_myc_config_v1,
     resolve_myc_runtime_context,
+};
+use nostr::{Keys, SecretKey};
+use radroots_nostr::event::{
+    ApplicationHandlerSpec as RadrootsNostrApplicationHandlerSpec,
+    Metadata as RadrootsNostrMetadata, Timestamp as RadrootsNostrTimestamp,
+    build_application_handler as radroots_nostr_build_application_handler_event,
 };
 use radroots_service_sqlite::{MigrationAppliedAtUnixSeconds, MigrationBuildIdentity};
 use radroots_storage::event::SourceGeneration;
@@ -54,17 +55,17 @@ fn prepare_state_directory(runtime: &myc::MycRuntimeContext) {
     fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).expect("state mode");
 }
 
-fn discovery_identity() -> RadrootsIdentity {
-    RadrootsIdentity::from_secret_key_str(DISCOVERY_SECRET).expect("discovery identity")
+fn discovery_keys() -> Keys {
+    Keys::new(SecretKey::parse(DISCOVERY_SECRET).expect("discovery secret"))
 }
 
 fn config_source(enabled: bool) -> Vec<u8> {
-    let identity = discovery_identity();
+    let identity = discovery_keys();
     let source = String::from_utf8(CONFIG_EXAMPLE.to_vec())
         .expect("UTF-8 configuration")
         .replace(
             "3333333333333333333333333333333333333333333333333333333333333333",
-            &identity.public_key_hex(),
+            &identity.public_key().to_hex(),
         );
     if enabled {
         return source.into_bytes();
@@ -157,7 +158,7 @@ fn signed_handler_event(created_at: u64) -> Vec<u8> {
     let event = radroots_nostr_build_application_handler_event(&spec)
         .expect("typed handler event")
         .custom_created_at(RadrootsNostrTimestamp::from_secs(created_at))
-        .sign_with_keys(discovery_identity().keys())
+        .sign_with_keys(&discovery_keys())
         .expect("signed event");
     serde_json::to_vec(&event).expect("canonical event bytes")
 }

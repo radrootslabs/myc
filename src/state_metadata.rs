@@ -17,9 +17,8 @@ use crate::state_governance::{
     MycGovernancePolicies, MycRateLimitClass, MycRateLimitPolicy, MycRateRelayId,
 };
 use crate::{
-    MYC_CONFIG_SCHEMA_VERSION, MYC_SIGNER_STATUS_CONTRACT_VERSION, MYC_STATE_BASE_SCHEMA_VERSION,
-    MYC_STATE_SCHEMA_VERSION, MycBootstrapProfileV1, MycConfigDocumentV1, MycConfigProfile,
-    MycRuntimeContext,
+    MYC_CONFIG_SCHEMA_VERSION, MYC_STATE_BASE_SCHEMA_VERSION, MYC_STATE_SCHEMA_VERSION,
+    MycBootstrapProfileV1, MycConfigDocumentV1, MycConfigProfile, MycRuntimeContext,
 };
 
 const NORMALIZED_CONFIG_DIGEST_DOMAIN: &[u8] = b"radroots.myc.normalized_config.v1\0";
@@ -29,6 +28,8 @@ pub const MYC_STATE_APPLICATION_ID: u32 = 0x5244_4d59;
 
 /// Exact version of the governed Myc operator contract.
 pub const MYC_OPERATOR_CONTRACT_VERSION: u32 = 1;
+/// Exact version of the governed Myc status contract.
+pub const MYC_SIGNER_STATUS_CONTRACT_VERSION: u32 = 1;
 
 /// SHA-256 identity of one fully defaulted normalized Myc configuration.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

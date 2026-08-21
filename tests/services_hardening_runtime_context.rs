@@ -4,15 +4,13 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 
 use myc::{
-    MycBootstrapProfileV1, MycConfig, MycRuntimeContextErrorKind, RadrootsHostEnvironment,
+    MycBootstrapProfileV1, MycRuntimeContextErrorKind, RadrootsHostEnvironment,
     RadrootsPathProfile, RadrootsPathResolver, RadrootsPlatform, RuntimeContextSource,
     parse_myc_cli_v1_from, resolve_myc_runtime_context,
 };
 
 const MANIFEST: &str = include_str!("../Cargo.toml");
 const LIB_SOURCE: &str = include_str!("../src/lib.rs");
-const PATHS_SOURCE: &str = include_str!("../src/paths.rs");
-const CONFIG_SOURCE: &str = include_str!("../src/config.rs");
 const CONTEXT_SOURCE: &str = include_str!("../src/runtime_context.rs");
 
 fn resolve(
@@ -281,12 +279,10 @@ fn unsupported_profile_platform_and_diagnostics_fail_safely() {
         Some("/private/secret-root"),
         Some("/private/secret-config.toml"),
     );
-    let config = MycConfig::from_runtime_context(context.clone());
-    for debug in [format!("{context:?}"), format!("{:?}", config.paths())] {
-        assert!(!debug.contains("secret-instance"));
-        assert!(!debug.contains("secret-root"));
-        assert!(!debug.contains("secret-config"));
-    }
+    let debug = format!("{context:?}");
+    assert!(!debug.contains("secret-instance"));
+    assert!(!debug.contains("secret-root"));
+    assert!(!debug.contains("secret-config"));
 }
 
 #[test]
@@ -295,34 +291,10 @@ fn shared_runtime_paths_are_the_only_path_policy_and_identity_authority() {
         "radroots_runtime_paths = { git = \"https://github.com/radrootslabs/lib\", rev = \"b44119fbac5985be8127ad1bf56d2950e6399427\", version = \"=0.1.0-alpha\" }"
     ));
     assert!(LIB_SOURCE.contains("mod runtime_context;"));
-    assert!(LIB_SOURCE.contains("mod paths;"));
     assert!(!LIB_SOURCE.contains("pub mod runtime_context;"));
-    assert!(!LIB_SOURCE.contains("pub mod paths;"));
     assert!(CONTEXT_SOURCE.contains("RuntimeContext::resolve("));
     assert!(CONTEXT_SOURCE.contains("default_service_instance_artifacts("));
-
-    for forbidden in [
-        "struct RadrootsHostEnvironment",
-        "enum RadrootsPlatform",
-        "enum RadrootsPathProfile",
-        "struct RadrootsPathResolver",
-        "struct RadrootsRuntimePathSelection",
-        "struct RuntimeRoots",
-        "std::env::",
-        "var_os(",
-        "worker_path",
-        "worker_namespace",
-        "apply_path_defaults",
-        "default_with_path_selection",
-    ] {
-        assert!(!PATHS_SOURCE.contains(forbidden), "found `{forbidden}`");
-    }
-    for forbidden in [
-        "impl Default for MycConfig",
-        "struct MycServiceConfig",
-        "service.instance_name",
-        "MYC_INSTANCE_ID_MAX_BYTES",
-    ] {
-        assert!(!CONFIG_SOURCE.contains(forbidden), "found `{forbidden}`");
-    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    assert!(!root.join("src/paths.rs").exists());
+    assert!(!root.join("src/config.rs").exists());
 }

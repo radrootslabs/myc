@@ -10,9 +10,6 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 
-use crate::nostr_contract::{
-    RadrootsNostrEvent, RadrootsNostrKind, RadrootsNostrMetadata, RadrootsNostrRelayUrl,
-};
 use crate::state_delivery::{
     DeliveryOperationError, MycDeliveryArtifactDigest, MycDeliveryJobId, MycDeliveryJobRecord,
     MycDeliveryJobStatus, MycDeliverySource, MycDeliveryTimeUnixMs, create_job,
@@ -22,6 +19,10 @@ use crate::state_repository::{
     RepositoryOperationError, require_expected_metadata,
 };
 use crate::{MycExpectedIdentities, MycStateMetadata};
+use nostr::RelayUrl as RadrootsNostrRelayUrl;
+use radroots_nostr::event::{
+    Event as RadrootsNostrEvent, Kind as RadrootsNostrKind, Metadata as RadrootsNostrMetadata,
+};
 
 /// Maximum exact signed-event bytes admitted from the configured event bound.
 pub const MYC_DISCOVERY_DOCUMENT_MAX_BYTES: usize = 524_288;
