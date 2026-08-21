@@ -57,6 +57,12 @@
   repo-local provisioning are external/offline; ordinary run, TOML,
   environment, arguments, envelope siblings, and state backup never create or
   carry the credential.
+- Local-signer transport is frozen by
+  `contracts/services_hardening/local_signer_transport.v1.json`. It uses the
+  hardened Lib `AdminClient` for one fixed HTTP/1.1 JSON endpoint over a Unix
+  socket, carries the complete provider-operation binding in closed tagged
+  request/response models, enforces configured body/deadline/concurrency
+  limits, and returns only semantically untrusted output for Step 135.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

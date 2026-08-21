@@ -44,6 +44,7 @@ radroots_event = { git = "https://github.com/radrootslabs/lib", rev = "b44119fba
 radroots_nostr = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha", features = ["events"] }
 radroots_nostr_connect = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha" }
 radroots_runtime_paths = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha" }
+radroots_service_host = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha" }
 radroots_service_sqlite = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha" }
 radroots_secrets = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha", features = ["std", "keyring"] }
 radroots_signing = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha", features = ["std"] }

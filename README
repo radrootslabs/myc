@@ -108,6 +108,17 @@ resolution is unsupported, and TOML, environment, process arguments, adjacent
 envelope files, ordinary run, and state backup neither carry nor create the
 credential.
 
+Local-signer calls use the source-locked hardened Lib administration client for
+strict HTTP/1.1 JSON over the configured Unix socket. One fixed
+`/v1/provider/operation` endpoint carries a closed internally tagged operation
+and result plus exact provider instance, role, operation/correlation IDs,
+absolute deadline, expected identity, capability, and contract version. The
+validated binding supplies body, deadline, and per-client concurrency limits.
+Transport success remains sealed and semantically untrusted until independent
+Step 135 verification; cancellation does not prove the signer had no effect,
+and signing is never publication. No TCP, browser origin, or child process is
+part of this boundary.
+
 Signer-request admission validates bounded client, request, event, method,
 canonical request, injected operation entropy, and injected time evidence
 before storage. Stable domain-separated operation and correlation identities

@@ -425,6 +425,14 @@ impl MycProviderBinding {
         }
     }
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub(crate) fn local_signer_socket_path(&self) -> Option<&std::path::Path> {
+        match &self.location {
+            ProviderLocation::LocalSigner { socket_path, .. } => Some(socket_path),
+            ProviderLocation::EncryptedFile { .. } => None,
+        }
+    }
+
     fn location_is_valid(&self) -> bool {
         match &self.location {
             ProviderLocation::EncryptedFile {
