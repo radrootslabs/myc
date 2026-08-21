@@ -24,6 +24,13 @@ fn forge(_: MycRuntimeFoundation) {}
 The reviewed all-features surface is frozen in the
 [Myc API baseline](contracts/api_baselines/myc.txt).
 
+The native package and dependency-trust metadata is frozen by
+`contracts/services_hardening/native_release.v1.json`. Linux x86_64 and
+aarch64 are declared release targets, not qualified artifacts. The canonical
+service source lock binds the exact public Lib cohort, Cargo and flake lock
+source data, toolchain, feature profile, and service contract versions. Nix,
+OCI, signing, tags, publication, and deployment remain deferred and unclaimed.
+
 ## Hardened v1 configuration contract
 
 The target service configuration is frozen by

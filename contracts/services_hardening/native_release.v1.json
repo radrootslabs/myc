@@ -1,0 +1,82 @@
+{
+  "schema": "radroots.myc.native-release",
+  "schema_version": 1,
+  "contract_version": 1,
+  "service": "myc",
+  "package": {
+    "name": "myc",
+    "binary": "myc",
+    "version": "0.1.0",
+    "repository": "https://github.com/radrootslabs/myc",
+    "publish_to_crates_io": false
+  },
+  "toolchain": {
+    "rust_version": "1.97.1",
+    "edition": "2024",
+    "resolver": "3",
+    "host_feature_profile": "service-host"
+  },
+  "release_profile": {
+    "lto": "thin",
+    "codegen_units": 1,
+    "overflow_checks": true,
+    "strip": "symbols",
+    "panic": "unwind"
+  },
+  "source_lock": {
+    "filename": "radroots.service.source-lock.v1.toml",
+    "schema": "radroots.service.source-lock.v1",
+    "generator": "cargo xtask service-source-lock",
+    "lib_repository": "https://github.com/radrootslabs/lib",
+    "architecture": "radroots.crates.release.v2"
+  },
+  "contract_versions": {
+    "config": 1,
+    "state": 7,
+    "admin": 1,
+    "status": 1,
+    "provider": 1
+  },
+  "native_targets": [
+    {
+      "target": "aarch64-unknown-linux-gnu",
+      "posture": "target"
+    },
+    {
+      "target": "x86_64-unknown-linux-gnu",
+      "posture": "target"
+    }
+  ],
+  "step_139_outputs": [
+    "cargo_package_metadata",
+    "release_profile",
+    "dependency_source_trust",
+    "service_source_lock"
+  ],
+  "deferred_to_step_160": [
+    "native_binary_archive",
+    "service_source_archive",
+    "systemd_material",
+    "sbom",
+    "provenance",
+    "notices",
+    "checksums",
+    "signing_inputs"
+  ],
+  "deferred_through_rcld_rshr_170": [
+    "nix_evaluation",
+    "nix_build",
+    "nixos_module_qualification",
+    "oci_artifact"
+  ],
+  "forbidden": [
+    "local_or_path_lib_dependency",
+    "floating_or_branch_lib_dependency",
+    "mixed_lib_revision",
+    "crates_io_publication",
+    "signing",
+    "tagging",
+    "release_publication",
+    "deployment"
+  ]
+}

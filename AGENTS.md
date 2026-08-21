@@ -89,6 +89,12 @@
   every intentional public-surface change. Shared runtime-path, SQLite, and
   storage identity types are deliberate governed contract dependencies;
   provider, SQLx, Serde, transport, and task implementation types are not.
+- Step 139 owns the final service source-lock schema and the pre-promotion
+  native package metadata. Keep the exact Lib revision consistent across every
+  direct Radroots dependency, Cargo.lock, flake.lock source data, the verified
+  source archive, and the generated service lock. Native target metadata does
+  not qualify an artifact; Nix, OCI, signing, tags, publication, and deployment
+  remain deferred.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

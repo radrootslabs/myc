@@ -6,9 +6,27 @@ authors = ["Radroots Authors"]
 rust-version = "1.97.1"
 license = "AGPL-3.0-or-later"
 description = "Radroots NIP-46 remote signer for delegated Nostr accounts"
+repository = "https://github.com/radrootslabs/myc"
+readme = "README"
+publish = false
 
 [workspace]
 resolver = "3"
+
+[workspace.metadata.radroots.service_source_lock]
+service = "myc"
+host_feature_profile = "service-host"
+config_contract_version = 1
+state_contract_version = 7
+admin_contract_version = 1
+status_contract_version = 1
+provider_contract_version = 1
+
+[workspace.metadata.radroots.service_release]
+service = "myc"
+service_package = "myc"
+binary_name = "myc"
+version = "0.1.0"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
@@ -56,3 +74,10 @@ zeroize = "1.8"
 
 [dev-dependencies]
 tempfile = "3.17"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+overflow-checks = true
+strip = "symbols"
+panic = "unwind"
