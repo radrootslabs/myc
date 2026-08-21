@@ -26,6 +26,7 @@ pub mod signer;
 mod signing_adapter;
 pub mod sql;
 mod state_catalog;
+mod state_host;
 pub mod transport;
 
 pub use app::{
@@ -110,5 +111,9 @@ pub use state_catalog::{
     MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT, MYC_STATE_SCHEMA_VERSION_1_SHA256,
     MycStateCatalogError, MycStateCatalogErrorKind, myc_migration_catalog, myc_schema_catalog,
     validate_myc_state_catalogs,
+};
+pub use state_host::{
+    MycStateHost, MycStateHostError, MycStateHostErrorKind, MycStateHostMode, initialize_myc_state,
+    open_myc_state_inspection, open_myc_state_read_write,
 };
 pub use transport::{MycNostrTransport, MycRelayPublishResult, MycTransportSnapshot};

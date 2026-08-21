@@ -41,6 +41,13 @@ fn shared_service_sqlite_is_exactly_pinned_to_the_source_locked_lib() {
 }
 
 #[test]
+fn shared_storage_test_evidence_is_exactly_pinned_to_the_source_locked_lib() {
+    assert!(MANIFEST.contains(
+        "radroots_storage = { git = \"https://github.com/radrootslabs/lib\", rev = \"b44119fbac5985be8127ad1bf56d2950e6399427\", version = \"=0.1.0-alpha\", default-features = false }"
+    ));
+}
+
+#[test]
 fn release_acceptance_checks_both_feature_profiles() {
     assert!(
         RELEASE_ACCEPTANCE.contains("cargo check --locked --all-targets --no-default-features\n")
