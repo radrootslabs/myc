@@ -4,7 +4,6 @@ pub mod accounts;
 pub mod app;
 pub mod audit;
 mod audit_sqlite;
-pub mod cli;
 mod cli_v1;
 pub mod config;
 mod config_v1;
@@ -41,11 +40,11 @@ pub use cli_v1::{
     parse_myc_cli_v1_from,
 };
 pub use config::{
-    DEFAULT_ENV_PATH, MycAuditConfig, MycConfig, MycConnectionApproval, MycCustodyConfig,
-    MycDiscoveryConfig, MycDiscoveryMetadataConfig, MycIdentityBackend, MycIdentitySourceSpec,
-    MycLoggingConfig, MycObservabilityConfig, MycPathsConfig, MycPersistenceConfig,
-    MycPolicyConfig, MycRuntimeAuditBackend, MycRuntimeContractOutput, MycServiceConfig,
-    MycSignerStateBackend, MycTransportConfig, MycTransportDeliveryPolicy,
+    MycAuditConfig, MycConfig, MycConnectionApproval, MycCustodyConfig, MycDiscoveryConfig,
+    MycDiscoveryMetadataConfig, MycIdentityBackend, MycIdentitySourceSpec, MycLoggingConfig,
+    MycObservabilityConfig, MycPathsConfig, MycPersistenceConfig, MycPolicyConfig,
+    MycRuntimeAuditBackend, MycRuntimeContractOutput, MycServiceConfig, MycSignerStateBackend,
+    MycTransportConfig, MycTransportDeliveryPolicy,
 };
 pub use config_v1::{
     MYC_CONFIG_DOCUMENT_MAX_UTF8_BYTES, MYC_CONFIG_SCHEMA, MYC_CONFIG_SCHEMA_VERSION,
@@ -97,13 +96,3 @@ pub use persistence::{
 };
 pub use policy::{MycConnectDecision, MycPolicyContext};
 pub use transport::{MycNostrTransport, MycRelayPublishResult, MycTransportSnapshot};
-
-pub async fn run() -> Result<(), MycError> {
-    let config = MycConfig::load_from_default_env_path()?;
-    logging::init_logging(&config.logging)?;
-    MycApp::bootstrap(config)?.run().await
-}
-
-pub async fn run_cli() -> Result<(), MycError> {
-    cli::run_from_env().await
-}

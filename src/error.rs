@@ -13,18 +13,6 @@ use crate::config::MycTransportDeliveryPolicy;
 
 #[derive(Debug, Error)]
 pub enum MycError {
-    #[error("config io error at {path}: {source}")]
-    ConfigIo {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("config parse error at {path}:{line_number}: {message}")]
-    ConfigParse {
-        path: PathBuf,
-        line_number: usize,
-        message: String,
-    },
     #[error("invalid config: {0}")]
     InvalidConfig(String),
     #[error("invalid operation: {0}")]

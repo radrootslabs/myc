@@ -221,7 +221,7 @@ impl MycPersistenceImportSelection {
             && config.persistence.signer_state_backend != MycSignerStateBackend::Sqlite
         {
             return Err(MycError::InvalidOperation(
-                "json-to-sqlite signer-state import requires MYC_PERSISTENCE_SIGNER_STATE_BACKEND=sqlite"
+                "json-to-sqlite signer-state import requires the sqlite signer-state backend"
                     .to_owned(),
             ));
         }
@@ -229,7 +229,7 @@ impl MycPersistenceImportSelection {
             && config.persistence.runtime_audit_backend != MycRuntimeAuditBackend::Sqlite
         {
             return Err(MycError::InvalidOperation(
-                "json-to-sqlite runtime-audit import requires MYC_PERSISTENCE_RUNTIME_AUDIT_BACKEND=sqlite"
+                "json-to-sqlite runtime-audit import requires the sqlite runtime-audit backend"
                     .to_owned(),
             ));
         }

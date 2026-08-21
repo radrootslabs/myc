@@ -20,8 +20,9 @@ requires explicit `--profile <service-host|interactive|repo-local>` and
 `--config` path. Its exact command inventory is `run`; `config
 init|validate|show|schema`; `state init|status|backup|restore|verify|migrate`;
 `identity init|status|rekey|replace|export-public`; `status`; and `doctor`.
-This parser is a pure admission boundary in the current checkpoint; Step 118
-owns removal of the prototype parser and runtime dispatch migration.
+The process binary uses only this parser. Hardened command execution remains
+fail-closed until its ordered runtime-dispatch steps are complete; no prototype
+command is used as a fallback.
 
 `parse_myc_config_v1` caps original bytes before decoding, checks the schema
 header before closed contract admission, rejects duplicate, null, unknown, and
@@ -31,14 +32,15 @@ leaf records whether it came from the document or one of the exact governed
 default authorities. Ordinary errors and `Debug` output contain no source
 text, paths, credentials, relay URLs, or identity values.
 
-The current runtime loader remains transitional until its ordered replacement
-steps are complete. Existing environment variables and `.env.example` are
-prototype evidence, not authority to change or weaken the v1 contract.
+The prototype environment loader, `.env` example, environment selectors,
+implicit command/profile selection, compatibility aliases, and arbitrary leaf
+flags have been removed. The remaining internal runtime model is not a process
+configuration surface and is replaced only by its later owning checkpoints.
 
 ## NIP-46 runtime contract
 
-Myc listens for encrypted kind-24133 requests on the ordered relay set in
-`MYC_TRANSPORT_RELAY_URLS`. The signer transport identity authors and encrypts
+Myc listens for encrypted kind-24133 requests on the exact configured relay
+inventory. The signer transport identity authors and encrypts
 protocol responses; the separate user identity is returned by
 `get_public_key` and signs user events. Client-supplied connect metadata is a
 bounded, display-only hint and never changes approval, authentication, or
@@ -46,8 +48,8 @@ permissions.
 
 The public approval default is `explicit_user`. Trusted and denied clients,
 permission ceilings, allowed signing kinds, auth challenges, relay switching,
-and delivery policy are configured explicitly through the variables documented
-in `.env.example`. A successful `logout` publishes its acknowledgement before
+and delivery policy are represented only by the strict v1 TOML contract. A
+successful `logout` publishes its acknowledgement before
 revoking the session. Failed acknowledgement delivery remains recoverable on
 restart, while requests from a revoked session remain unauthorized until a new
 connect is approved.

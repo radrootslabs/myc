@@ -3,14 +3,10 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    config::{
-        MycConfig, MycIdentityBackend, MycIdentitySourceSpec, config_parse_error,
-        parse_optional_path_env,
-    },
+    config::{MycConfig, MycIdentityBackend, MycIdentitySourceSpec},
     error::MycError,
 };
 
-pub const DEFAULT_ENV_PATH: &str = "config.env";
 const DEFAULT_STATE_DIR_NAME: &str = "state";
 const DEFAULT_CUSTODY_DIR_NAME: &str = "custody";
 const DEFAULT_SIGNER_IDENTITY_FILE_NAME: &str = "signer-identity.json";
@@ -21,8 +17,6 @@ const DEFAULT_USER_MANAGED_ACCOUNT_FILE_NAME: &str = "user-accounts.json";
 const DEFAULT_DISCOVERY_MANAGED_ACCOUNT_FILE_NAME: &str = "discovery-accounts.json";
 const DEFAULT_DISCOVERY_PUBLIC_DIR_NAME: &str = "public";
 const DEFAULT_DISCOVERY_NIP05_RELATIVE_PATH: &str = ".well-known/nostr.json";
-const MYC_PATHS_PROFILE_ENV: &str = "MYC_PATHS_PROFILE";
-const MYC_PATHS_REPO_LOCAL_ROOT_ENV: &str = "MYC_PATHS_REPO_LOCAL_ROOT";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -194,36 +188,10 @@ impl RadrootsRuntimePathSelection {
         }
     }
 
-    pub fn from_env(
-        profile_env: &str,
-        root_env: &str,
-        default_profile: RadrootsPathProfile,
-    ) -> Result<Self, String> {
-        let profile = match std::env::var(profile_env).ok().as_deref() {
-            None => default_profile,
-            Some("interactive_user") => RadrootsPathProfile::InteractiveUser,
-            Some("service_host") => RadrootsPathProfile::ServiceHost,
-            Some("repo_local") => RadrootsPathProfile::RepoLocal,
-            Some(value) => return Err(format!("unknown path profile `{value}`")),
-        };
-        let repo_local_root = std::env::var_os(root_env)
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from);
-        if profile == RadrootsPathProfile::RepoLocal && repo_local_root.is_none() {
-            return Err(format!("{root_env} is required for repo_local"));
-        }
-        Ok(Self {
-            profile,
-            repo_local_root,
-        })
-    }
-
     fn resolve_service_roots(
         &self,
         resolver: &RadrootsPathResolver,
         service: &str,
-        _profile_env: &str,
-        _root_env: &str,
     ) -> Result<RuntimeRoots, String> {
         Ok(resolver
             .roots(self.profile, self.repo_local_root.as_deref())?
@@ -253,7 +221,6 @@ impl RadrootsRuntimePathPolicyContract {
 pub struct MycPathsConfig {
     pub profile: MycPathProfile,
     pub repo_local_root: Option<PathBuf>,
-    pub config_env_path: PathBuf,
     pub run_dir: PathBuf,
     pub state_dir: PathBuf,
     pub signer_identity_backend: MycIdentityBackend,
@@ -279,7 +246,6 @@ pub enum MycPathProfile {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MycResolvedRuntimePaths {
-    config_env_path: PathBuf,
     logs_dir: PathBuf,
     run_dir: PathBuf,
     state_dir: PathBuf,
@@ -342,18 +308,12 @@ impl MycResolvedRuntimePaths {
             repo_local_root.map(Path::to_path_buf),
         );
         let namespaced = selection
-            .resolve_service_roots(
-                resolver,
-                "myc",
-                MYC_PATHS_PROFILE_ENV,
-                MYC_PATHS_REPO_LOCAL_ROOT_ENV,
-            )
+            .resolve_service_roots(resolver, "myc")
             .map_err(|error| {
                 MycError::InvalidConfig(format!("resolve myc runtime paths: {error}"))
             })?;
         let custody_dir = namespaced.data.join(DEFAULT_CUSTODY_DIR_NAME);
         Ok(Self {
-            config_env_path: namespaced.config.join(DEFAULT_ENV_PATH),
             logs_dir: namespaced.logs,
             run_dir: namespaced.run,
             state_dir: namespaced.data.join(DEFAULT_STATE_DIR_NAME),
@@ -384,7 +344,6 @@ impl MycPathsConfig {
         Ok(Self {
             profile,
             repo_local_root: repo_local_root.map(Path::to_path_buf),
-            config_env_path: resolved.config_env_path,
             run_dir: resolved.run_dir,
             state_dir: resolved.state_dir,
             signer_identity_backend: MycIdentityBackend::EncryptedFile,
@@ -471,36 +430,6 @@ impl MycPathsConfig {
     }
 }
 
-pub(crate) fn process_path_selection() -> Result<(MycPathProfile, Option<PathBuf>), MycError> {
-    let selection = RadrootsRuntimePathSelection::from_env(
-        MYC_PATHS_PROFILE_ENV,
-        MYC_PATHS_REPO_LOCAL_ROOT_ENV,
-        RadrootsPathProfile::InteractiveUser,
-    )
-    .map_err(|error| MycError::InvalidConfig(error.to_string()))?;
-    Ok((
-        from_radroots_profile(selection.profile),
-        selection.repo_local_root,
-    ))
-}
-
-fn from_radroots_profile(profile: RadrootsPathProfile) -> MycPathProfile {
-    match profile {
-        RadrootsPathProfile::InteractiveUser => MycPathProfile::InteractiveUser,
-        RadrootsPathProfile::ServiceHost => MycPathProfile::ServiceHost,
-        RadrootsPathProfile::RepoLocal => MycPathProfile::RepoLocal,
-        RadrootsPathProfile::MobileNative => MycPathProfile::InteractiveUser,
-    }
-}
-
-pub(crate) fn default_env_path_with_path_selection(
-    resolver: &RadrootsPathResolver,
-    profile: MycPathProfile,
-    repo_local_root: Option<&Path>,
-) -> Result<PathBuf, MycError> {
-    Ok(MycResolvedRuntimePaths::resolve(resolver, profile, repo_local_root)?.config_env_path)
-}
-
 pub(crate) fn apply_path_defaults(
     config: &mut MycConfig,
     resolver: &RadrootsPathResolver,
@@ -511,7 +440,6 @@ pub(crate) fn apply_path_defaults(
         config.paths.profile,
         config.paths.repo_local_root.as_deref(),
     )?;
-    config.paths.config_env_path = resolved.config_env_path;
     config.paths.run_dir = resolved.run_dir;
     if !overrides.logging_output_dir {
         config.logging.output_dir = Some(resolved.logs_dir);
@@ -555,42 +483,4 @@ pub(crate) fn apply_path_defaults(
         config.discovery.nip05_output_path = Some(resolved.discovery_nip05_output_path);
     }
     Ok(())
-}
-
-pub(crate) fn path_selection_from_entries(
-    entries: &[(String, String, usize)],
-    path: &Path,
-) -> Result<(MycPathProfile, Option<PathBuf>), MycError> {
-    let mut profile = MycPathProfile::InteractiveUser;
-    let mut repo_local_root = None;
-    for (key, value, line_number) in entries {
-        match key.as_str() {
-            MYC_PATHS_PROFILE_ENV => {
-                profile = parse_path_profile_env(key, value, path, *line_number)?;
-            }
-            MYC_PATHS_REPO_LOCAL_ROOT_ENV => {
-                repo_local_root = parse_optional_path_env(value);
-            }
-            _ => {}
-        }
-    }
-    Ok((profile, repo_local_root))
-}
-
-pub(crate) fn parse_path_profile_env(
-    key: &str,
-    value: &str,
-    path: &Path,
-    line_number: usize,
-) -> Result<MycPathProfile, MycError> {
-    match value {
-        "interactive_user" => Ok(MycPathProfile::InteractiveUser),
-        "service_host" => Ok(MycPathProfile::ServiceHost),
-        "repo_local" => Ok(MycPathProfile::RepoLocal),
-        _ => Err(config_parse_error(
-            path,
-            line_number,
-            format!("{key} must be `interactive_user`, `service_host`, or `repo_local`"),
-        )),
-    }
 }

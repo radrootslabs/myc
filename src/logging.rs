@@ -61,30 +61,18 @@ pub fn init_logging(config: &MycLoggingConfig) -> Result<(), MycError> {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::config::MycConfig;
+    use crate::config::MycLoggingConfig;
 
     #[test]
-    fn config_parses_logging_output_dir_and_stdout() {
-        let config = MycConfig::from_env_str(
-            r#"
-MYC_LOGGING_FILTER=info,myc=debug
-MYC_LOGGING_OUTPUT_DIR=/tmp/myc-logs
-MYC_LOGGING_STDOUT=false
-MYC_PATHS_STATE_DIR=/tmp/myc
-MYC_IDENTITY_SIGNER_PATH=/tmp/signer.json
-MYC_IDENTITY_USER_PATH=/tmp/user.json
-MYC_DISCOVERY_ENABLED=false
-MYC_TRANSPORT_ENABLED=false
-MYC_TRANSPORT_CONNECT_TIMEOUT_SECS=10
-            "#,
-        )
-        .expect("config");
+    fn explicit_logging_configuration_preserves_values() {
+        let config = MycLoggingConfig {
+            filter: "info,myc=debug".to_owned(),
+            output_dir: Some(PathBuf::from("/tmp/myc-logs")),
+            stdout: false,
+        };
 
-        assert_eq!(
-            config.logging.output_dir,
-            Some(PathBuf::from("/tmp/myc-logs"))
-        );
-        assert!(!config.logging.stdout);
+        assert_eq!(config.output_dir, Some(PathBuf::from("/tmp/myc-logs")));
+        assert!(!config.stdout);
     }
 
     #[test]
