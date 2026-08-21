@@ -174,7 +174,7 @@ async fn foundation_owns_existing_state_and_never_claims_unproven_readiness() {
             Some(MycProviderKind::LocalSigner)
         );
     }
-    assert!(!foundation.readiness().readiness().is_ready());
+    assert!(!foundation.readiness().is_ready());
     assert_eq!(
         foundation.readiness().required(),
         [
@@ -196,7 +196,6 @@ async fn foundation_owns_existing_state_and_never_claims_unproven_readiness() {
         foundation
             .readiness()
             .reasons()
-            .as_slice()
             .iter()
             .map(|reason| reason.as_str())
             .collect::<Vec<_>>(),
@@ -383,7 +382,7 @@ expected_public_key = "{}""#,
             .satisfied()
             .contains(&MycRuntimePrerequisite::TransportProvider)
     );
-    assert!(!foundation.readiness().readiness().is_ready());
+    assert!(!foundation.readiness().is_ready());
     foundation.shutdown().await.expect("joined shutdown");
 }
 

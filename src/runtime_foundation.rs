@@ -4,8 +4,8 @@ use core::fmt;
 use std::{error::Error, sync::mpsc};
 
 use radroots_service_host::{
-    CommonReasonCode, HostError, HostErrorKind, Readiness, ReasonCode, ReasonCodes, ShutdownPhase,
-    TaskClassification, TaskMetadata, TaskName, TaskSupervisor,
+    HostError, HostErrorKind, ShutdownPhase, TaskClassification, TaskMetadata, TaskName,
+    TaskSupervisor,
 };
 use radroots_service_sqlite::{MigrationAppliedAtUnixSeconds, MigrationBuildIdentity};
 
@@ -53,17 +53,45 @@ impl MycRuntimePrerequisite {
         }
     }
 
-    const fn reason(self) -> CommonReasonCode {
+    const fn reason(self) -> MycRuntimeReadinessReason {
         match self {
-            Self::ExistingState => CommonReasonCode::DatabaseSchemaMismatch,
+            Self::ExistingState => MycRuntimeReadinessReason::DatabaseSchemaMismatch,
             Self::TransportProvider | Self::UserProvider | Self::DiscoveryProvider => {
-                CommonReasonCode::SignerProviderUnavailable
+                MycRuntimeReadinessReason::SignerProviderUnavailable
             }
-            Self::OutboxRecovery => CommonReasonCode::OutboxInvariantFailed,
-            Self::RequiredRelayConnectivity => CommonReasonCode::RequiredRelayUnavailable,
-            Self::RequiredRelaySubscription => CommonReasonCode::SubscriberNotActive,
-            Self::AdminListener => CommonReasonCode::AdminListenerFailed,
-            Self::OperationsListener => CommonReasonCode::OperationsListenerFailed,
+            Self::OutboxRecovery => MycRuntimeReadinessReason::OutboxInvariantFailed,
+            Self::RequiredRelayConnectivity => MycRuntimeReadinessReason::RequiredRelayUnavailable,
+            Self::RequiredRelaySubscription => MycRuntimeReadinessReason::SubscriberNotActive,
+            Self::AdminListener => MycRuntimeReadinessReason::AdminListenerFailed,
+            Self::OperationsListener => MycRuntimeReadinessReason::OperationsListenerFailed,
+        }
+    }
+}
+
+/// Closed stable reason vocabulary for an unsatisfied runtime prerequisite.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MycRuntimeReadinessReason {
+    AdminListenerFailed,
+    DatabaseSchemaMismatch,
+    OperationsListenerFailed,
+    OutboxInvariantFailed,
+    RequiredRelayUnavailable,
+    SignerProviderUnavailable,
+    SubscriberNotActive,
+}
+
+impl MycRuntimeReadinessReason {
+    /// Returns the exact machine-contract spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AdminListenerFailed => "admin_listener_failed",
+            Self::DatabaseSchemaMismatch => "database_schema_mismatch",
+            Self::OperationsListenerFailed => "operations_listener_failed",
+            Self::OutboxInvariantFailed => "outbox_invariant_failed",
+            Self::RequiredRelayUnavailable => "required_relay_unavailable",
+            Self::SignerProviderUnavailable => "signer_provider_unavailable",
+            Self::SubscriberNotActive => "subscriber_not_active",
         }
     }
 }
@@ -76,23 +104,18 @@ impl MycRuntimePrerequisite {
 pub struct MycRuntimeReadiness {
     required: Box<[MycRuntimePrerequisite]>,
     satisfied: Box<[MycRuntimePrerequisite]>,
-    reasons: ReasonCodes,
+    reasons: Box<[MycRuntimeReadinessReason]>,
 }
 
 impl MycRuntimeReadiness {
     /// Returns readiness only when every exact prerequisite is satisfied.
     #[must_use]
-    pub fn readiness(&self) -> Readiness {
-        if self.required.len() == self.satisfied.len()
+    pub fn is_ready(&self) -> bool {
+        self.required.len() == self.satisfied.len()
             && self
                 .required
                 .iter()
                 .all(|required| self.satisfied.contains(required))
-        {
-            Readiness::READY
-        } else {
-            Readiness::NOT_READY
-        }
     }
 
     /// Returns the exact ordered prerequisite inventory for this configuration.
@@ -109,7 +132,7 @@ impl MycRuntimeReadiness {
 
     /// Returns bounded stable reasons for every class of missing prerequisite.
     #[must_use]
-    pub const fn reasons(&self) -> &ReasonCodes {
+    pub const fn reasons(&self) -> &[MycRuntimeReadinessReason] {
         &self.reasons
     }
 }
@@ -118,7 +141,7 @@ impl fmt::Debug for MycRuntimeReadiness {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("MycRuntimeReadiness")
-            .field("ready", &self.readiness().is_ready())
+            .field("ready", &self.is_ready())
             .field("required", &self.required)
             .field("satisfied", &self.satisfied)
             .field("reasons", &self.reasons)
@@ -617,15 +640,17 @@ fn startup_readiness(
             .position(|candidate| candidate == prerequisite)
             .unwrap_or(usize::MAX)
     });
-    let missing_reasons = required
+    let mut reasons = required
         .iter()
         .filter(|prerequisite| !satisfied.contains(prerequisite))
-        .map(|prerequisite| ReasonCode::from(prerequisite.reason()));
-    let reasons = ReasonCodes::new(missing_reasons).map_err(|_| readiness_error())?;
+        .map(|prerequisite| prerequisite.reason())
+        .collect::<Vec<_>>();
+    reasons.sort_unstable();
+    reasons.dedup();
     Ok(MycRuntimeReadiness {
         required: required.into_boxed_slice(),
         satisfied: satisfied.into_boxed_slice(),
-        reasons,
+        reasons: reasons.into_boxed_slice(),
     })
 }
 
@@ -673,6 +698,20 @@ mod tests {
             expected
                 .into_iter()
                 .map(MycRuntimePrerequisite::as_str)
+                .collect::<Vec<_>>()
+        );
+        let reasons = contract["readiness_prerequisites"]
+            .as_array()
+            .expect("prerequisite inventory")
+            .iter()
+            .map(|entry| entry["reason"].as_str().expect("prerequisite reason"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            reasons,
+            expected
+                .into_iter()
+                .map(MycRuntimePrerequisite::reason)
+                .map(MycRuntimeReadinessReason::as_str)
                 .collect::<Vec<_>>()
         );
     }

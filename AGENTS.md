@@ -83,6 +83,12 @@
   provider is ready before its governed verification. Do not add detached
   handles, a library runtime, signals, process exit, relay/admin execution, or
   a false readiness transition here.
+- Step 138 freezes a root-only public API. Keep every implementation module
+  private, expose only curated crate-root names, keep public errors crate-owned
+  and source-free, and update the reviewed API baseline and package guards for
+  every intentional public-surface change. Shared runtime-path, SQLite, and
+  storage identity types are deliberate governed contract dependencies;
+  provider, SQLx, Serde, transport, and task implementation types are not.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

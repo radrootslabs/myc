@@ -1,0 +1,1293 @@
+pub mod myc
+pub use myc::INSTANCE_ID_MAX_BYTES
+pub use myc::InstanceId
+pub use myc::RadrootsHostEnvironment
+pub use myc::RadrootsPathProfile
+pub use myc::RadrootsPathResolver
+pub use myc::RadrootsPlatform
+pub use myc::RadrootsServiceInstanceArtifacts
+pub use myc::RuntimeContext
+pub use myc::RuntimeContextSource
+pub use myc::ServiceId
+pub enum myc::MycAuditKind
+pub myc::MycAuditKind::ChallengeAuthorization
+pub myc::MycAuditKind::ChallengeCreation
+pub myc::MycAuditKind::ConnectionAdmission
+pub myc::MycAuditKind::ConnectionExpiry
+pub myc::MycAuditKind::ConnectionOperatorDecision
+pub myc::MycAuditKind::GovernanceCompaction
+pub enum myc::MycAuditOutcome
+pub myc::MycAuditOutcome::Failed
+pub myc::MycAuditOutcome::Rejected
+pub myc::MycAuditOutcome::Succeeded
+pub enum myc::MycAuditReasonCode
+pub myc::MycAuditReasonCode::ApprovalRequired
+pub myc::MycAuditReasonCode::ChallengeAuthorized
+pub myc::MycAuditReasonCode::ChallengeExpired
+pub myc::MycAuditReasonCode::ChallengeRequired
+pub myc::MycAuditReasonCode::Compacted
+pub myc::MycAuditReasonCode::ConnectionExpired
+pub myc::MycAuditReasonCode::OperatorApproved
+pub myc::MycAuditReasonCode::OperatorDenied
+pub myc::MycAuditReasonCode::PolicyDenied
+pub myc::MycAuditReasonCode::RateLimited
+pub myc::MycAuditReasonCode::Trusted
+pub enum myc::MycAuthorizationChallengeAdmission
+pub myc::MycAuthorizationChallengeAdmission::Created(myc::MycAuthorizationChallengeRecord)
+pub myc::MycAuthorizationChallengeAdmission::ExactReplay(myc::MycAuthorizationChallengeRecord)
+pub myc::MycAuthorizationChallengeAdmission::RateLimited
+impl myc::MycAuthorizationChallengeAdmission
+pub const fn myc::MycAuthorizationChallengeAdmission::record(&self) -> core::option::Option<&myc::MycAuthorizationChallengeRecord>
+impl core::fmt::Debug for myc::MycAuthorizationChallengeAdmission
+pub fn myc::MycAuthorizationChallengeAdmission::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum myc::MycAuthorizationChallengeAuthorization
+pub myc::MycAuthorizationChallengeAuthorization::ExactReplay(myc::MycAuthorizationChallengeRecord)
+pub myc::MycAuthorizationChallengeAuthorization::RateLimited
+pub myc::MycAuthorizationChallengeAuthorization::Resolved(myc::MycAuthorizationChallengeRecord)
+impl myc::MycAuthorizationChallengeAuthorization
+pub const fn myc::MycAuthorizationChallengeAuthorization::record(&self) -> core::option::Option<&myc::MycAuthorizationChallengeRecord>
+impl core::fmt::Debug for myc::MycAuthorizationChallengeAuthorization
+pub fn myc::MycAuthorizationChallengeAuthorization::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum myc::MycAuthorizationChallengeState
+pub myc::MycAuthorizationChallengeState::Authorized
+pub myc::MycAuthorizationChallengeState::Expired
+pub myc::MycAuthorizationChallengeState::Pending
+pub enum myc::MycBootstrapProfileV1
+pub myc::MycBootstrapProfileV1::Interactive
+pub myc::MycBootstrapProfileV1::RepoLocal
+pub myc::MycBootstrapProfileV1::ServiceHost
+pub enum myc::MycCliV1ErrorKind
+pub myc::MycCliV1ErrorKind::InvalidArguments
+pub myc::MycCliV1ErrorKind::InvalidConfigPath
+pub myc::MycCliV1ErrorKind::InvalidInstance
+pub myc::MycCliV1ErrorKind::InvalidRepoLocalRoot
+pub myc::MycCliV1ErrorKind::UnexpectedRepoLocalRoot
+pub enum myc::MycCommandV1
+pub myc::MycCommandV1::Config(myc::MycConfigCommandV1)
+pub myc::MycCommandV1::Doctor
+pub myc::MycCommandV1::Identity(myc::MycIdentityCommandV1)
+pub myc::MycCommandV1::Run
+pub myc::MycCommandV1::State(myc::MycStateCommandV1)
+pub myc::MycCommandV1::Status
+pub enum myc::MycConfigCommandV1
+pub myc::MycConfigCommandV1::Init
+pub myc::MycConfigCommandV1::Schema
+pub myc::MycConfigCommandV1::Show
+pub myc::MycConfigCommandV1::Validate
+pub enum myc::MycConfigProfile
+pub myc::MycConfigProfile::Production
+pub myc::MycConfigProfile::RepoLocal
+pub enum myc::MycConfigV1ErrorKind
+pub myc::MycConfigV1ErrorKind::Encoding
+pub myc::MycConfigV1ErrorKind::InvalidDocument
+pub myc::MycConfigV1ErrorKind::InvalidRelationship
+pub myc::MycConfigV1ErrorKind::InvalidSchema
+pub myc::MycConfigV1ErrorKind::InvalidSchemaVersion
+pub myc::MycConfigV1ErrorKind::InvalidUtf8
+pub myc::MycConfigV1ErrorKind::MalformedToml
+pub myc::MycConfigV1ErrorKind::MissingSchema
+pub myc::MycConfigV1ErrorKind::MissingSchemaVersion
+pub myc::MycConfigV1ErrorKind::SchemaMismatch
+pub myc::MycConfigV1ErrorKind::TooLarge
+pub myc::MycConfigV1ErrorKind::UnsupportedSchemaVersion
+pub enum myc::MycConfigValueSource
+pub myc::MycConfigValueSource::AcceptedServiceAuthority
+pub myc::MycConfigValueSource::Document
+pub myc::MycConfigValueSource::EngineeringSafety
+pub myc::MycConfigValueSource::RadrootsEvent
+pub myc::MycConfigValueSource::RadrootsNostrConnect
+pub myc::MycConfigValueSource::RadrootsServiceHost
+pub myc::MycConfigValueSource::RadrootsServiceSqlite
+pub enum myc::MycConnectionAdmission
+pub myc::MycConnectionAdmission::Admitted(myc::MycConnectionDecisionRecord)
+pub myc::MycConnectionAdmission::ExactReplay(myc::MycConnectionDecisionRecord)
+pub myc::MycConnectionAdmission::RateLimited
+impl myc::MycConnectionAdmission
+pub const fn myc::MycConnectionAdmission::record(&self) -> core::option::Option<&myc::MycConnectionDecisionRecord>
+impl core::fmt::Debug for myc::MycConnectionAdmission
+pub fn myc::MycConnectionAdmission::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum myc::MycConnectionAdmissionPolicy
+pub myc::MycConnectionAdmissionPolicy::Denied
+pub myc::MycConnectionAdmissionPolicy::ExplicitApproval
+pub myc::MycConnectionAdmissionPolicy::Trusted
+pub enum myc::MycConnectionDecision
+pub myc::MycConnectionDecision::Allowed
+pub myc::MycConnectionDecision::Challenged
+pub myc::MycConnectionDecision::Denied
+pub myc::MycConnectionDecision::PendingApproval
+pub enum myc::MycConnectionOperatorDecision
+pub myc::MycConnectionOperatorDecision::Approve
+pub myc::MycConnectionOperatorDecision::Approve::authorized_until: core::option::Option<myc::MycConnectionTimeUnixMs>
+pub myc::MycConnectionOperatorDecision::Approve::granted_permissions: myc::MycConnectionPermissionSet
+pub myc::MycConnectionOperatorDecision::Deny
+impl core::fmt::Debug for myc::MycConnectionOperatorDecision
+pub fn myc::MycConnectionOperatorDecision::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum myc::MycConnectionPermission
+pub myc::MycConnectionPermission::GetPublicKey
+pub myc::MycConnectionPermission::GetSessionCapability
+pub myc::MycConnectionPermission::Logout
+pub myc::MycConnectionPermission::Nip04Decrypt
+pub myc::MycConnectionPermission::Nip04Encrypt
+pub myc::MycConnectionPermission::Nip44Decrypt
+pub myc::MycConnectionPermission::Nip44Encrypt
+pub myc::MycConnectionPermission::Ping
+pub myc::MycConnectionPermission::SignEvent(u16)
+pub myc::MycConnectionPermission::SwitchRelays
+pub enum myc::MycConnectionStateErrorKind
+pub myc::MycConnectionStateErrorKind::InvalidChallengeLifetime
+pub myc::MycConnectionStateErrorKind::InvalidChallengeUrl
+pub myc::MycConnectionStateErrorKind::InvalidPermissionSet
+pub myc::MycConnectionStateErrorKind::InvalidPolicyGeneration
+pub myc::MycConnectionStateErrorKind::InvalidTime
+impl myc::MycConnectionStateErrorKind
+pub const fn myc::MycConnectionStateErrorKind::code(self) -> &'static str
+pub enum myc::MycConnectionStatus
+pub myc::MycConnectionStatus::Active
+pub myc::MycConnectionStatus::Denied
+pub myc::MycConnectionStatus::Expired
+pub myc::MycConnectionStatus::Pending
+pub enum myc::MycCredentialResolutionErrorKind
+pub myc::MycCredentialResolutionErrorKind::InsecureCredential
+pub myc::MycCredentialResolutionErrorKind::InsecureSecretsRoot
+pub myc::MycCredentialResolutionErrorKind::InvalidBinding
+pub myc::MycCredentialResolutionErrorKind::InvalidCredential
+pub myc::MycCredentialResolutionErrorKind::InvalidReference
+pub myc::MycCredentialResolutionErrorKind::Io
+pub myc::MycCredentialResolutionErrorKind::MissingCredential
+pub myc::MycCredentialResolutionErrorKind::UnsupportedPlatform
+pub myc::MycCredentialResolutionErrorKind::UnsupportedProfile
+impl myc::MycCredentialResolutionErrorKind
+pub const fn myc::MycCredentialResolutionErrorKind::code(self) -> &'static str
+pub enum myc::MycDeliveryAttemptOutcome
+pub myc::MycDeliveryAttemptOutcome::Delivered
+pub myc::MycDeliveryAttemptOutcome::RelayRejected
+pub myc::MycDeliveryAttemptOutcome::TransportFailed
+pub myc::MycDeliveryAttemptOutcome::UnknownAcknowledgement
+pub enum myc::MycDeliveryAttemptStatus
+pub myc::MycDeliveryAttemptStatus::Delivered
+pub myc::MycDeliveryAttemptStatus::Failed
+pub myc::MycDeliveryAttemptStatus::Leased
+pub myc::MycDeliveryAttemptStatus::Submitted
+pub myc::MycDeliveryAttemptStatus::Unknown
+impl myc::MycDeliveryAttemptStatus
+pub const fn myc::MycDeliveryAttemptStatus::as_str(self) -> &'static str
+pub enum myc::MycDeliveryClaim
+pub myc::MycDeliveryClaim::Claimed(myc::MycDeliveryAttemptRecord)
+pub myc::MycDeliveryClaim::ExactReplay(myc::MycDeliveryAttemptRecord)
+pub myc::MycDeliveryClaim::NotReady
+pub myc::MycDeliveryClaim::Terminal
+impl core::fmt::Debug for myc::MycDeliveryClaim
+pub fn myc::MycDeliveryClaim::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum myc::MycDeliveryJobAdmission
+pub myc::MycDeliveryJobAdmission::Created(myc::MycDeliveryJobRecord)
+pub myc::MycDeliveryJobAdmission::ExactReplay(myc::MycDeliveryJobRecord)
+impl myc::MycDeliveryJobAdmission
+pub const fn myc::MycDeliveryJobAdmission::record(&self) -> &myc::MycDeliveryJobRecord
+impl core::fmt::Debug for myc::MycDeliveryJobAdmission
+pub fn myc::MycDeliveryJobAdmission::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum myc::MycDeliveryJobStatus
+pub myc::MycDeliveryJobStatus::Active
+pub myc::MycDeliveryJobStatus::Delivered
+pub myc::MycDeliveryJobStatus::Failed
+pub myc::MycDeliveryJobStatus::Pending
+pub myc::MycDeliveryJobStatus::Unknown
+impl myc::MycDeliveryJobStatus
+pub const fn myc::MycDeliveryJobStatus::as_str(self) -> &'static str
+pub enum myc::MycDeliveryPolicyMode
+pub myc::MycDeliveryPolicyMode::AllRequired
+pub myc::MycDeliveryPolicyMode::AtLeastOneRequired
+pub myc::MycDeliveryPolicyMode::RequiredQuorum
+impl myc::MycDeliveryPolicyMode
+pub const fn myc::MycDeliveryPolicyMode::as_str(self) -> &'static str
+pub enum myc::MycDeliverySourceKind
+pub myc::MycDeliverySourceKind::DiscoveryHandler
+pub myc::MycDeliverySourceKind::SignerResponse
+impl myc::MycDeliverySourceKind
+pub const fn myc::MycDeliverySourceKind::as_str(self) -> &'static str
+pub enum myc::MycDeliveryStateErrorKind
+pub myc::MycDeliveryStateErrorKind::InvalidPolicy
+pub myc::MycDeliveryStateErrorKind::InvalidRelayId
+pub myc::MycDeliveryStateErrorKind::InvalidTime
+impl myc::MycDeliveryStateErrorKind
+pub const fn myc::MycDeliveryStateErrorKind::code(self) -> &'static str
+pub enum myc::MycDeliveryTargetStatus
+pub myc::MycDeliveryTargetStatus::Delivered
+pub myc::MycDeliveryTargetStatus::Exhausted
+pub myc::MycDeliveryTargetStatus::Leased
+pub myc::MycDeliveryTargetStatus::Pending
+pub myc::MycDeliveryTargetStatus::Retryable
+pub myc::MycDeliveryTargetStatus::Submitted
+pub myc::MycDeliveryTargetStatus::Unknown
+impl myc::MycDeliveryTargetStatus
+pub const fn myc::MycDeliveryTargetStatus::as_str(self) -> &'static str
+pub enum myc::MycDiscoveryCommitAdmission
+pub myc::MycDiscoveryCommitAdmission::Created(myc::MycDiscoveryCommitRecord)
+pub myc::MycDiscoveryCommitAdmission::ExactReplay(myc::MycDiscoveryCommitRecord)
+impl myc::MycDiscoveryCommitAdmission
+pub const fn myc::MycDiscoveryCommitAdmission::record(&self) -> &myc::MycDiscoveryCommitRecord
+impl core::fmt::Debug for myc::MycDiscoveryCommitAdmission
+pub fn myc::MycDiscoveryCommitAdmission::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum myc::MycDiscoveryStateErrorKind
+pub myc::MycDiscoveryStateErrorKind::Disabled
+pub myc::MycDiscoveryStateErrorKind::IdentityMismatch
+pub myc::MycDiscoveryStateErrorKind::InvalidEvent
+pub myc::MycDiscoveryStateErrorKind::InvalidProjection
+pub myc::MycDiscoveryStateErrorKind::TooLarge
+impl myc::MycDiscoveryStateErrorKind
+pub const fn myc::MycDiscoveryStateErrorKind::code(self) -> &'static str
+pub enum myc::MycEncryptedIdentityEnvelopeErrorKind
+pub myc::MycEncryptedIdentityEnvelopeErrorKind::AlreadyExists
+pub myc::MycEncryptedIdentityEnvelopeErrorKind::IdentityMismatch
+pub myc::MycEncryptedIdentityEnvelopeErrorKind::InsecureArtifact
+pub myc::MycEncryptedIdentityEnvelopeErrorKind::InsecureParent
+pub myc::MycEncryptedIdentityEnvelopeErrorKind::InvalidBinding
+pub myc::MycEncryptedIdentityEnvelopeErrorKind::InvalidCredential
+pub myc::MycEncryptedIdentityEnvelopeErrorKind::InvalidPath
+pub myc::MycEncryptedIdentityEnvelopeErrorKind::InvalidProvisioningMaterial
+pub myc::MycEncryptedIdentityEnvelopeErrorKind::Io
+pub myc::MycEncryptedIdentityEnvelopeErrorKind::MalformedEnvelope
+pub myc::MycEncryptedIdentityEnvelopeErrorKind::MissingEnvelope
+pub myc::MycEncryptedIdentityEnvelopeErrorKind::UnsupportedEnvelopeVersion
+pub myc::MycEncryptedIdentityEnvelopeErrorKind::UnsupportedPlatform
+pub myc::MycEncryptedIdentityEnvelopeErrorKind::WrongCredential
+impl myc::MycEncryptedIdentityEnvelopeErrorKind
+pub const fn myc::MycEncryptedIdentityEnvelopeErrorKind::code(self) -> &'static str
+pub enum myc::MycGovernanceStateErrorKind
+pub myc::MycGovernanceStateErrorKind::InvalidCompactionPolicy
+pub myc::MycGovernanceStateErrorKind::InvalidPageLimit
+pub myc::MycGovernanceStateErrorKind::InvalidRatePolicy
+pub myc::MycGovernanceStateErrorKind::InvalidRelayId
+impl myc::MycGovernanceStateErrorKind
+pub const fn myc::MycGovernanceStateErrorKind::code(self) -> &'static str
+pub enum myc::MycIdentityCommandV1
+pub myc::MycIdentityCommandV1::ExportPublic
+pub myc::MycIdentityCommandV1::Init
+pub myc::MycIdentityCommandV1::Rekey
+pub myc::MycIdentityCommandV1::Replace
+pub myc::MycIdentityCommandV1::Status
+pub enum myc::MycLocalSignerTransportErrorKind
+pub myc::MycLocalSignerTransportErrorKind::Deadline
+pub myc::MycLocalSignerTransportErrorKind::InvalidBinding
+pub myc::MycLocalSignerTransportErrorKind::InvalidLimits
+pub myc::MycLocalSignerTransportErrorKind::InvalidOperation
+pub myc::MycLocalSignerTransportErrorKind::RemoteFailure
+pub myc::MycLocalSignerTransportErrorKind::RequestEncoding
+pub myc::MycLocalSignerTransportErrorKind::RequestLimit
+pub myc::MycLocalSignerTransportErrorKind::Response
+pub myc::MycLocalSignerTransportErrorKind::Transport
+pub myc::MycLocalSignerTransportErrorKind::UnsupportedPlatform
+impl myc::MycLocalSignerTransportErrorKind
+pub const fn myc::MycLocalSignerTransportErrorKind::code(self) -> &'static str
+pub enum myc::MycProviderCapability
+pub myc::MycProviderCapability::Describe
+pub myc::MycProviderCapability::Nip04Decrypt
+pub myc::MycProviderCapability::Nip04Encrypt
+pub myc::MycProviderCapability::Nip44Decrypt
+pub myc::MycProviderCapability::Nip44Encrypt
+pub myc::MycProviderCapability::PublicIdentity
+pub myc::MycProviderCapability::SignEvent
+impl myc::MycProviderCapability
+pub const fn myc::MycProviderCapability::as_str(self) -> &'static str
+pub enum myc::MycProviderContractErrorKind
+pub myc::MycProviderContractErrorKind::InvalidCapabilitySet
+pub myc::MycProviderContractErrorKind::InvalidConfiguration
+pub myc::MycProviderContractErrorKind::InvalidCredentialReference
+pub myc::MycProviderContractErrorKind::InvalidDeadline
+pub myc::MycProviderContractErrorKind::InvalidIdentity
+pub myc::MycProviderContractErrorKind::InvalidInput
+pub myc::MycProviderContractErrorKind::InvalidLimits
+pub myc::MycProviderContractErrorKind::InvalidOutput
+pub myc::MycProviderContractErrorKind::UnsupportedOperation
+pub enum myc::MycProviderInstanceId
+pub myc::MycProviderInstanceId::Discovery
+pub myc::MycProviderInstanceId::Transport
+pub myc::MycProviderInstanceId::User
+impl myc::MycProviderInstanceId
+pub const fn myc::MycProviderInstanceId::as_str(self) -> &'static str
+impl core::convert::From<myc::MycProviderRole> for myc::MycProviderInstanceId
+pub fn myc::MycProviderInstanceId::from(myc::MycProviderRole) -> Self
+pub enum myc::MycProviderKind
+pub myc::MycProviderKind::EncryptedFile
+pub myc::MycProviderKind::LocalSigner
+impl myc::MycProviderKind
+pub const fn myc::MycProviderKind::as_str(self) -> &'static str
+pub enum myc::MycProviderNip44Version
+pub myc::MycProviderNip44Version::V2
+impl myc::MycProviderNip44Version
+pub const fn myc::MycProviderNip44Version::as_u8(self) -> u8
+pub enum myc::MycProviderRole
+pub myc::MycProviderRole::Discovery
+pub myc::MycProviderRole::Transport
+pub myc::MycProviderRole::User
+impl myc::MycProviderRole
+pub const fn myc::MycProviderRole::as_str(self) -> &'static str
+impl core::convert::From<myc::MycProviderRole> for myc::MycProviderInstanceId
+pub fn myc::MycProviderInstanceId::from(myc::MycProviderRole) -> Self
+pub enum myc::MycProviderVerificationErrorKind
+pub myc::MycProviderVerificationErrorKind::Capability
+pub myc::MycProviderVerificationErrorKind::Event
+pub myc::MycProviderVerificationErrorKind::Identity
+pub myc::MycProviderVerificationErrorKind::InvalidBinding
+pub myc::MycProviderVerificationErrorKind::InvalidObservationTime
+pub myc::MycProviderVerificationErrorKind::LateResponse
+pub myc::MycProviderVerificationErrorKind::Nip04
+pub myc::MycProviderVerificationErrorKind::Nip44
+pub myc::MycProviderVerificationErrorKind::ResponseBinding
+pub myc::MycProviderVerificationErrorKind::ResultShape
+pub myc::MycProviderVerificationErrorKind::Size
+impl myc::MycProviderVerificationErrorKind
+pub const fn myc::MycProviderVerificationErrorKind::code(self) -> &'static str
+pub enum myc::MycRateLimitClass
+pub myc::MycRateLimitClass::ChallengeAuthorization
+pub myc::MycRateLimitClass::ChallengeCreation
+pub myc::MycRateLimitClass::ConnectionAdmission
+pub enum myc::MycRuntimeContextErrorKind
+pub myc::MycRuntimeContextErrorKind::InvalidBootstrapBinding
+pub myc::MycRuntimeContextErrorKind::InvalidServiceIdentity
+pub myc::MycRuntimeContextErrorKind::PathSelection
+pub enum myc::MycRuntimeFoundationErrorKind
+pub myc::MycRuntimeFoundationErrorKind::Close
+pub myc::MycRuntimeFoundationErrorKind::InvalidBinding
+pub myc::MycRuntimeFoundationErrorKind::Provider
+pub myc::MycRuntimeFoundationErrorKind::Readiness
+pub myc::MycRuntimeFoundationErrorKind::StateOpen
+pub myc::MycRuntimeFoundationErrorKind::TaskFailure
+pub myc::MycRuntimeFoundationErrorKind::TaskRegistration
+impl myc::MycRuntimeFoundationErrorKind
+pub const fn myc::MycRuntimeFoundationErrorKind::code(self) -> &'static str
+pub enum myc::MycRuntimePrerequisite
+pub myc::MycRuntimePrerequisite::AdminListener
+pub myc::MycRuntimePrerequisite::DiscoveryProvider
+pub myc::MycRuntimePrerequisite::ExistingState
+pub myc::MycRuntimePrerequisite::OperationsListener
+pub myc::MycRuntimePrerequisite::OutboxRecovery
+pub myc::MycRuntimePrerequisite::RequiredRelayConnectivity
+pub myc::MycRuntimePrerequisite::RequiredRelaySubscription
+pub myc::MycRuntimePrerequisite::TransportProvider
+pub myc::MycRuntimePrerequisite::UserProvider
+impl myc::MycRuntimePrerequisite
+pub const fn myc::MycRuntimePrerequisite::as_str(self) -> &'static str
+pub enum myc::MycRuntimeReadinessReason
+pub myc::MycRuntimeReadinessReason::AdminListenerFailed
+pub myc::MycRuntimeReadinessReason::DatabaseSchemaMismatch
+pub myc::MycRuntimeReadinessReason::OperationsListenerFailed
+pub myc::MycRuntimeReadinessReason::OutboxInvariantFailed
+pub myc::MycRuntimeReadinessReason::RequiredRelayUnavailable
+pub myc::MycRuntimeReadinessReason::SignerProviderUnavailable
+pub myc::MycRuntimeReadinessReason::SubscriberNotActive
+impl myc::MycRuntimeReadinessReason
+pub const fn myc::MycRuntimeReadinessReason::as_str(self) -> &'static str
+pub enum myc::MycSignerRequestAdmission
+pub myc::MycSignerRequestAdmission::Admitted(myc::MycSignerRequestRecord)
+pub myc::MycSignerRequestAdmission::ConflictingReuse(myc::MycSignerRequestRecord)
+pub myc::MycSignerRequestAdmission::ExactReplay(myc::MycSignerRequestRecord)
+impl myc::MycSignerRequestAdmission
+pub const fn myc::MycSignerRequestAdmission::record(&self) -> &myc::MycSignerRequestRecord
+impl core::fmt::Debug for myc::MycSignerRequestAdmission
+pub fn myc::MycSignerRequestAdmission::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum myc::MycSignerRequestErrorKind
+pub myc::MycSignerRequestErrorKind::InvalidCanonicalRequest
+pub myc::MycSignerRequestErrorKind::InvalidClientIdentity
+pub myc::MycSignerRequestErrorKind::InvalidReceivedAt
+pub myc::MycSignerRequestErrorKind::InvalidRequestId
+impl myc::MycSignerRequestErrorKind
+pub const fn myc::MycSignerRequestErrorKind::code(self) -> &'static str
+pub enum myc::MycSignerRequestMethod
+pub myc::MycSignerRequestMethod::Connect
+pub myc::MycSignerRequestMethod::GetPublicKey
+pub myc::MycSignerRequestMethod::GetSessionCapability
+pub myc::MycSignerRequestMethod::Logout
+pub myc::MycSignerRequestMethod::Nip04Decrypt
+pub myc::MycSignerRequestMethod::Nip04Encrypt
+pub myc::MycSignerRequestMethod::Nip44Decrypt
+pub myc::MycSignerRequestMethod::Nip44Encrypt
+pub myc::MycSignerRequestMethod::Ping
+pub myc::MycSignerRequestMethod::SignEvent
+pub myc::MycSignerRequestMethod::SwitchRelays
+impl myc::MycSignerRequestMethod
+pub const fn myc::MycSignerRequestMethod::as_str(self) -> &'static str
+pub enum myc::MycStateCatalogErrorKind
+pub myc::MycStateCatalogErrorKind::CatalogMismatch
+pub myc::MycStateCatalogErrorKind::MigrationCatalog
+pub myc::MycStateCatalogErrorKind::SchemaCatalog
+impl myc::MycStateCatalogErrorKind
+pub const fn myc::MycStateCatalogErrorKind::code(self) -> &'static str
+pub enum myc::MycStateCommandV1
+pub myc::MycStateCommandV1::Backup
+pub myc::MycStateCommandV1::Init
+pub myc::MycStateCommandV1::Migrate
+pub myc::MycStateCommandV1::Restore
+pub myc::MycStateCommandV1::Status
+pub myc::MycStateCommandV1::Verify
+pub enum myc::MycStateHostErrorKind
+pub myc::MycStateHostErrorKind::Catalog
+pub myc::MycStateHostErrorKind::Close
+pub myc::MycStateHostErrorKind::Initialize
+pub myc::MycStateHostErrorKind::InspectionOpen
+pub myc::MycStateHostErrorKind::InvalidEvidence
+pub myc::MycStateHostErrorKind::InvalidPaths
+pub myc::MycStateHostErrorKind::ReadWriteOpen
+pub myc::MycStateHostErrorKind::Repository
+impl myc::MycStateHostErrorKind
+pub const fn myc::MycStateHostErrorKind::code(self) -> &'static str
+pub enum myc::MycStateHostMode
+pub myc::MycStateHostMode::ReadOnlyInspection
+pub myc::MycStateHostMode::ReadWriteExisting
+pub enum myc::MycStateMaintenanceErrorKind
+pub myc::MycStateMaintenanceErrorKind::Authority
+pub myc::MycStateMaintenanceErrorKind::Backup
+pub myc::MycStateMaintenanceErrorKind::Catalog
+pub myc::MycStateMaintenanceErrorKind::Integrity
+pub myc::MycStateMaintenanceErrorKind::InvalidEvidence
+pub myc::MycStateMaintenanceErrorKind::InvalidMode
+pub myc::MycStateMaintenanceErrorKind::Metadata
+pub myc::MycStateMaintenanceErrorKind::Migration
+pub myc::MycStateMaintenanceErrorKind::Open
+pub myc::MycStateMaintenanceErrorKind::Recovery
+pub myc::MycStateMaintenanceErrorKind::Restore
+impl myc::MycStateMaintenanceErrorKind
+pub const fn myc::MycStateMaintenanceErrorKind::code(self) -> &'static str
+pub enum myc::MycStateMetadataErrorKind
+pub myc::MycStateMetadataErrorKind::Configuration
+pub myc::MycStateMetadataErrorKind::Database
+pub myc::MycStateMetadataErrorKind::Identity
+pub myc::MycStateMetadataErrorKind::Invariant
+pub myc::MycStateMetadataErrorKind::Paths
+pub myc::MycStateMetadataErrorKind::Profile
+pub enum myc::MycStateRepositoryErrorKind
+pub myc::MycStateRepositoryErrorKind::Binding
+pub myc::MycStateRepositoryErrorKind::CommitOutcomeUnknown
+pub myc::MycStateRepositoryErrorKind::Transaction
+impl myc::MycStateRepositoryErrorKind
+pub const fn myc::MycStateRepositoryErrorKind::code(self) -> &'static str
+pub struct myc::MycAuditCorrelationId(_)
+impl myc::MycAuditCorrelationId
+pub const fn myc::MycAuditCorrelationId::new([u8; 32]) -> Self
+impl core::fmt::Debug for myc::MycAuditCorrelationId
+pub fn myc::MycAuditCorrelationId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAuditPage
+impl myc::MycAuditPage
+pub fn myc::MycAuditPage::items(&self) -> &[myc::MycAuditRecord]
+pub const fn myc::MycAuditPage::next_before_sequence(&self) -> core::option::Option<u64>
+pub const fn myc::MycAuditPage::snapshot_sequence(&self) -> u64
+impl core::fmt::Debug for myc::MycAuditPage
+pub fn myc::MycAuditPage::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAuditPageLimit(_)
+impl myc::MycAuditPageLimit
+pub fn myc::MycAuditPageLimit::new(u16) -> core::result::Result<Self, myc::MycGovernanceStateError>
+pub struct myc::MycAuditRecord
+impl myc::MycAuditRecord
+pub const fn myc::MycAuditRecord::correlation_id(&self) -> myc::MycAuditCorrelationId
+pub const fn myc::MycAuditRecord::kind(&self) -> myc::MycAuditKind
+pub const fn myc::MycAuditRecord::occurred_at(&self) -> myc::MycConnectionTimeUnixMs
+pub const fn myc::MycAuditRecord::operation_id(&self) -> core::option::Option<myc::MycSignerOperationId>
+pub const fn myc::MycAuditRecord::outcome(&self) -> myc::MycAuditOutcome
+pub const fn myc::MycAuditRecord::reason(&self) -> myc::MycAuditReasonCode
+pub const fn myc::MycAuditRecord::sequence(&self) -> u64
+impl core::fmt::Debug for myc::MycAuditRecord
+pub fn myc::MycAuditRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAuthorizationChallengeId(_)
+impl myc::MycAuthorizationChallengeId
+pub const fn myc::MycAuthorizationChallengeId::as_bytes(&self) -> &[u8; 32]
+impl core::fmt::Debug for myc::MycAuthorizationChallengeId
+pub fn myc::MycAuthorizationChallengeId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAuthorizationChallengeNonce(_)
+impl myc::MycAuthorizationChallengeNonce
+pub const fn myc::MycAuthorizationChallengeNonce::from_injected_entropy([u8; 32]) -> Self
+impl core::fmt::Debug for myc::MycAuthorizationChallengeNonce
+pub fn myc::MycAuthorizationChallengeNonce::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAuthorizationChallengeRecord
+impl myc::MycAuthorizationChallengeRecord
+pub const fn myc::MycAuthorizationChallengeRecord::connection_id(&self) -> myc::MycConnectionId
+pub const fn myc::MycAuthorizationChallengeRecord::expires_at(&self) -> myc::MycConnectionTimeUnixMs
+pub const fn myc::MycAuthorizationChallengeRecord::id(&self) -> myc::MycAuthorizationChallengeId
+pub const fn myc::MycAuthorizationChallengeRecord::issued_at(&self) -> myc::MycConnectionTimeUnixMs
+pub const fn myc::MycAuthorizationChallengeRecord::operation_id(&self) -> myc::MycSignerOperationId
+pub const fn myc::MycAuthorizationChallengeRecord::policy_generation(&self) -> myc::MycConnectionPolicyGeneration
+pub const fn myc::MycAuthorizationChallengeRecord::resolved_at(&self) -> core::option::Option<myc::MycConnectionTimeUnixMs>
+pub const fn myc::MycAuthorizationChallengeRecord::state(&self) -> myc::MycAuthorizationChallengeState
+pub const fn myc::MycAuthorizationChallengeRecord::url(&self) -> &myc::MycAuthorizationChallengeUrl
+impl core::fmt::Debug for myc::MycAuthorizationChallengeRecord
+pub fn myc::MycAuthorizationChallengeRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAuthorizationChallengeRequest
+impl myc::MycAuthorizationChallengeRequest
+pub fn myc::MycAuthorizationChallengeRequest::new(myc::MycSignerOperationId, myc::MycConnectionId, myc::MycConnectionPolicyGeneration, myc::MycAuthorizationChallengeUrl, myc::MycAuthorizationChallengeNonce, myc::MycConnectionTimeUnixMs, myc::MycConnectionTimeUnixMs) -> core::result::Result<Self, myc::MycConnectionStateError>
+impl core::fmt::Debug for myc::MycAuthorizationChallengeRequest
+pub fn myc::MycAuthorizationChallengeRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAuthorizationChallengeUrl(_)
+impl myc::MycAuthorizationChallengeUrl
+pub fn myc::MycAuthorizationChallengeUrl::as_str(&self) -> &str
+pub fn myc::MycAuthorizationChallengeUrl::new(&str) -> core::result::Result<Self, myc::MycConnectionStateError>
+impl core::fmt::Debug for myc::MycAuthorizationChallengeUrl
+pub fn myc::MycAuthorizationChallengeUrl::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycCliInvocationV1
+impl myc::MycCliInvocationV1
+pub const fn myc::MycCliInvocationV1::command(&self) -> myc::MycCommandV1
+pub fn myc::MycCliInvocationV1::config_path(&self) -> core::option::Option<&std::path::Path>
+pub fn myc::MycCliInvocationV1::instance(&self) -> &radroots_runtime_paths::identifier::InstanceId
+pub const fn myc::MycCliInvocationV1::profile(&self) -> myc::MycBootstrapProfileV1
+pub fn myc::MycCliInvocationV1::repo_local_root(&self) -> core::option::Option<&std::path::Path>
+impl core::fmt::Debug for myc::MycCliInvocationV1
+pub fn myc::MycCliInvocationV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycCliV1Error
+impl myc::MycCliV1Error
+pub const fn myc::MycCliV1Error::kind(self) -> myc::MycCliV1ErrorKind
+impl core::error::Error for myc::MycCliV1Error
+impl core::fmt::Debug for myc::MycCliV1Error
+pub fn myc::MycCliV1Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycCliV1Error
+pub fn myc::MycCliV1Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycConfigDocumentV1
+impl myc::MycConfigDocumentV1
+pub const fn myc::MycConfigDocumentV1::effective(&self) -> &myc::MycEffectiveConfigV1
+pub const fn myc::MycConfigDocumentV1::profile(&self) -> myc::MycConfigProfile
+pub const fn myc::MycConfigDocumentV1::provider_contract(&self) -> &myc::MycProviderContract
+pub fn myc::MycConfigDocumentV1::relay_count(&self) -> usize
+pub const fn myc::MycConfigDocumentV1::schema(&self) -> &'static str
+pub const fn myc::MycConfigDocumentV1::schema_version(&self) -> u32
+impl core::fmt::Debug for myc::MycConfigDocumentV1
+pub fn myc::MycConfigDocumentV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycConfigV1Error
+impl myc::MycConfigV1Error
+pub const fn myc::MycConfigV1Error::kind(self) -> myc::MycConfigV1ErrorKind
+impl core::error::Error for myc::MycConfigV1Error
+impl core::fmt::Debug for myc::MycConfigV1Error
+pub fn myc::MycConfigV1Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycConfigV1Error
+pub fn myc::MycConfigV1Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycConnectionAdmissionRequest
+impl myc::MycConnectionAdmissionRequest
+pub fn myc::MycConnectionAdmissionRequest::new(myc::MycSignerOperationId, myc::MycNip46ClientPublicKey, myc::MycConnectionPermissionSet, myc::MycConnectionPolicyGeneration, myc::MycConnectionNonce, myc::MycConnectionTimeUnixMs, core::option::Option<myc::MycConnectionTimeUnixMs>, myc::MycConnectionAdmissionPolicy, myc::MycRateRelayId) -> core::result::Result<Self, myc::MycConnectionStateError>
+impl core::fmt::Debug for myc::MycConnectionAdmissionRequest
+pub fn myc::MycConnectionAdmissionRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycConnectionDecisionRecord
+impl myc::MycConnectionDecisionRecord
+pub const fn myc::MycConnectionDecisionRecord::connection(&self) -> core::option::Option<&myc::MycConnectionRecord>
+pub const fn myc::MycConnectionDecisionRecord::decided_at(&self) -> myc::MycConnectionTimeUnixMs
+pub const fn myc::MycConnectionDecisionRecord::decision(&self) -> myc::MycConnectionDecision
+pub const fn myc::MycConnectionDecisionRecord::operation_id(&self) -> myc::MycSignerOperationId
+pub const fn myc::MycConnectionDecisionRecord::policy_generation(&self) -> myc::MycConnectionPolicyGeneration
+impl core::fmt::Debug for myc::MycConnectionDecisionRecord
+pub fn myc::MycConnectionDecisionRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycConnectionId(_)
+impl myc::MycConnectionId
+pub const fn myc::MycConnectionId::as_bytes(&self) -> &[u8; 32]
+impl core::fmt::Debug for myc::MycConnectionId
+pub fn myc::MycConnectionId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycConnectionNonce(_)
+impl myc::MycConnectionNonce
+pub const fn myc::MycConnectionNonce::from_injected_entropy([u8; 32]) -> Self
+impl core::fmt::Debug for myc::MycConnectionNonce
+pub fn myc::MycConnectionNonce::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycConnectionPermissionSet
+impl myc::MycConnectionPermissionSet
+pub fn myc::MycConnectionPermissionSet::new(&[myc::MycConnectionPermission]) -> core::result::Result<Self, myc::MycConnectionStateError>
+pub fn myc::MycConnectionPermissionSet::permissions(&self) -> &[myc::MycConnectionPermission]
+impl core::fmt::Debug for myc::MycConnectionPermissionSet
+pub fn myc::MycConnectionPermissionSet::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycConnectionPolicyGeneration(_)
+impl myc::MycConnectionPolicyGeneration
+pub const fn myc::MycConnectionPolicyGeneration::get(self) -> u64
+pub fn myc::MycConnectionPolicyGeneration::new(u64) -> core::result::Result<Self, myc::MycConnectionStateError>
+pub struct myc::MycConnectionRecord
+impl myc::MycConnectionRecord
+pub const fn myc::MycConnectionRecord::authorized_until(&self) -> core::option::Option<myc::MycConnectionTimeUnixMs>
+pub const fn myc::MycConnectionRecord::client_public_key(&self) -> &myc::MycNip46ClientPublicKey
+pub const fn myc::MycConnectionRecord::created_at(&self) -> myc::MycConnectionTimeUnixMs
+pub const fn myc::MycConnectionRecord::granted_permissions(&self) -> &myc::MycConnectionPermissionSet
+pub const fn myc::MycConnectionRecord::id(&self) -> myc::MycConnectionId
+pub const fn myc::MycConnectionRecord::policy_generation(&self) -> myc::MycConnectionPolicyGeneration
+pub const fn myc::MycConnectionRecord::requested_permissions(&self) -> &myc::MycConnectionPermissionSet
+pub const fn myc::MycConnectionRecord::status(&self) -> myc::MycConnectionStatus
+pub const fn myc::MycConnectionRecord::updated_at(&self) -> myc::MycConnectionTimeUnixMs
+impl core::fmt::Debug for myc::MycConnectionRecord
+pub fn myc::MycConnectionRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycConnectionStateError
+impl myc::MycConnectionStateError
+pub const fn myc::MycConnectionStateError::code(self) -> &'static str
+pub const fn myc::MycConnectionStateError::kind(self) -> myc::MycConnectionStateErrorKind
+impl core::error::Error for myc::MycConnectionStateError
+impl core::fmt::Debug for myc::MycConnectionStateError
+pub fn myc::MycConnectionStateError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycConnectionStateError
+pub fn myc::MycConnectionStateError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycConnectionTimeUnixMs(_)
+impl myc::MycConnectionTimeUnixMs
+pub const fn myc::MycConnectionTimeUnixMs::get(self) -> u64
+pub fn myc::MycConnectionTimeUnixMs::new(u64) -> core::result::Result<Self, myc::MycConnectionStateError>
+pub struct myc::MycCredentialResolutionError
+impl myc::MycCredentialResolutionError
+pub const fn myc::MycCredentialResolutionError::code(self) -> &'static str
+pub const fn myc::MycCredentialResolutionError::kind(self) -> myc::MycCredentialResolutionErrorKind
+impl core::error::Error for myc::MycCredentialResolutionError
+impl core::fmt::Debug for myc::MycCredentialResolutionError
+pub fn myc::MycCredentialResolutionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycCredentialResolutionError
+pub fn myc::MycCredentialResolutionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDecryptedIdentity
+impl myc::MycDecryptedIdentity
+pub fn myc::MycDecryptedIdentity::public_identity(&self) -> &myc::MycProviderPublicIdentity
+impl core::fmt::Debug for myc::MycDecryptedIdentity
+pub fn myc::MycDecryptedIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDeliveryArtifactDigest(_)
+impl myc::MycDeliveryArtifactDigest
+pub const fn myc::MycDeliveryArtifactDigest::as_bytes(&self) -> &[u8; 32]
+impl myc::MycDeliveryArtifactDigest
+pub const fn myc::MycDeliveryArtifactDigest::from_bytes([u8; 32]) -> Self
+impl core::fmt::Debug for myc::MycDeliveryArtifactDigest
+pub fn myc::MycDeliveryArtifactDigest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDeliveryAttemptId(_)
+impl myc::MycDeliveryAttemptId
+pub const fn myc::MycDeliveryAttemptId::as_bytes(&self) -> &[u8; 32]
+impl core::fmt::Debug for myc::MycDeliveryAttemptId
+pub fn myc::MycDeliveryAttemptId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDeliveryAttemptNonce(_)
+impl myc::MycDeliveryAttemptNonce
+pub const fn myc::MycDeliveryAttemptNonce::from_injected_entropy([u8; 32]) -> Self
+impl core::fmt::Debug for myc::MycDeliveryAttemptNonce
+pub fn myc::MycDeliveryAttemptNonce::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDeliveryAttemptRecord
+impl myc::MycDeliveryAttemptRecord
+pub const fn myc::MycDeliveryAttemptRecord::id(&self) -> myc::MycDeliveryAttemptId
+pub const fn myc::MycDeliveryAttemptRecord::lease_expires_at(&self) -> myc::MycDeliveryTimeUnixMs
+pub const fn myc::MycDeliveryAttemptRecord::leased_at(&self) -> myc::MycDeliveryTimeUnixMs
+pub const fn myc::MycDeliveryAttemptRecord::number(&self) -> u32
+pub const fn myc::MycDeliveryAttemptRecord::reason(&self) -> core::option::Option<&'static str>
+pub const fn myc::MycDeliveryAttemptRecord::resolved_at(&self) -> core::option::Option<myc::MycDeliveryTimeUnixMs>
+pub const fn myc::MycDeliveryAttemptRecord::status(&self) -> myc::MycDeliveryAttemptStatus
+pub const fn myc::MycDeliveryAttemptRecord::submitted_at(&self) -> core::option::Option<myc::MycDeliveryTimeUnixMs>
+impl core::fmt::Debug for myc::MycDeliveryAttemptRecord
+pub fn myc::MycDeliveryAttemptRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDeliveryJobId(_)
+impl myc::MycDeliveryJobId
+pub const fn myc::MycDeliveryJobId::as_bytes(&self) -> &[u8; 32]
+impl core::fmt::Debug for myc::MycDeliveryJobId
+pub fn myc::MycDeliveryJobId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDeliveryJobRecord
+impl myc::MycDeliveryJobRecord
+pub const fn myc::MycDeliveryJobRecord::artifact_digest(&self) -> myc::MycDeliveryArtifactDigest
+pub const fn myc::MycDeliveryJobRecord::attempt_deadline_ms(&self) -> u64
+pub const fn myc::MycDeliveryJobRecord::created_at(&self) -> myc::MycDeliveryTimeUnixMs
+pub const fn myc::MycDeliveryJobRecord::finalized_at(&self) -> core::option::Option<myc::MycDeliveryTimeUnixMs>
+pub const fn myc::MycDeliveryJobRecord::id(&self) -> myc::MycDeliveryJobId
+pub const fn myc::MycDeliveryJobRecord::initial_backoff_ms(&self) -> u64
+pub const fn myc::MycDeliveryJobRecord::max_attempts(&self) -> u32
+pub const fn myc::MycDeliveryJobRecord::maximum_backoff_ms(&self) -> u64
+pub const fn myc::MycDeliveryJobRecord::operation_id(&self) -> core::option::Option<myc::MycSignerOperationId>
+pub const fn myc::MycDeliveryJobRecord::policy_mode(&self) -> myc::MycDeliveryPolicyMode
+pub const fn myc::MycDeliveryJobRecord::required_acknowledgements(&self) -> u32
+pub const fn myc::MycDeliveryJobRecord::source_kind(&self) -> myc::MycDeliverySourceKind
+pub const fn myc::MycDeliveryJobRecord::status(&self) -> myc::MycDeliveryJobStatus
+pub const fn myc::MycDeliveryJobRecord::targets(&self) -> &[myc::MycDeliveryTargetRecord]
+pub const fn myc::MycDeliveryJobRecord::updated_at(&self) -> myc::MycDeliveryTimeUnixMs
+impl core::fmt::Debug for myc::MycDeliveryJobRecord
+pub fn myc::MycDeliveryJobRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDeliveryJobRequest
+impl myc::MycDeliveryJobRequest
+pub const fn myc::MycDeliveryJobRequest::signer_response(myc::MycSignerOperationId, myc::MycDeliveryArtifactDigest, myc::MycDeliveryTimeUnixMs) -> Self
+impl core::fmt::Debug for myc::MycDeliveryJobRequest
+pub fn myc::MycDeliveryJobRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDeliveryRelayId(_)
+impl myc::MycDeliveryRelayId
+pub fn myc::MycDeliveryRelayId::as_str(&self) -> &str
+pub fn myc::MycDeliveryRelayId::new(&str) -> core::result::Result<Self, myc::MycDeliveryStateError>
+impl core::fmt::Debug for myc::MycDeliveryRelayId
+pub fn myc::MycDeliveryRelayId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDeliveryStateError
+impl myc::MycDeliveryStateError
+pub const fn myc::MycDeliveryStateError::code(self) -> &'static str
+pub const fn myc::MycDeliveryStateError::kind(self) -> myc::MycDeliveryStateErrorKind
+impl core::error::Error for myc::MycDeliveryStateError
+impl core::fmt::Debug for myc::MycDeliveryStateError
+pub fn myc::MycDeliveryStateError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycDeliveryStateError
+pub fn myc::MycDeliveryStateError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDeliveryTargetRecord
+impl myc::MycDeliveryTargetRecord
+pub const fn myc::MycDeliveryTargetRecord::active_attempt_id(&self) -> core::option::Option<myc::MycDeliveryAttemptId>
+pub const fn myc::MycDeliveryTargetRecord::attempt_count(&self) -> u32
+pub const fn myc::MycDeliveryTargetRecord::index(&self) -> u32
+pub const fn myc::MycDeliveryTargetRecord::next_attempt_at(&self) -> core::option::Option<myc::MycDeliveryTimeUnixMs>
+pub const fn myc::MycDeliveryTargetRecord::relay_id(&self) -> &myc::MycDeliveryRelayId
+pub const fn myc::MycDeliveryTargetRecord::required(&self) -> bool
+pub const fn myc::MycDeliveryTargetRecord::status(&self) -> myc::MycDeliveryTargetStatus
+pub const fn myc::MycDeliveryTargetRecord::updated_at(&self) -> myc::MycDeliveryTimeUnixMs
+impl core::fmt::Debug for myc::MycDeliveryTargetRecord
+pub fn myc::MycDeliveryTargetRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDeliveryTimeUnixMs(_)
+impl myc::MycDeliveryTimeUnixMs
+pub const fn myc::MycDeliveryTimeUnixMs::get(self) -> u64
+pub fn myc::MycDeliveryTimeUnixMs::new(u64) -> core::result::Result<Self, myc::MycDeliveryStateError>
+pub struct myc::MycDiscoveryCommitRecord
+impl myc::MycDiscoveryCommitRecord
+pub const fn myc::MycDiscoveryCommitRecord::document(&self) -> &myc::MycDiscoveryDocumentRecord
+pub const fn myc::MycDiscoveryCommitRecord::job(&self) -> &myc::MycDeliveryJobRecord
+pub const fn myc::MycDiscoveryCommitRecord::state(&self) -> &myc::MycDiscoveryPublicationState
+impl core::fmt::Debug for myc::MycDiscoveryCommitRecord
+pub fn myc::MycDiscoveryCommitRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDiscoveryCommitRequest
+impl myc::MycDiscoveryCommitRequest
+pub const fn myc::MycDiscoveryCommitRequest::desired_digest(&self) -> myc::MycDiscoveryDocumentDigest
+pub const fn myc::MycDiscoveryCommitRequest::generation_id(&self) -> myc::MycDiscoveryGenerationId
+pub fn myc::MycDiscoveryCommitRequest::new(&myc::MycStateMetadata, &[u8], myc::MycDeliveryTimeUnixMs) -> core::result::Result<Self, myc::MycDiscoveryStateError>
+impl core::fmt::Debug for myc::MycDiscoveryCommitRequest
+pub fn myc::MycDiscoveryCommitRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDiscoveryDocumentDigest(_)
+impl myc::MycDiscoveryDocumentDigest
+pub const fn myc::MycDiscoveryDocumentDigest::as_bytes(&self) -> &[u8; 32]
+impl core::fmt::Debug for myc::MycDiscoveryDocumentDigest
+pub fn myc::MycDiscoveryDocumentDigest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDiscoveryDocumentRecord
+impl myc::MycDiscoveryDocumentRecord
+pub fn myc::MycDiscoveryDocumentRecord::event_bytes(&self) -> &[u8]
+pub const fn myc::MycDiscoveryDocumentRecord::event_digest(&self) -> myc::MycDeliveryArtifactDigest
+pub const fn myc::MycDiscoveryDocumentRecord::event_id(&self) -> &[u8; 32]
+pub const fn myc::MycDiscoveryDocumentRecord::generation_id(&self) -> myc::MycDiscoveryGenerationId
+pub fn myc::MycDiscoveryDocumentRecord::nip05_projection_bytes(&self) -> &[u8]
+pub const fn myc::MycDiscoveryDocumentRecord::nip05_projection_digest(&self) -> myc::MycNip05ProjectionDigest
+impl core::fmt::Debug for myc::MycDiscoveryDocumentRecord
+pub fn myc::MycDiscoveryDocumentRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDiscoveryGenerationId(_)
+impl myc::MycDiscoveryGenerationId
+pub const fn myc::MycDiscoveryGenerationId::as_bytes(&self) -> &[u8; 32]
+impl core::fmt::Debug for myc::MycDiscoveryGenerationId
+pub fn myc::MycDiscoveryGenerationId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDiscoveryPublicationState
+impl myc::MycDiscoveryPublicationState
+pub const fn myc::MycDiscoveryPublicationState::current_generation_id(&self) -> core::option::Option<myc::MycDiscoveryGenerationId>
+pub const fn myc::MycDiscoveryPublicationState::current_job_id(&self) -> core::option::Option<myc::MycDeliveryJobId>
+pub const fn myc::MycDiscoveryPublicationState::desired_generation_id(&self) -> myc::MycDiscoveryGenerationId
+pub const fn myc::MycDiscoveryPublicationState::desired_job_id(&self) -> myc::MycDeliveryJobId
+impl core::fmt::Debug for myc::MycDiscoveryPublicationState
+pub fn myc::MycDiscoveryPublicationState::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDiscoveryStateError
+impl myc::MycDiscoveryStateError
+pub const fn myc::MycDiscoveryStateError::code(self) -> &'static str
+pub const fn myc::MycDiscoveryStateError::kind(self) -> myc::MycDiscoveryStateErrorKind
+impl core::error::Error for myc::MycDiscoveryStateError
+impl core::fmt::Debug for myc::MycDiscoveryStateError
+pub fn myc::MycDiscoveryStateError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycDiscoveryStateError
+pub fn myc::MycDiscoveryStateError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycEffectiveConfigV1
+impl myc::MycEffectiveConfigV1
+pub fn myc::MycEffectiveConfigV1::canonical_json(&self) -> &str
+pub const fn myc::MycEffectiveConfigV1::field_count(&self) -> usize
+impl core::fmt::Debug for myc::MycEffectiveConfigV1
+pub fn myc::MycEffectiveConfigV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycEncryptedIdentityEnvelopeError
+impl myc::MycEncryptedIdentityEnvelopeError
+pub const fn myc::MycEncryptedIdentityEnvelopeError::code(self) -> &'static str
+pub const fn myc::MycEncryptedIdentityEnvelopeError::kind(self) -> myc::MycEncryptedIdentityEnvelopeErrorKind
+impl core::error::Error for myc::MycEncryptedIdentityEnvelopeError
+impl core::fmt::Debug for myc::MycEncryptedIdentityEnvelopeError
+pub fn myc::MycEncryptedIdentityEnvelopeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycEncryptedIdentityEnvelopeError
+pub fn myc::MycEncryptedIdentityEnvelopeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycEncryptedIdentityProvisioningMaterial
+impl myc::MycEncryptedIdentityProvisioningMaterial
+pub fn myc::MycEncryptedIdentityProvisioningMaterial::new([u8; 32], [u8; 32], [u8; 24], [u8; 24]) -> core::result::Result<Self, myc::MycEncryptedIdentityEnvelopeError>
+impl core::fmt::Debug for myc::MycEncryptedIdentityProvisioningMaterial
+pub fn myc::MycEncryptedIdentityProvisioningMaterial::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycExpectedIdentities
+impl myc::MycExpectedIdentities
+pub const fn myc::MycExpectedIdentities::discovery(&self) -> core::option::Option<&myc::MycExpectedPublicIdentity>
+pub const fn myc::MycExpectedIdentities::transport(&self) -> &myc::MycExpectedPublicIdentity
+pub const fn myc::MycExpectedIdentities::user(&self) -> &myc::MycExpectedPublicIdentity
+impl core::fmt::Debug for myc::MycExpectedIdentities
+pub fn myc::MycExpectedIdentities::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycExpectedPublicIdentity(_)
+impl myc::MycExpectedPublicIdentity
+pub fn myc::MycExpectedPublicIdentity::as_hex(&self) -> &str
+impl core::fmt::Debug for myc::MycExpectedPublicIdentity
+pub fn myc::MycExpectedPublicIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycGovernanceCompactionOutcome
+impl myc::MycGovernanceCompactionOutcome
+pub const fn myc::MycGovernanceCompactionOutcome::removed_audit_records(self) -> u16
+pub const fn myc::MycGovernanceCompactionOutcome::removed_rate_subjects(self) -> u16
+pub struct myc::MycGovernanceCompactionPolicy
+impl myc::MycGovernanceCompactionPolicy
+pub fn myc::MycGovernanceCompactionPolicy::new(u64, u16) -> core::result::Result<Self, myc::MycGovernanceStateError>
+pub struct myc::MycGovernanceStateError
+impl myc::MycGovernanceStateError
+pub const fn myc::MycGovernanceStateError::code(self) -> &'static str
+pub const fn myc::MycGovernanceStateError::kind(self) -> myc::MycGovernanceStateErrorKind
+impl core::error::Error for myc::MycGovernanceStateError
+impl core::fmt::Debug for myc::MycGovernanceStateError
+pub fn myc::MycGovernanceStateError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycGovernanceStateError
+pub fn myc::MycGovernanceStateError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycLocalSignerClient
+impl myc::MycLocalSignerClient
+pub async fn myc::MycLocalSignerClient::execute(&self, &myc::MycProviderOperation) -> core::result::Result<myc::MycLocalSignerUntrustedResponse, myc::MycLocalSignerTransportError>
+pub fn myc::MycLocalSignerClient::new(&myc::MycProviderBinding) -> core::result::Result<Self, myc::MycLocalSignerTransportError>
+impl core::fmt::Debug for myc::MycLocalSignerClient
+pub fn myc::MycLocalSignerClient::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycLocalSignerLimits
+impl myc::MycLocalSignerLimits
+pub const fn myc::MycLocalSignerLimits::concurrency(self) -> u32
+pub fn myc::MycLocalSignerLimits::new(u64, u64, u64, u32) -> core::result::Result<Self, myc::MycProviderContractError>
+pub const fn myc::MycLocalSignerLimits::request_deadline_ms(self) -> u64
+pub const fn myc::MycLocalSignerLimits::request_max_bytes(self) -> u64
+pub const fn myc::MycLocalSignerLimits::response_max_bytes(self) -> u64
+pub struct myc::MycLocalSignerTransportError
+impl myc::MycLocalSignerTransportError
+pub const fn myc::MycLocalSignerTransportError::code(self) -> &'static str
+pub const fn myc::MycLocalSignerTransportError::kind(self) -> myc::MycLocalSignerTransportErrorKind
+impl core::error::Error for myc::MycLocalSignerTransportError
+impl core::fmt::Debug for myc::MycLocalSignerTransportError
+pub fn myc::MycLocalSignerTransportError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycLocalSignerTransportError
+pub fn myc::MycLocalSignerTransportError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycLocalSignerUntrustedResponse
+impl myc::MycLocalSignerUntrustedResponse
+pub fn myc::MycLocalSignerUntrustedResponse::verify(self, &myc::MycProviderBinding, &myc::MycProviderOperation, myc::MycProviderResponseObservedAtUnixMs) -> core::result::Result<myc::MycVerifiedProviderResponse, myc::MycProviderVerificationError>
+impl core::fmt::Debug for myc::MycLocalSignerUntrustedResponse
+pub fn myc::MycLocalSignerUntrustedResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip05ProjectionDigest(_)
+impl myc::MycNip05ProjectionDigest
+pub const fn myc::MycNip05ProjectionDigest::as_bytes(&self) -> &[u8; 32]
+impl core::fmt::Debug for myc::MycNip05ProjectionDigest
+pub fn myc::MycNip05ProjectionDigest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46ClientPublicKey(_)
+impl myc::MycNip46ClientPublicKey
+pub fn myc::MycNip46ClientPublicKey::as_hex(&self) -> &str
+pub fn myc::MycNip46ClientPublicKey::new(&str) -> core::result::Result<Self, myc::MycSignerRequestError>
+impl core::fmt::Debug for myc::MycNip46ClientPublicKey
+pub fn myc::MycNip46ClientPublicKey::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46EventId(_)
+impl myc::MycNip46EventId
+pub const fn myc::MycNip46EventId::as_bytes(&self) -> &[u8; 32]
+impl myc::MycNip46EventId
+pub const fn myc::MycNip46EventId::from_bytes([u8; 32]) -> Self
+impl core::fmt::Debug for myc::MycNip46EventId
+pub fn myc::MycNip46EventId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46RequestId(_)
+impl myc::MycNip46RequestId
+pub fn myc::MycNip46RequestId::as_str(&self) -> &str
+pub fn myc::MycNip46RequestId::new(&str) -> core::result::Result<Self, myc::MycSignerRequestError>
+impl core::fmt::Debug for myc::MycNip46RequestId
+pub fn myc::MycNip46RequestId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNormalizedConfigDigest(_)
+impl myc::MycNormalizedConfigDigest
+pub const fn myc::MycNormalizedConfigDigest::as_bytes(&self) -> &[u8; 32]
+impl core::fmt::Debug for myc::MycNormalizedConfigDigest
+pub fn myc::MycNormalizedConfigDigest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycProviderBinding
+impl myc::MycProviderBinding
+pub const fn myc::MycProviderBinding::credential_reference(&self) -> core::option::Option<&myc::MycProviderCredentialReference>
+pub const fn myc::MycProviderBinding::expected_identity(&self) -> &myc::MycProviderPublicIdentity
+pub const fn myc::MycProviderBinding::instance(&self) -> myc::MycProviderInstanceId
+pub const fn myc::MycProviderBinding::kind(&self) -> myc::MycProviderKind
+pub const fn myc::MycProviderBinding::local_signer_limits(&self) -> core::option::Option<myc::MycLocalSignerLimits>
+pub const fn myc::MycProviderBinding::required_capabilities(&self) -> myc::MycProviderCapabilitySet
+pub const fn myc::MycProviderBinding::role(&self) -> myc::MycProviderRole
+impl core::fmt::Debug for myc::MycProviderBinding
+pub fn myc::MycProviderBinding::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycProviderCapabilitySet(_)
+impl myc::MycProviderCapabilitySet
+pub const fn myc::MycProviderCapabilitySet::contains(self, myc::MycProviderCapability) -> bool
+pub const fn myc::MycProviderCapabilitySet::is_empty(self) -> bool
+pub fn myc::MycProviderCapabilitySet::iter(self) -> impl core::iter::traits::iterator::Iterator<Item = myc::MycProviderCapability>
+pub const fn myc::MycProviderCapabilitySet::len(self) -> usize
+pub fn myc::MycProviderCapabilitySet::new(&[myc::MycProviderCapability]) -> core::result::Result<Self, myc::MycProviderContractError>
+impl core::fmt::Debug for myc::MycProviderCapabilitySet
+pub fn myc::MycProviderCapabilitySet::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycProviderContract
+impl myc::MycProviderContract
+pub fn myc::MycProviderContract::binding(&self, myc::MycProviderRole) -> core::option::Option<&myc::MycProviderBinding>
+pub fn myc::MycProviderContract::bindings(&self) -> &[myc::MycProviderBinding]
+impl core::fmt::Debug for myc::MycProviderContract
+pub fn myc::MycProviderContract::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycProviderContractError
+impl myc::MycProviderContractError
+pub const fn myc::MycProviderContractError::kind(self) -> myc::MycProviderContractErrorKind
+impl core::error::Error for myc::MycProviderContractError
+impl core::fmt::Debug for myc::MycProviderContractError
+pub fn myc::MycProviderContractError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycProviderContractError
+pub fn myc::MycProviderContractError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycProviderCorrelationId(_)
+impl myc::MycProviderCorrelationId
+pub const fn myc::MycProviderCorrelationId::as_bytes(&self) -> &[u8; 32]
+pub const fn myc::MycProviderCorrelationId::from_bytes([u8; 32]) -> Self
+impl core::fmt::Debug for myc::MycProviderCorrelationId
+pub fn myc::MycProviderCorrelationId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycProviderCredentialReference(_)
+impl myc::MycProviderCredentialReference
+pub fn myc::MycProviderCredentialReference::as_str(&self) -> &str
+pub fn myc::MycProviderCredentialReference::new(&str) -> core::result::Result<Self, myc::MycProviderContractError>
+impl core::fmt::Debug for myc::MycProviderCredentialReference
+pub fn myc::MycProviderCredentialReference::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycProviderDeadlineUnixMs(_)
+impl myc::MycProviderDeadlineUnixMs
+pub const fn myc::MycProviderDeadlineUnixMs::get(self) -> u64
+pub fn myc::MycProviderDeadlineUnixMs::new(u64) -> core::result::Result<Self, myc::MycProviderContractError>
+pub struct myc::MycProviderOperation
+impl myc::MycProviderOperation
+pub const fn myc::MycProviderOperation::contract_version(&self) -> u32
+pub const fn myc::MycProviderOperation::correlation_id(&self) -> myc::MycProviderCorrelationId
+pub const fn myc::MycProviderOperation::deadline(&self) -> myc::MycProviderDeadlineUnixMs
+pub const fn myc::MycProviderOperation::expected_identity(&self) -> &myc::MycProviderPublicIdentity
+pub const fn myc::MycProviderOperation::input(&self) -> &myc::MycProviderOperationInput
+pub const fn myc::MycProviderOperation::instance(&self) -> myc::MycProviderInstanceId
+pub fn myc::MycProviderOperation::new(&myc::MycProviderBinding, myc::MycProviderOperationId, myc::MycProviderCorrelationId, myc::MycProviderDeadlineUnixMs, myc::MycProviderOperationInput) -> core::result::Result<Self, myc::MycProviderContractError>
+pub const fn myc::MycProviderOperation::operation_id(&self) -> myc::MycProviderOperationId
+pub const fn myc::MycProviderOperation::provider(&self) -> myc::MycProviderKind
+pub const fn myc::MycProviderOperation::role(&self) -> myc::MycProviderRole
+impl core::fmt::Debug for myc::MycProviderOperation
+pub fn myc::MycProviderOperation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycProviderOperationId(_)
+impl myc::MycProviderOperationId
+pub const fn myc::MycProviderOperationId::as_bytes(&self) -> &[u8; 32]
+pub const fn myc::MycProviderOperationId::from_bytes([u8; 32]) -> Self
+impl core::fmt::Debug for myc::MycProviderOperationId
+pub fn myc::MycProviderOperationId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycProviderOperationInput
+impl myc::MycProviderOperationInput
+pub fn myc::MycProviderOperationInput::bytes(&self) -> core::option::Option<&[u8]>
+pub const fn myc::MycProviderOperationInput::capability(&self) -> myc::MycProviderCapability
+pub const fn myc::MycProviderOperationInput::describe() -> Self
+pub fn myc::MycProviderOperationInput::nip04_decrypt(myc::MycProviderPublicIdentity, &[u8]) -> core::result::Result<Self, myc::MycProviderContractError>
+pub fn myc::MycProviderOperationInput::nip04_encrypt(myc::MycProviderPublicIdentity, &[u8]) -> core::result::Result<Self, myc::MycProviderContractError>
+pub fn myc::MycProviderOperationInput::nip44_decrypt(myc::MycProviderPublicIdentity, myc::MycProviderNip44Version, &[u8]) -> core::result::Result<Self, myc::MycProviderContractError>
+pub fn myc::MycProviderOperationInput::nip44_encrypt(myc::MycProviderPublicIdentity, myc::MycProviderNip44Version, &[u8]) -> core::result::Result<Self, myc::MycProviderContractError>
+pub const fn myc::MycProviderOperationInput::nip44_version(&self) -> core::option::Option<myc::MycProviderNip44Version>
+pub const fn myc::MycProviderOperationInput::peer(&self) -> core::option::Option<&myc::MycProviderPublicIdentity>
+pub const fn myc::MycProviderOperationInput::public_identity() -> Self
+pub fn myc::MycProviderOperationInput::sign_event(&[u8]) -> core::result::Result<Self, myc::MycProviderContractError>
+impl core::fmt::Debug for myc::MycProviderOperationInput
+pub fn myc::MycProviderOperationInput::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycProviderPublicIdentity(_)
+impl myc::MycProviderPublicIdentity
+pub fn myc::MycProviderPublicIdentity::as_hex(&self) -> &str
+pub fn myc::MycProviderPublicIdentity::new(&str) -> core::result::Result<Self, myc::MycProviderContractError>
+impl core::fmt::Debug for myc::MycProviderPublicIdentity
+pub fn myc::MycProviderPublicIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycProviderResponseObservedAtUnixMs(_)
+impl myc::MycProviderResponseObservedAtUnixMs
+pub const fn myc::MycProviderResponseObservedAtUnixMs::get(self) -> u64
+pub fn myc::MycProviderResponseObservedAtUnixMs::new(u64) -> core::result::Result<Self, myc::MycProviderVerificationError>
+pub struct myc::MycProviderVerificationError
+impl myc::MycProviderVerificationError
+pub const fn myc::MycProviderVerificationError::code(self) -> &'static str
+pub const fn myc::MycProviderVerificationError::kind(self) -> myc::MycProviderVerificationErrorKind
+impl core::error::Error for myc::MycProviderVerificationError
+impl core::fmt::Debug for myc::MycProviderVerificationError
+pub fn myc::MycProviderVerificationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycProviderVerificationError
+pub fn myc::MycProviderVerificationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycRateLimitPolicy
+impl myc::MycRateLimitPolicy
+pub const fn myc::MycRateLimitPolicy::class(self) -> myc::MycRateLimitClass
+pub fn myc::MycRateLimitPolicy::new(myc::MycRateLimitClass, u64, u32, u64, u32) -> core::result::Result<Self, myc::MycGovernanceStateError>
+impl core::fmt::Debug for myc::MycRateLimitPolicy
+pub fn myc::MycRateLimitPolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycRateRelayId(_)
+impl myc::MycRateRelayId
+pub fn myc::MycRateRelayId::new(&str) -> core::result::Result<Self, myc::MycGovernanceStateError>
+impl core::fmt::Debug for myc::MycRateRelayId
+pub fn myc::MycRateRelayId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycRequestReceivedAtUnixMs(_)
+impl myc::MycRequestReceivedAtUnixMs
+pub const fn myc::MycRequestReceivedAtUnixMs::get(self) -> u64
+pub fn myc::MycRequestReceivedAtUnixMs::new(u64) -> core::result::Result<Self, myc::MycSignerRequestError>
+pub struct myc::MycRuntimeContext
+impl myc::MycRuntimeContext
+pub fn myc::MycRuntimeContext::artifacts(&self) -> &radroots_runtime_paths::conventions::RadrootsServiceInstanceArtifacts
+pub fn myc::MycRuntimeContext::context(&self) -> &radroots_runtime_paths::context::RuntimeContext
+pub const fn myc::MycRuntimeContext::profile(&self) -> myc::MycBootstrapProfileV1
+pub fn myc::MycRuntimeContext::selected_config_path(&self) -> &std::path::Path
+impl core::fmt::Debug for myc::MycRuntimeContext
+pub fn myc::MycRuntimeContext::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycRuntimeContextError
+impl myc::MycRuntimeContextError
+pub const fn myc::MycRuntimeContextError::kind(self) -> myc::MycRuntimeContextErrorKind
+impl core::error::Error for myc::MycRuntimeContextError
+impl core::fmt::Debug for myc::MycRuntimeContextError
+pub fn myc::MycRuntimeContextError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycRuntimeContextError
+pub fn myc::MycRuntimeContextError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycRuntimeFoundation
+impl myc::MycRuntimeFoundation
+pub const fn myc::MycRuntimeFoundation::configuration(&self) -> &myc::MycConfigDocumentV1
+pub const fn myc::MycRuntimeFoundation::metadata(&self) -> &myc::MycStateMetadata
+pub fn myc::MycRuntimeFoundation::provider_kind(&self, myc::MycProviderRole) -> core::option::Option<myc::MycProviderKind>
+pub const fn myc::MycRuntimeFoundation::readiness(&self) -> &myc::MycRuntimeReadiness
+pub const fn myc::MycRuntimeFoundation::runtime_context(&self) -> &myc::MycRuntimeContext
+pub async fn myc::MycRuntimeFoundation::shutdown(self) -> core::result::Result<(), myc::MycRuntimeFoundationError>
+impl core::fmt::Debug for myc::MycRuntimeFoundation
+pub fn myc::MycRuntimeFoundation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycRuntimeFoundationError
+impl myc::MycRuntimeFoundationError
+pub const fn myc::MycRuntimeFoundationError::code(self) -> &'static str
+pub const fn myc::MycRuntimeFoundationError::kind(self) -> myc::MycRuntimeFoundationErrorKind
+impl core::error::Error for myc::MycRuntimeFoundationError
+impl core::fmt::Debug for myc::MycRuntimeFoundationError
+pub fn myc::MycRuntimeFoundationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycRuntimeFoundationError
+pub fn myc::MycRuntimeFoundationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycRuntimeReadiness
+impl myc::MycRuntimeReadiness
+pub fn myc::MycRuntimeReadiness::is_ready(&self) -> bool
+pub const fn myc::MycRuntimeReadiness::reasons(&self) -> &[myc::MycRuntimeReadinessReason]
+pub fn myc::MycRuntimeReadiness::required(&self) -> &[myc::MycRuntimePrerequisite]
+pub fn myc::MycRuntimeReadiness::satisfied(&self) -> &[myc::MycRuntimePrerequisite]
+impl core::fmt::Debug for myc::MycRuntimeReadiness
+pub fn myc::MycRuntimeReadiness::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycSignerCorrelationId(_)
+impl myc::MycSignerCorrelationId
+pub const fn myc::MycSignerCorrelationId::as_bytes(&self) -> &[u8; 32]
+impl core::fmt::Debug for myc::MycSignerCorrelationId
+pub fn myc::MycSignerCorrelationId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycSignerOperationId(_)
+impl myc::MycSignerOperationId
+pub const fn myc::MycSignerOperationId::as_bytes(&self) -> &[u8; 32]
+impl core::fmt::Debug for myc::MycSignerOperationId
+pub fn myc::MycSignerOperationId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycSignerOperationNonce(_)
+impl myc::MycSignerOperationNonce
+pub const fn myc::MycSignerOperationNonce::from_injected_entropy([u8; 32]) -> Self
+impl core::fmt::Debug for myc::MycSignerOperationNonce
+pub fn myc::MycSignerOperationNonce::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycSignerRequest
+impl myc::MycSignerRequest
+pub fn myc::MycSignerRequest::new(myc::MycNip46ClientPublicKey, myc::MycNip46RequestId, myc::MycNip46EventId, myc::MycSignerRequestMethod, myc::MycSignerRequestDigest, myc::MycSignerOperationNonce, myc::MycRequestReceivedAtUnixMs) -> Self
+impl core::fmt::Debug for myc::MycSignerRequest
+pub fn myc::MycSignerRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycSignerRequestDigest(_)
+impl myc::MycSignerRequestDigest
+pub const fn myc::MycSignerRequestDigest::as_bytes(&self) -> &[u8; 32]
+impl myc::MycSignerRequestDigest
+pub fn myc::MycSignerRequestDigest::for_canonical_request(&[u8]) -> core::result::Result<Self, myc::MycSignerRequestError>
+impl core::fmt::Debug for myc::MycSignerRequestDigest
+pub fn myc::MycSignerRequestDigest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycSignerRequestError
+impl myc::MycSignerRequestError
+pub const fn myc::MycSignerRequestError::code(self) -> &'static str
+pub const fn myc::MycSignerRequestError::kind(self) -> myc::MycSignerRequestErrorKind
+impl core::error::Error for myc::MycSignerRequestError
+impl core::fmt::Debug for myc::MycSignerRequestError
+pub fn myc::MycSignerRequestError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycSignerRequestError
+pub fn myc::MycSignerRequestError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycSignerRequestRecord
+impl myc::MycSignerRequestRecord
+pub const fn myc::MycSignerRequestRecord::conflict_count(&self) -> u64
+pub const fn myc::MycSignerRequestRecord::correlation_id(&self) -> myc::MycSignerCorrelationId
+pub const fn myc::MycSignerRequestRecord::method(&self) -> myc::MycSignerRequestMethod
+pub const fn myc::MycSignerRequestRecord::operation_id(&self) -> myc::MycSignerOperationId
+pub const fn myc::MycSignerRequestRecord::replay_count(&self) -> u64
+impl core::fmt::Debug for myc::MycSignerRequestRecord
+pub fn myc::MycSignerRequestRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStagedStateRestore
+impl core::fmt::Debug for myc::MycStagedStateRestore
+pub fn myc::MycStagedStateRestore::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStateCatalogError
+impl myc::MycStateCatalogError
+pub const fn myc::MycStateCatalogError::code(self) -> &'static str
+pub const fn myc::MycStateCatalogError::kind(self) -> myc::MycStateCatalogErrorKind
+impl core::error::Error for myc::MycStateCatalogError
+impl core::fmt::Debug for myc::MycStateCatalogError
+pub fn myc::MycStateCatalogError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycStateCatalogError
+pub fn myc::MycStateCatalogError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStateHost
+impl myc::MycStateHost
+pub async fn myc::MycStateHost::capture_online_backup(&self, &std::path::Path, radroots_service_sqlite::backup::manifest::BackupCreatedAtUnixMs) -> core::result::Result<radroots_service_sqlite::backup::manifest::ServiceBackupManifest, myc::MycStateMaintenanceError>
+pub async fn myc::MycStateHost::close(&self) -> core::result::Result<(), myc::MycStateHostError>
+pub async fn myc::MycStateHost::inspect_integrity(&self, radroots_service_sqlite::integrity::inspection::IntegrityCheckedAtUnixMs) -> core::result::Result<radroots_service_sqlite::integrity::inspection::ServiceSqliteIntegrityReport, myc::MycStateMaintenanceError>
+pub const fn myc::MycStateHost::metadata(&self) -> &myc::MycStateMetadata
+pub const fn myc::MycStateHost::mode(&self) -> myc::MycStateHostMode
+pub const fn myc::MycStateHost::repository(&self) -> myc::MycStateRepository<'_>
+impl core::fmt::Debug for myc::MycStateHost
+pub fn myc::MycStateHost::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStateHostError
+impl myc::MycStateHostError
+pub const fn myc::MycStateHostError::code(self) -> &'static str
+pub const fn myc::MycStateHostError::kind(self) -> myc::MycStateHostErrorKind
+impl core::error::Error for myc::MycStateHostError
+impl core::fmt::Debug for myc::MycStateHostError
+pub fn myc::MycStateHostError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycStateHostError
+pub fn myc::MycStateHostError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStateMaintenanceError
+impl myc::MycStateMaintenanceError
+pub const fn myc::MycStateMaintenanceError::code(self) -> &'static str
+pub const fn myc::MycStateMaintenanceError::kind(self) -> myc::MycStateMaintenanceErrorKind
+impl core::error::Error for myc::MycStateMaintenanceError
+impl core::fmt::Debug for myc::MycStateMaintenanceError
+pub fn myc::MycStateMaintenanceError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycStateMaintenanceError
+pub fn myc::MycStateMaintenanceError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStateMetadata
+impl myc::MycStateMetadata
+pub const fn myc::MycStateMetadata::configuration_digest(&self) -> myc::MycNormalizedConfigDigest
+pub fn myc::MycStateMetadata::database_identity(&self) -> radroots_service_sqlite::metadata::ServiceDatabaseIdentity
+pub const fn myc::MycStateMetadata::expected_identities(&self) -> &myc::MycExpectedIdentities
+pub const fn myc::MycStateMetadata::initial_database_metadata(&self) -> &radroots_service_sqlite::metadata::ServiceDatabaseMetadata
+pub fn myc::MycStateMetadata::new(&myc::MycRuntimeContext, &myc::MycConfigDocumentV1, radroots_storage::event::SourceGeneration, u64) -> core::result::Result<Self, myc::MycStateMetadataError>
+pub const fn myc::MycStateMetadata::policy_versions(&self) -> myc::MycStatePolicyVersions
+impl core::fmt::Debug for myc::MycStateMetadata
+pub fn myc::MycStateMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStateMetadataError
+impl myc::MycStateMetadataError
+pub const fn myc::MycStateMetadataError::kind(self) -> myc::MycStateMetadataErrorKind
+impl core::error::Error for myc::MycStateMetadataError
+impl core::fmt::Debug for myc::MycStateMetadataError
+pub fn myc::MycStateMetadataError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycStateMetadataError
+pub fn myc::MycStateMetadataError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStatePolicyVersions
+impl myc::MycStatePolicyVersions
+pub const fn myc::MycStatePolicyVersions::configuration(self) -> u32
+pub const fn myc::MycStatePolicyVersions::operator(self) -> u32
+pub const fn myc::MycStatePolicyVersions::state(self) -> u32
+pub const fn myc::MycStatePolicyVersions::status(self) -> u32
+pub struct myc::MycStateRepository<'host>
+impl myc::MycStateRepository<'_>
+pub async fn myc::MycStateRepository<'_>::admit_connection(&self, &myc::MycConnectionAdmissionRequest) -> core::result::Result<myc::MycConnectionAdmission, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::authorize_challenge(&self, myc::MycAuthorizationChallengeId, myc::MycConnectionId, myc::MycSignerOperationId, myc::MycConnectionPolicyGeneration, myc::MycConnectionTimeUnixMs) -> core::result::Result<myc::MycAuthorizationChallengeAuthorization, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::decide_pending_connection(&self, myc::MycSignerOperationId, myc::MycConnectionId, myc::MycConnectionPolicyGeneration, myc::MycConnectionTimeUnixMs, myc::MycAuditCorrelationId, myc::MycConnectionOperatorDecision) -> core::result::Result<myc::MycConnectionRecord, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::expire_connection(&self, myc::MycConnectionId, myc::MycConnectionPolicyGeneration, myc::MycConnectionTimeUnixMs, myc::MycAuditCorrelationId) -> core::result::Result<myc::MycConnectionRecord, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::issue_authorization_challenge(&self, &myc::MycAuthorizationChallengeRequest) -> core::result::Result<myc::MycAuthorizationChallengeAdmission, myc::MycStateRepositoryError>
+impl myc::MycStateRepository<'_>
+pub async fn myc::MycStateRepository<'_>::admit_signer_request(&self, &myc::MycSignerRequest) -> core::result::Result<myc::MycSignerRequestAdmission, myc::MycStateRepositoryError>
+impl myc::MycStateRepository<'_>
+pub async fn myc::MycStateRepository<'_>::claim_delivery_target(&self, myc::MycDeliveryJobId, &myc::MycDeliveryRelayId, myc::MycDeliveryAttemptNonce, myc::MycDeliveryTimeUnixMs) -> core::result::Result<myc::MycDeliveryClaim, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::create_delivery_job(&self, &myc::MycDeliveryJobRequest) -> core::result::Result<myc::MycDeliveryJobAdmission, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::mark_delivery_attempt_submitted(&self, myc::MycDeliveryJobId, &myc::MycDeliveryRelayId, myc::MycDeliveryAttemptId, myc::MycDeliveryTimeUnixMs) -> core::result::Result<myc::MycDeliveryAttemptRecord, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::read_delivery_attempts(&self, myc::MycDeliveryJobId, &myc::MycDeliveryRelayId) -> core::result::Result<alloc::boxed::Box<[myc::MycDeliveryAttemptRecord]>, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::read_delivery_job(&self, myc::MycDeliveryJobId) -> core::result::Result<core::option::Option<myc::MycDeliveryJobRecord>, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::record_delivery_attempt_outcome(&self, myc::MycDeliveryJobId, &myc::MycDeliveryRelayId, myc::MycDeliveryAttemptId, myc::MycDeliveryAttemptOutcome, myc::MycDeliveryTimeUnixMs) -> core::result::Result<myc::MycDeliveryJobRecord, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::recover_expired_delivery_lease(&self, myc::MycDeliveryJobId, &myc::MycDeliveryRelayId, myc::MycDeliveryAttemptId, myc::MycDeliveryTimeUnixMs) -> core::result::Result<myc::MycDeliveryJobRecord, myc::MycStateRepositoryError>
+impl myc::MycStateRepository<'_>
+pub async fn myc::MycStateRepository<'_>::commit_discovery_desired_state(&self, &myc::MycDiscoveryCommitRequest) -> core::result::Result<myc::MycDiscoveryCommitAdmission, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::promote_delivered_discovery_state(&self, myc::MycDeliveryJobId, myc::MycDeliveryTimeUnixMs) -> core::result::Result<myc::MycDiscoveryPublicationState, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::read_discovery_document_for_job(&self, myc::MycDeliveryJobId) -> core::result::Result<core::option::Option<myc::MycDiscoveryDocumentRecord>, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::read_discovery_publication_state(&self) -> core::result::Result<core::option::Option<myc::MycDiscoveryPublicationState>, myc::MycStateRepositoryError>
+impl myc::MycStateRepository<'_>
+pub async fn myc::MycStateRepository<'_>::compact_governance_evidence(&self, myc::MycConnectionTimeUnixMs, myc::MycGovernanceCompactionPolicy, myc::MycAuditCorrelationId) -> core::result::Result<myc::MycGovernanceCompactionOutcome, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::read_audit_page(&self, myc::MycAuditPageLimit, core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<myc::MycAuditPage, myc::MycStateRepositoryError>
+impl<'host> myc::MycStateRepository<'host>
+pub async fn myc::MycStateRepository<'host>::verify_binding(&self) -> core::result::Result<(), myc::MycStateRepositoryError>
+impl core::fmt::Debug for myc::MycStateRepository<'_>
+pub fn myc::MycStateRepository<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStateRepositoryError
+impl myc::MycStateRepositoryError
+pub const fn myc::MycStateRepositoryError::code(self) -> &'static str
+pub const fn myc::MycStateRepositoryError::kind(self) -> myc::MycStateRepositoryErrorKind
+impl core::error::Error for myc::MycStateRepositoryError
+impl core::fmt::Debug for myc::MycStateRepositoryError
+pub fn myc::MycStateRepositoryError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycStateRepositoryError
+pub fn myc::MycStateRepositoryError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycUntrustedProviderOutput(_)
+impl myc::MycUntrustedProviderOutput
+pub fn myc::MycUntrustedProviderOutput::as_bytes(&self) -> &[u8]
+pub fn myc::MycUntrustedProviderOutput::new(&[u8]) -> core::result::Result<Self, myc::MycProviderContractError>
+impl core::fmt::Debug for myc::MycUntrustedProviderOutput
+pub fn myc::MycUntrustedProviderOutput::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycVerifiedProviderResponse
+impl myc::MycVerifiedProviderResponse
+pub const fn myc::MycVerifiedProviderResponse::capabilities(&self) -> core::option::Option<myc::MycProviderCapabilitySet>
+pub const fn myc::MycVerifiedProviderResponse::capability(&self) -> myc::MycProviderCapability
+pub const fn myc::MycVerifiedProviderResponse::correlation_id(&self) -> myc::MycProviderCorrelationId
+pub const fn myc::MycVerifiedProviderResponse::instance(&self) -> myc::MycProviderInstanceId
+pub const fn myc::MycVerifiedProviderResponse::maximum_request_bytes(&self) -> core::option::Option<u64>
+pub const fn myc::MycVerifiedProviderResponse::nip44_version(&self) -> core::option::Option<myc::MycProviderNip44Version>
+pub const fn myc::MycVerifiedProviderResponse::operation_id(&self) -> myc::MycProviderOperationId
+pub fn myc::MycVerifiedProviderResponse::protected_payload(&self) -> core::option::Option<&[u8]>
+pub const fn myc::MycVerifiedProviderResponse::protocol_version(&self) -> core::option::Option<u32>
+pub const fn myc::MycVerifiedProviderResponse::public_identity(&self) -> core::option::Option<&myc::MycProviderPublicIdentity>
+pub const fn myc::MycVerifiedProviderResponse::role(&self) -> myc::MycProviderRole
+pub fn myc::MycVerifiedProviderResponse::signed_event_bytes(&self) -> core::option::Option<&[u8]>
+impl core::fmt::Debug for myc::MycVerifiedProviderResponse
+pub fn myc::MycVerifiedProviderResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycVerifiedStateBackup
+impl myc::MycVerifiedStateBackup
+pub const fn myc::MycVerifiedStateBackup::database_metadata(&self) -> &radroots_service_sqlite::metadata::ServiceDatabaseMetadata
+pub const fn myc::MycVerifiedStateBackup::manifest(&self) -> &radroots_service_sqlite::backup::manifest::ServiceBackupManifest
+impl core::fmt::Debug for myc::MycVerifiedStateBackup
+pub fn myc::MycVerifiedStateBackup::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycWrappingCredential(_)
+impl core::fmt::Debug for myc::MycWrappingCredential
+pub fn myc::MycWrappingCredential::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const myc::MYC_AUDIT_PAGE_MAX_ITEMS: u16
+pub const myc::MYC_AUDIT_RETENTION_MAX_MS: u64
+pub const myc::MYC_AUTHORIZATION_CHALLENGE_URL_MAX_BYTES: usize
+pub const myc::MYC_COMPACTION_MAX_ROWS: u16
+pub const myc::MYC_CONFIG_DOCUMENT_MAX_UTF8_BYTES: usize
+pub const myc::MYC_CONFIG_SCHEMA: &str
+pub const myc::MYC_CONFIG_SCHEMA_VERSION: u32
+pub const myc::MYC_CONNECTION_PERMISSION_MAX_COUNT: usize
+pub const myc::MYC_DELIVERY_ATTEMPT_MAX_COUNT: u32
+pub const myc::MYC_DELIVERY_RELAY_ID_MAX_BYTES: usize
+pub const myc::MYC_DELIVERY_TARGET_MAX_COUNT: usize
+pub const myc::MYC_DISCOVERY_DOCUMENT_MAX_BYTES: usize
+pub const myc::MYC_ENCRYPTED_IDENTITY_BACKUP_INCLUDED: bool
+pub const myc::MYC_ENCRYPTED_IDENTITY_ENVELOPE_CONTRACT_VERSION: u32
+pub const myc::MYC_ENCRYPTED_IDENTITY_ENVELOPE_MAX_BYTES: usize
+pub const myc::MYC_LOCAL_SIGNER_ENDPOINT: &str
+pub const myc::MYC_LOCAL_SIGNER_TRANSPORT_CONTRACT_VERSION: u32
+pub const myc::MYC_MIGRATION_CATALOG_SHA256: [u8; 32]
+pub const myc::MYC_NIP05_PROJECTION_MAX_BYTES: usize
+pub const myc::MYC_NIP46_CANONICAL_REQUEST_MAX_BYTES: usize
+pub const myc::MYC_NIP46_REQUEST_ID_MAX_UTF8_BYTES: usize
+pub const myc::MYC_OPERATOR_CONTRACT_VERSION: u32
+pub const myc::MYC_PROVIDER_CONCURRENCY_MAX: u32
+pub const myc::MYC_PROVIDER_CONTRACT_VERSION: u32
+pub const myc::MYC_PROVIDER_INPUT_MAX_BYTES: usize
+pub const myc::MYC_PROVIDER_OUTPUT_MAX_BYTES: usize
+pub const myc::MYC_PROVIDER_REQUEST_DEADLINE_MAX_MS: u64
+pub const myc::MYC_PROVIDER_REQUEST_MAX_BYTES: u64
+pub const myc::MYC_PROVIDER_RESPONSE_MAX_BYTES: u64
+pub const myc::MYC_RATE_MAX_ATTEMPTS: u32
+pub const myc::MYC_RATE_MAX_TRACKED_SUBJECTS: u32
+pub const myc::MYC_RATE_RELAY_ID_MAX_BYTES: usize
+pub const myc::MYC_RATE_RETENTION_MAX_MS: u64
+pub const myc::MYC_RATE_WINDOW_MAX_MS: u64
+pub const myc::MYC_RUNTIME_FOUNDATION_CONTRACT_VERSION: u32
+pub const myc::MYC_SIGNER_STATUS_CONTRACT_VERSION: u32
+pub const myc::MYC_STATE_APPLICATION_ID: u32
+pub const myc::MYC_STATE_BASE_SCHEMA_VERSION: u32
+pub const myc::MYC_STATE_SCHEMA_CATALOG_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION: u32
+pub const myc::MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT: u32
+pub const myc::MYC_STATE_SCHEMA_VERSION_1_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_2_MIGRATION_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_2_OBJECT_COUNT: u32
+pub const myc::MYC_STATE_SCHEMA_VERSION_2_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_3_MIGRATION_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_3_OBJECT_COUNT: u32
+pub const myc::MYC_STATE_SCHEMA_VERSION_3_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_4_MIGRATION_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_4_OBJECT_COUNT: u32
+pub const myc::MYC_STATE_SCHEMA_VERSION_4_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_5_MIGRATION_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_5_OBJECT_COUNT: u32
+pub const myc::MYC_STATE_SCHEMA_VERSION_5_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_6_MIGRATION_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_6_OBJECT_COUNT: u32
+pub const myc::MYC_STATE_SCHEMA_VERSION_6_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_7_MIGRATION_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_7_OBJECT_COUNT: u32
+pub const myc::MYC_STATE_SCHEMA_VERSION_7_SHA256: [u8; 32]
+pub const myc::MYC_WRAPPING_CREDENTIAL_ARTIFACT_BYTES: usize
+pub const myc::MYC_WRAPPING_CREDENTIAL_CONTRACT_VERSION: u32
+pub async fn myc::finalize_myc_state_restore(myc::MycStagedStateRestore) -> core::result::Result<(), myc::MycStateMaintenanceError>
+pub async fn myc::initialize_myc_state(&myc::MycRuntimeContext, &myc::MycStateMetadata, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<(), myc::MycStateHostError>
+pub fn myc::myc_migration_catalog() -> core::result::Result<radroots_service_sqlite::migration::MigrationCatalog, myc::MycStateCatalogError>
+pub fn myc::myc_schema_catalog() -> core::result::Result<radroots_service_sqlite::integrity::catalog::SchemaCatalog, myc::MycStateCatalogError>
+pub fn myc::open_myc_encrypted_identity(&myc::MycProviderBinding, &myc::MycWrappingCredential) -> core::result::Result<myc::MycDecryptedIdentity, myc::MycEncryptedIdentityEnvelopeError>
+pub async fn myc::open_myc_runtime_foundation(myc::MycRuntimeContext, myc::MycConfigDocumentV1, myc::MycStateMetadata, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<myc::MycRuntimeFoundation, myc::MycRuntimeFoundationError>
+pub async fn myc::open_myc_state_inspection(&myc::MycRuntimeContext, &myc::MycStateMetadata) -> core::result::Result<myc::MycStateHost, myc::MycStateHostError>
+pub async fn myc::open_myc_state_read_write(&myc::MycRuntimeContext, &myc::MycStateMetadata, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<myc::MycStateHost, myc::MycStateHostError>
+pub fn myc::parse_myc_cli_v1_from<I, T>(I) -> core::result::Result<myc::MycCliInvocationV1, myc::MycCliV1Error> where I: core::iter::traits::collect::IntoIterator<Item = T>, T: core::convert::Into<std::ffi::os_str::OsString> + core::clone::Clone
+pub fn myc::parse_myc_config_v1(&[u8], myc::MycConfigProfile) -> core::result::Result<myc::MycConfigDocumentV1, myc::MycConfigV1Error>
+pub fn myc::provision_myc_encrypted_identity(&myc::MycProviderBinding, &myc::MycWrappingCredential, myc::MycEncryptedIdentityProvisioningMaterial) -> core::result::Result<myc::MycDecryptedIdentity, myc::MycEncryptedIdentityEnvelopeError>
+pub fn myc::resolve_myc_runtime_context(&radroots_runtime_paths::roots::RadrootsPathResolver, &myc::MycCliInvocationV1) -> core::result::Result<myc::MycRuntimeContext, myc::MycRuntimeContextError>
+pub fn myc::resolve_myc_wrapping_credential(&myc::MycRuntimeContext, &myc::MycProviderBinding) -> core::result::Result<myc::MycWrappingCredential, myc::MycCredentialResolutionError>
+pub async fn myc::stage_myc_state_restore(&myc::MycRuntimeContext, &myc::MycStateMetadata, myc::MycVerifiedStateBackup) -> core::result::Result<myc::MycStagedStateRestore, myc::MycStateMaintenanceError>
+pub fn myc::validate_myc_state_catalogs(&radroots_service_sqlite::migration::MigrationCatalog, &radroots_service_sqlite::integrity::catalog::SchemaCatalog) -> core::result::Result<(), myc::MycStateCatalogError>
+pub fn myc::verify_myc_state_backup(&[u8], radroots_service_sqlite::backup::manifest::BackupManifestSha256, &std::path::Path, &myc::MycStateMetadata, core::num::nonzero::NonZeroU64) -> core::result::Result<myc::MycVerifiedStateBackup, myc::MycStateMaintenanceError>

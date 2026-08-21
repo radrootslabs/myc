@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![doc = include_str!("../README")]
 
 mod cli_v1;
 mod config_v1;
@@ -73,7 +74,7 @@ pub use runtime_context::{
 pub use runtime_foundation::{
     MYC_RUNTIME_FOUNDATION_CONTRACT_VERSION, MycRuntimeFoundation, MycRuntimeFoundationError,
     MycRuntimeFoundationErrorKind, MycRuntimePrerequisite, MycRuntimeReadiness,
-    open_myc_runtime_foundation,
+    MycRuntimeReadinessReason, open_myc_runtime_foundation,
 };
 pub use state_catalog::{
     MYC_MIGRATION_CATALOG_SHA256, MYC_STATE_BASE_SCHEMA_VERSION, MYC_STATE_SCHEMA_CATALOG_SHA256,
