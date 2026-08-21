@@ -5,6 +5,7 @@ pub mod app;
 pub mod audit;
 mod audit_sqlite;
 pub mod cli;
+mod cli_v1;
 pub mod config;
 mod config_v1;
 pub mod control;
@@ -34,6 +35,11 @@ pub use audit::{
     MycOperationAuditRecord, MycOperationAuditStore,
 };
 pub use audit_sqlite::MycSqliteOperationAuditStore;
+pub use cli_v1::{
+    MYC_INSTANCE_ID_MAX_BYTES, MycBootstrapProfileV1, MycCliInvocationV1, MycCliV1Error,
+    MycCliV1ErrorKind, MycCommandV1, MycConfigCommandV1, MycIdentityCommandV1, MycStateCommandV1,
+    parse_myc_cli_v1_from,
+};
 pub use config::{
     DEFAULT_ENV_PATH, MycAuditConfig, MycConfig, MycConnectionApproval, MycCustodyConfig,
     MycDiscoveryConfig, MycDiscoveryMetadataConfig, MycIdentityBackend, MycIdentitySourceSpec,

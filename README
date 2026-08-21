@@ -13,6 +13,16 @@ Only reviewed bounded operational leaves have defaults. Bootstrap profile,
 instance, repo-local root, and config-path selection are CLI concerns and are
 not document fields.
 
+The hardened CLI parser admits the common command tree in one parse. It
+requires explicit `--profile <service-host|interactive|repo-local>` and
+`--instance <validated-instance-id>` selectors, requires an absolute
+`--repo-local-root` only for `repo-local`, and accepts only an optional absolute
+`--config` path. Its exact command inventory is `run`; `config
+init|validate|show|schema`; `state init|status|backup|restore|verify|migrate`;
+`identity init|status|rekey|replace|export-public`; `status`; and `doctor`.
+This parser is a pure admission boundary in the current checkpoint; Step 118
+owns removal of the prototype parser and runtime dispatch migration.
+
 `parse_myc_config_v1` caps original bytes before decoding, checks the schema
 header before closed contract admission, rejects duplicate, null, unknown, and
 semantically inconsistent input, and returns an immutable document plus a
