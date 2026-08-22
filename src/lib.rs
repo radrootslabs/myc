@@ -5,6 +5,8 @@
 mod admin_v1;
 mod cli_v1;
 mod config_v1;
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod control_plane_wave_090_a;
 mod diagnostics_v1;
 mod doctor_v1;
 mod nip46_admission;

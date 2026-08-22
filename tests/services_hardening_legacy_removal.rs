@@ -3,6 +3,8 @@
 use std::path::Path;
 use std::process::Command;
 
+use myc::{MycLogRecord, MycProcessResult};
+
 const LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const MAIN_SOURCE: &str = include_str!("../src/main.rs");
 const MANIFEST: &str = include_str!("../Cargo.toml");
@@ -21,6 +23,10 @@ const ACTIVE_STATE_SOURCES: &[&str] = &[
     include_str!("../src/state_request.rs"),
     include_str!("../src/state_response.rs"),
 ];
+
+fn process_diagnostic(result: MycProcessResult) -> String {
+    format!("{}\n", MycLogRecord::process_result(result))
+}
 
 #[test]
 fn prototype_environment_and_cli_sources_are_absent() {
@@ -231,17 +237,17 @@ fn binary_uses_only_the_hardened_parser_and_fails_closed_before_dispatch() {
     assert_eq!(missing.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(missing.stderr).expect("utf8 stderr"),
-        "myc: command-line arguments are invalid\n"
+        process_diagnostic(MycProcessResult::InputOrConfiguration)
     );
 
     let admitted = Command::new(env!("CARGO_BIN_EXE_myc"))
         .args(["--profile", "service-host", "--instance", "primary", "run"])
         .output()
         .expect("run admitted command");
-    assert_eq!(admitted.status.code(), Some(1));
+    assert_eq!(admitted.status.code(), Some(3));
     assert_eq!(
         String::from_utf8(admitted.stderr).expect("utf8 stderr"),
-        "myc: command execution is unavailable\n"
+        process_diagnostic(MycProcessResult::ServiceOrDependencyUnavailable)
     );
 }
 
@@ -259,7 +265,10 @@ fn removed_alias_and_leaf_arguments_fail_without_echoing_values() {
             .expect("run forbidden command");
         assert_eq!(output.status.code(), Some(2));
         let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
-        assert_eq!(stderr, "myc: command-line arguments are invalid\n");
+        assert_eq!(
+            stderr,
+            process_diagnostic(MycProcessResult::InputOrConfiguration)
+        );
         assert!(!stderr.contains("sensitive"));
     }
 }

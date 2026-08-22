@@ -1,0 +1,51 @@
+{
+  "schema": "radroots.myc.control-plane-wave-090-a.v1",
+  "contract_version": 1,
+  "steps": [152, 153, 154, 155, 156, 157],
+  "positive_corpus": [
+    "one_parse_offline_doctor",
+    "required_doctor_checks_pass",
+    "latest_cached_status_publication",
+    "exact_passive_tcp_routes",
+    "stable_structured_process_result"
+  ],
+  "negative_corpus": [
+    "invalid_cli_is_source_free",
+    "required_doctor_failure_exits_6",
+    "unready_cache_returns_503",
+    "detailed_status_is_not_tcp_routable",
+    "unknown_method_and_query_are_rejected"
+  ],
+  "integration_order": [
+    "one_pass_cli_admission",
+    "sealed_execution_plan",
+    "typed_runtime_context",
+    "ordered_injected_doctor",
+    "immutable_status_publication",
+    "passive_operations_projection",
+    "fixed_structured_diagnostic"
+  ],
+  "authority": {
+    "cli_parse_count": 1,
+    "doctor_observation": "injected",
+    "status_observation": "prevalidated_cached_value",
+    "tcp_routes": ["/livez", "/readyz", "/metrics"],
+    "sqlite_access": "not_performed",
+    "provider_execution": "not_performed",
+    "relay_io": "not_performed",
+    "dns_or_fresh_probe": "not_performed",
+    "diagnostics_stream": "stderr"
+  },
+  "gate": {
+    "wave": "090-a",
+    "complete_after_step": 157,
+    "rcld_promotion_owner": 162
+  },
+  "nonclaims": [
+    "runtime_task_supervision",
+    "signal_handling",
+    "rcld_promotion",
+    "nix",
+    "oci"
+  ]
+}

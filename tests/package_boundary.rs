@@ -15,6 +15,9 @@ const NIP46_COMPLETION: &str = include_str!("../src/state_completion.rs");
 const NIP46_RESPONSE: &str = include_str!("../src/state_response.rs");
 const DELIVERY_RECOVERY: &str = include_str!("../src/state_recovery.rs");
 const DOCTOR_V1: &str = include_str!("../src/doctor_v1.rs");
+const CONTROL_PLANE_WAVE_090_A: &str = include_str!("../src/control_plane_wave_090_a.rs");
+const CONTROL_PLANE_WAVE_090_A_CONTRACT: &str =
+    include_str!("../contracts/services_hardening/control_plane_wave_090_a.v1.json");
 const DIAGNOSTICS_V1: &str = include_str!("../src/diagnostics_v1.rs");
 const DIAGNOSTICS_CONTRACT: &str =
     include_str!("../contracts/services_hardening/diagnostics.v1.json");
@@ -45,6 +48,7 @@ const SOURCES: &[&str] = &[
     include_str!("../src/admin_v1.rs"),
     include_str!("../src/cli_v1.rs"),
     include_str!("../src/config_v1.rs"),
+    include_str!("../src/control_plane_wave_090_a.rs"),
     include_str!("../src/doctor_v1.rs"),
     include_str!("../src/diagnostics_v1.rs"),
     include_str!("../src/nip46_admission.rs"),
@@ -87,6 +91,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "admin_v1",
             "cli_v1",
             "config_v1",
+            "control_plane_wave_090_a",
             "doctor_v1",
             "diagnostics_v1",
             "nip46_admission",
@@ -240,6 +245,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "admin_v1",
         "cli_v1",
         "config_v1",
+        "control_plane_wave_090_a",
         "doctor_v1",
         "diagnostics_v1",
         "nip46_admission",
@@ -475,6 +481,55 @@ fn step156_diagnostics_are_closed_stderr_only_and_whole_chain_redacted() {
     );
     assert!(!SOURCES.join("\n").contains("fn source("));
     assert!(!PUBLIC_API.contains("std::io::Error"));
+}
+
+#[test]
+fn step157_control_plane_wave_is_machine_bound_native_and_test_only() {
+    let contract: serde_json::Value = serde_json::from_str(CONTROL_PLANE_WAVE_090_A_CONTRACT)
+        .expect("Step 157 control-plane wave contract");
+    assert_eq!(
+        contract["schema"],
+        "radroots.myc.control-plane-wave-090-a.v1"
+    );
+    assert_eq!(
+        contract["steps"],
+        serde_json::json!([152, 153, 154, 155, 156, 157])
+    );
+    assert_eq!(contract["gate"]["wave"], "090-a");
+    assert_eq!(contract["gate"]["complete_after_step"], 157);
+    assert_eq!(contract["gate"]["rcld_promotion_owner"], 162);
+    assert!(ROOT.contains(
+        "#[cfg(all(test, any(target_os = \"linux\", target_os = \"macos\")))]\nmod control_plane_wave_090_a;"
+    ));
+    for required in [
+        "one_parse_offline_doctor",
+        "required_doctor_failure_exits_6",
+        "latest_cached_status_publication",
+        "exact_passive_tcp_routes",
+        "detailed_status_is_not_tcp_routable",
+        "prevalidated_cached_value",
+        "runtime_task_supervision",
+    ] {
+        assert!(
+            CONTROL_PLANE_WAVE_090_A_CONTRACT.contains(required),
+            "Step 157 corpus is missing `{required}`"
+        );
+    }
+    for forbidden in [
+        "sqlx::",
+        "std::fs::",
+        "std::env::",
+        "SystemTime",
+        "reqwest::",
+        "RelayPool",
+        "provider_local_signer",
+        "process::exit",
+    ] {
+        assert!(
+            !CONTROL_PLANE_WAVE_090_A.contains(forbidden),
+            "Step 157 gate gained forbidden authority `{forbidden}`"
+        );
+    }
 }
 
 #[test]
