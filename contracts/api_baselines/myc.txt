@@ -304,6 +304,50 @@ pub myc::MycDiscoveryStateErrorKind::InvalidProjection
 pub myc::MycDiscoveryStateErrorKind::TooLarge
 impl myc::MycDiscoveryStateErrorKind
 pub const fn myc::MycDiscoveryStateErrorKind::code(self) -> &'static str
+pub enum myc::MycDoctorAggregateStatus
+pub myc::MycDoctorAggregateStatus::Degraded
+pub myc::MycDoctorAggregateStatus::Fail
+pub myc::MycDoctorAggregateStatus::Pass
+pub enum myc::MycDoctorCheckId
+pub myc::MycDoctorCheckId::AdminBindPolicy
+pub myc::MycDoctorCheckId::ClockSkew
+pub myc::MycDoctorCheckId::IdentityBinding
+pub myc::MycDoctorCheckId::NetworkPolicy
+pub myc::MycDoctorCheckId::OperationsBindPolicy
+pub myc::MycDoctorCheckId::OutboxInvariants
+pub myc::MycDoctorCheckId::PathsPermissions
+pub myc::MycDoctorCheckId::RequiredRelays
+pub myc::MycDoctorCheckId::SignerProvider
+pub myc::MycDoctorCheckId::SqliteFreeSpace
+pub myc::MycDoctorCheckId::SqliteIntegrity
+pub myc::MycDoctorCheckId::SqliteSchema
+pub myc::MycDoctorCheckId::WriterLock
+pub enum myc::MycDoctorCheckStatus
+pub myc::MycDoctorCheckStatus::Fail
+pub myc::MycDoctorCheckStatus::Pass
+pub myc::MycDoctorCheckStatus::Skipped
+pub myc::MycDoctorCheckStatus::Timeout
+pub enum myc::MycDoctorErrorKind
+pub myc::MycDoctorErrorKind::Encoding
+pub myc::MycDoctorErrorKind::OutputTooLarge
+pub enum myc::MycDoctorObservation
+pub myc::MycDoctorObservation::Fail
+pub myc::MycDoctorObservation::Pass
+pub myc::MycDoctorObservation::Skipped
+pub enum myc::MycDoctorRemediationCode
+pub myc::MycDoctorRemediationCode::CorrectAdminBindPolicy
+pub myc::MycDoctorRemediationCode::CorrectClock
+pub myc::MycDoctorRemediationCode::CorrectNetworkPolicy
+pub myc::MycDoctorRemediationCode::CorrectOperationsBindPolicy
+pub myc::MycDoctorRemediationCode::CorrectPathPolicy
+pub myc::MycDoctorRemediationCode::FreeStateDiskSpace
+pub myc::MycDoctorRemediationCode::ReleaseWriterLock
+pub myc::MycDoctorRemediationCode::RepairOutboxState
+pub myc::MycDoctorRemediationCode::RepairSchema
+pub myc::MycDoctorRemediationCode::RepairSignerProvider
+pub myc::MycDoctorRemediationCode::RestoreIdentityBinding
+pub myc::MycDoctorRemediationCode::RestoreRequiredRelays
+pub myc::MycDoctorRemediationCode::RestoreVerifiedState
 pub enum myc::MycEncryptedIdentityEnvelopeErrorKind
 pub myc::MycEncryptedIdentityEnvelopeErrorKind::AlreadyExists
 pub myc::MycEncryptedIdentityEnvelopeErrorKind::IdentityMismatch
@@ -1008,6 +1052,36 @@ impl core::fmt::Debug for myc::MycDiscoveryStateError
 pub fn myc::MycDiscoveryStateError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for myc::MycDiscoveryStateError
 pub fn myc::MycDiscoveryStateError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDoctorCheckDefinition
+impl myc::MycDoctorCheckDefinition
+pub const fn myc::MycDoctorCheckDefinition::deadline_ms(self) -> u64
+pub const fn myc::MycDoctorCheckDefinition::id(self) -> myc::MycDoctorCheckId
+pub const fn myc::MycDoctorCheckDefinition::remediation_code(self) -> myc::MycDoctorRemediationCode
+pub const fn myc::MycDoctorCheckDefinition::required(self) -> bool
+pub const fn myc::MycDoctorCheckDefinition::scope(self) -> &'static [&'static str]
+pub struct myc::MycDoctorCheckResult
+impl myc::MycDoctorCheckResult
+pub const fn myc::MycDoctorCheckResult::definition(self) -> myc::MycDoctorCheckDefinition
+pub const fn myc::MycDoctorCheckResult::status(self) -> myc::MycDoctorCheckStatus
+pub const fn myc::MycDoctorCheckResult::summary(self) -> &'static str
+pub struct myc::MycDoctorError
+impl myc::MycDoctorError
+pub const fn myc::MycDoctorError::kind(self) -> myc::MycDoctorErrorKind
+impl core::error::Error for myc::MycDoctorError
+impl core::fmt::Debug for myc::MycDoctorError
+pub fn myc::MycDoctorError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycDoctorError
+pub fn myc::MycDoctorError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDoctorReport
+impl myc::MycDoctorReport
+pub fn myc::MycDoctorReport::canonical_json(&self) -> &[u8]
+pub fn myc::MycDoctorReport::checks(&self) -> &[myc::MycDoctorCheckResult]
+pub const fn myc::MycDoctorReport::exit_code(&self) -> u8
+pub const fn myc::MycDoctorReport::instance(&self) -> &radroots_runtime_paths::identifier::InstanceId
+pub const fn myc::MycDoctorReport::service(&self) -> &'static str
+pub const fn myc::MycDoctorReport::status(&self) -> myc::MycDoctorAggregateStatus
+impl core::fmt::Debug for myc::MycDoctorReport
+pub fn myc::MycDoctorReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycEffectiveConfigV1
 impl myc::MycEffectiveConfigV1
 pub fn myc::MycEffectiveConfigV1::canonical_json(&self) -> &str
@@ -1653,6 +1727,10 @@ pub const myc::MYC_DELIVERY_RELAY_ID_MAX_BYTES: usize
 pub const myc::MYC_DELIVERY_RETRY_JITTER_MAX_MS: u64
 pub const myc::MYC_DELIVERY_TARGET_MAX_COUNT: usize
 pub const myc::MYC_DISCOVERY_DOCUMENT_MAX_BYTES: usize
+pub const myc::MYC_DOCTOR_CHECK_COUNT: usize
+pub const myc::MYC_DOCTOR_CONTRACT_VERSION: u32
+pub const myc::MYC_DOCTOR_REPORT_MAX_UTF8_BYTES: usize
+pub const myc::MYC_DOCTOR_SUMMARY_MAX_UTF8_BYTES: usize
 pub const myc::MYC_ENCRYPTED_IDENTITY_BACKUP_INCLUDED: bool
 pub const myc::MYC_ENCRYPTED_IDENTITY_ENVELOPE_CONTRACT_VERSION: u32
 pub const myc::MYC_ENCRYPTED_IDENTITY_ENVELOPE_MAX_BYTES: usize
@@ -1715,12 +1793,15 @@ pub const myc::MYC_WRAPPING_CREDENTIAL_ARTIFACT_BYTES: usize
 pub const myc::MYC_WRAPPING_CREDENTIAL_CONTRACT_VERSION: u32
 pub trait myc::MycAdminHandler: core::marker::Send + core::marker::Sync + 'static
 pub fn myc::MycAdminHandler::handle<'a>(&'a self, myc::MycAdminRequestDocument) -> myc::MycAdminFuture<'a>
+pub trait myc::MycDoctorProbe: core::marker::Send + core::marker::Sync
+pub fn myc::MycDoctorProbe::probe(&self, myc::MycDoctorCheckDefinition) -> myc::MycDoctorFuture<'_>
 pub fn myc::admit_myc_nip46_event(myc::MycNip46AdmissionLimits, &[u8]) -> core::result::Result<myc::MycBoundedNip46Event, myc::MycNip46AdmissionError>
 pub fn myc::admit_myc_nip46_request(myc::MycNip46AdmissionLimits, &[u8]) -> core::result::Result<myc::MycBoundedNip46Request, myc::MycNip46AdmissionError>
 pub fn myc::bind_myc_nip46_replay(myc::MycVerifiedNip46Event, myc::MycVerifiedNip46Request) -> core::result::Result<myc::MycReplayBoundNip46Request, myc::MycSignerRequestError>
 pub fn myc::build_myc_admin_router<H>(alloc::sync::Arc<H>) -> core::result::Result<myc::MycAdminRouter, myc::MycAdminRouterError> where H: myc::MycAdminHandler
 pub async fn myc::finalize_myc_state_restore(myc::MycStagedStateRestore) -> core::result::Result<(), myc::MycStateMaintenanceError>
 pub async fn myc::initialize_myc_state(&myc::MycRuntimeContext, &myc::MycStateMetadata, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<(), myc::MycStateHostError>
+pub const fn myc::myc_doctor_check_definitions() -> &'static [myc::MycDoctorCheckDefinition; 13]
 pub fn myc::myc_migration_catalog() -> core::result::Result<radroots_service_sqlite::migration::MigrationCatalog, myc::MycStateCatalogError>
 pub fn myc::myc_schema_catalog() -> core::result::Result<radroots_service_sqlite::integrity::catalog::SchemaCatalog, myc::MycStateCatalogError>
 pub fn myc::open_myc_encrypted_identity(&myc::MycProviderBinding, &myc::MycWrappingCredential) -> core::result::Result<myc::MycDecryptedIdentity, myc::MycEncryptedIdentityEnvelopeError>
@@ -1736,9 +1817,11 @@ pub fn myc::prepare_myc_nip46_work(myc::MycPreparedNip46Request, myc::MycSignerR
 pub fn myc::provision_myc_encrypted_identity(&myc::MycProviderBinding, &myc::MycWrappingCredential, myc::MycEncryptedIdentityProvisioningMaterial) -> core::result::Result<myc::MycDecryptedIdentity, myc::MycEncryptedIdentityEnvelopeError>
 pub fn myc::resolve_myc_runtime_context(&radroots_runtime_paths::roots::RadrootsPathResolver, &myc::MycCliInvocationV1) -> core::result::Result<myc::MycRuntimeContext, myc::MycRuntimeContextError>
 pub fn myc::resolve_myc_wrapping_credential(&myc::MycRuntimeContext, &myc::MycProviderBinding) -> core::result::Result<myc::MycWrappingCredential, myc::MycCredentialResolutionError>
+pub async fn myc::run_myc_doctor(&myc::MycRuntimeContext, &impl myc::MycDoctorProbe + ?core::marker::Sized) -> core::result::Result<myc::MycDoctorReport, myc::MycDoctorError>
 pub async fn myc::stage_myc_state_restore(&myc::MycRuntimeContext, &myc::MycStateMetadata, myc::MycVerifiedStateBackup) -> core::result::Result<myc::MycStagedStateRestore, myc::MycStateMaintenanceError>
 pub fn myc::validate_myc_state_catalogs(&radroots_service_sqlite::migration::MigrationCatalog, &radroots_service_sqlite::integrity::catalog::SchemaCatalog) -> core::result::Result<(), myc::MycStateCatalogError>
 pub fn myc::verify_myc_nip46_event(myc::MycBoundedNip46Event, &myc::MycProviderBinding, myc::MycNip46ObservedAtUnixSeconds, myc::MycNip46AuthoredTimePolicy) -> core::result::Result<myc::MycVerifiedNip46Event, myc::MycNip46VerificationError>
 pub fn myc::verify_myc_nip46_request(myc::MycBoundedNip46Request) -> core::result::Result<myc::MycVerifiedNip46Request, myc::MycNip46VerificationError>
 pub fn myc::verify_myc_state_backup(&[u8], radroots_service_sqlite::backup::manifest::BackupManifestSha256, &std::path::Path, &myc::MycStateMetadata, core::num::nonzero::NonZeroU64) -> core::result::Result<myc::MycVerifiedStateBackup, myc::MycStateMaintenanceError>
 pub type myc::MycAdminFuture<'a> = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<myc::MycAdminResponseDocument, myc::MycAdminHandlerError>> + core::marker::Send + 'a)>>
+pub type myc::MycDoctorFuture<'a> = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = myc::MycDoctorObservation> + core::marker::Send + 'a)>>

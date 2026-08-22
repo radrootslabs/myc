@@ -340,22 +340,42 @@ fn doctor_exit_and_tcp_contracts_are_exact() {
         "radroots.service.doctor.v1"
     );
     assert_eq!(value["doctor"]["contract_version"], 1);
+    assert_eq!(value["doctor"]["execution"], "ordered");
+    assert_eq!(value["doctor"]["pass_requires_all_scope"], true);
+    assert_eq!(
+        value["doctor"]["probe_future_cancellation"],
+        "drop_stops_or_owns_cleanup"
+    );
+    assert_eq!(value["doctor"]["detached_probe_work"], false);
+    assert_eq!(
+        value["doctor"]["statuses"],
+        serde_json::json!(["pass", "fail", "timeout", "skipped"])
+    );
+    assert_eq!(
+        value["doctor"]["aggregate_statuses"],
+        serde_json::json!(["pass", "degraded", "fail"])
+    );
+    assert_eq!(value["doctor"]["required_skipped"], "forbidden");
+    assert_eq!(value["doctor"]["summary_max_utf8_bytes"], 256);
+    assert_eq!(value["doctor"]["report_max_utf8_bytes"], 8192);
+    assert_eq!(value["doctor"]["raw_error_or_path_allowed"], false);
+    assert_eq!(value["doctor"]["required_fail_or_timeout_exit"], 6);
     assert_eq!(
         value["doctor"]["checks"],
         serde_json::json!([
-            { "id": "paths_permissions", "required": true },
-            { "id": "writer_lock", "required": true },
-            { "id": "sqlite_schema", "required": true },
-            { "id": "sqlite_integrity", "required": true },
-            { "id": "sqlite_free_space", "required": true },
-            { "id": "identity_binding", "required": true },
-            { "id": "signer_provider", "required": true },
-            { "id": "admin_bind_policy", "required": true },
-            { "id": "operations_bind_policy", "required": true },
-            { "id": "network_policy", "required": true },
-            { "id": "required_relays", "required": true },
-            { "id": "outbox_invariants", "required": true },
-            { "id": "clock_skew", "required": false }
+            { "id": "paths_permissions", "required": true, "deadline_ms": 2000, "remediation_code": "correct_path_policy", "scope": ["resolved_path_containment", "owner", "type", "mode"] },
+            { "id": "writer_lock", "required": true, "deadline_ms": 2000, "remediation_code": "release_writer_lock", "scope": ["state_directory_binding", "writer_lock_state"] },
+            { "id": "sqlite_schema", "required": true, "deadline_ms": 5000, "remediation_code": "repair_schema", "scope": ["metadata_identity", "migration_history", "schema_catalog"] },
+            { "id": "sqlite_integrity", "required": true, "deadline_ms": 15000, "remediation_code": "restore_verified_state", "scope": ["integrity_check", "foreign_key_check"] },
+            { "id": "sqlite_free_space", "required": true, "deadline_ms": 2000, "remediation_code": "free_state_disk_space", "scope": ["state_filesystem_capacity", "minimum_free_bytes"] },
+            { "id": "identity_binding", "required": true, "deadline_ms": 2000, "remediation_code": "restore_identity_binding", "scope": ["envelope_contract", "credential_reference", "public_identity"] },
+            { "id": "signer_provider", "required": true, "deadline_ms": 15000, "remediation_code": "repair_signer_provider", "scope": ["capability", "contract_version", "identity", "correlation", "deadline"] },
+            { "id": "admin_bind_policy", "required": true, "deadline_ms": 2000, "remediation_code": "correct_admin_bind_policy", "scope": ["unix_socket_path", "socket_mode", "peer_authorization"] },
+            { "id": "operations_bind_policy", "required": true, "deadline_ms": 2000, "remediation_code": "correct_operations_bind_policy", "scope": ["enabled_posture", "listen_address", "bind_policy"] },
+            { "id": "network_policy", "required": true, "deadline_ms": 2000, "remediation_code": "correct_network_policy", "scope": ["dns_policy", "tls_policy", "relay_url_policy"] },
+            { "id": "required_relays", "required": true, "deadline_ms": 15000, "remediation_code": "restore_required_relays", "scope": ["required_read_relays", "required_write_relays", "connect_deadline"] },
+            { "id": "outbox_invariants", "required": true, "deadline_ms": 5000, "remediation_code": "repair_outbox_state", "scope": ["claim_invariants", "retry_state", "exact_response_bytes"] },
+            { "id": "clock_skew", "required": false, "deadline_ms": 5000, "remediation_code": "correct_clock", "scope": ["wall_clock_skew"] }
         ])
     );
     assert_eq!(

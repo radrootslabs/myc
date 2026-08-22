@@ -60,6 +60,17 @@ read-only status, backup, and public-identity operations may fall back when a
 later executor proves the daemon writer lock is free. Rekey and replace never
 fall back to direct state access, and no live plan carries SQLite authority.
 
+The active doctor boundary executes the exact 13-check operator inventory in
+contract order under fixed per-check deadlines. Check implementations retain
+their filesystem, SQLite, provider, bind, network, relay, and clock authority;
+only closed pass/fail/skipped observations cross into the report builder. The
+builder enforces required-check semantics, returns exit 6 for required failure
+or timeout, and emits at most 8,192 bytes of compact canonical JSON using only
+fixed summaries and remediation codes. Raw errors, paths, relay URLs,
+credentials, public keys, and arbitrary detail strings cannot enter the report.
+A pass requires every machine-listed scope facet. Probe futures own their work,
+must stop safely when dropped at deadline, and may not detach later mutation.
+
 `parse_myc_config_v1` caps original bytes before decoding, checks the schema
 header before closed contract admission, rejects duplicate, null, unknown, and
 semantically inconsistent input, and returns an immutable document plus a

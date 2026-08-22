@@ -14,6 +14,7 @@ const NIP46_WAVE_080_A: &str = include_str!("../src/nip46_wave_080_a.rs");
 const NIP46_COMPLETION: &str = include_str!("../src/state_completion.rs");
 const NIP46_RESPONSE: &str = include_str!("../src/state_response.rs");
 const DELIVERY_RECOVERY: &str = include_str!("../src/state_recovery.rs");
+const DOCTOR_V1: &str = include_str!("../src/doctor_v1.rs");
 const DISCOVERY_STATE: &str = include_str!("../src/state_discovery.rs");
 const NIP46_VERIFICATION_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_verification.v1.json");
@@ -35,6 +36,7 @@ const SOURCES: &[&str] = &[
     include_str!("../src/admin_v1.rs"),
     include_str!("../src/cli_v1.rs"),
     include_str!("../src/config_v1.rs"),
+    include_str!("../src/doctor_v1.rs"),
     include_str!("../src/nip46_admission.rs"),
     include_str!("../src/nip46_authorization.rs"),
     include_str!("../src/nip46_replay.rs"),
@@ -73,6 +75,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "admin_v1",
             "cli_v1",
             "config_v1",
+            "doctor_v1",
             "nip46_admission",
             "nip46_authorization",
             "nip46_replay",
@@ -124,6 +127,16 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub enum myc::MycCliOfflineOperationV1",
         "pub enum myc::MycCliAdminOperationV1",
         "pub const fn myc::plan_myc_cli_v1",
+        "pub struct myc::MycDoctorReport",
+        "pub struct myc::MycDoctorCheckDefinition",
+        "pub struct myc::MycDoctorCheckResult",
+        "pub enum myc::MycDoctorCheckId",
+        "pub enum myc::MycDoctorCheckStatus",
+        "pub enum myc::MycDoctorAggregateStatus",
+        "pub enum myc::MycDoctorObservation",
+        "pub enum myc::MycDoctorRemediationCode",
+        "pub trait myc::MycDoctorProbe",
+        "pub async fn myc::run_myc_doctor",
         "pub struct myc::MycAdminRequestDocument",
         "pub struct myc::MycAdminResponseDocument",
         "pub enum myc::MycAdminMethod",
@@ -196,6 +209,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "admin_v1",
         "cli_v1",
         "config_v1",
+        "doctor_v1",
         "nip46_admission",
         "nip46_authorization",
         "nip46_replay",
@@ -238,6 +252,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "sqlx::",
         "serde::",
         "serde_json::",
+        "futures_util::",
         "toml::",
         "url::",
         "nostr::",
@@ -252,6 +267,32 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
             !PUBLIC_API.contains(forbidden),
             "implementation-owned public type `{forbidden}` escaped"
         );
+    }
+}
+
+#[test]
+fn doctor_boundary_is_closed_bounded_and_dependency_neutral() {
+    for required in [
+        "MYC_DOCTOR_CHECK_COUNT: usize = 13",
+        "MYC_DOCTOR_SUMMARY_MAX_UTF8_BYTES: usize = 256",
+        "MYC_DOCTOR_REPORT_MAX_UTF8_BYTES: usize = 8_192",
+        "for definition in CHECK_DEFINITIONS",
+        "tokio::time::timeout(",
+        "MycDoctorObservation::Skipped) if !definition.required",
+        "MycDoctorObservation::Skipped) => MycDoctorCheckStatus::Fail",
+    ] {
+        assert!(DOCTOR_V1.contains(required), "missing `{required}`");
+    }
+    for forbidden in [
+        "std::fs::",
+        "sqlx::",
+        "reqwest::",
+        "url::Url",
+        "std::env::",
+        "raw_error",
+        "PathBuf",
+    ] {
+        assert!(!DOCTOR_V1.contains(forbidden), "found `{forbidden}`");
     }
 }
 
@@ -601,7 +642,8 @@ fn public_errors_remain_crate_owned_redacted_and_source_free() {
         .lines()
         .filter(|line| line.starts_with("pub struct myc::") && line.ends_with("Error"))
         .count();
-    assert_eq!(public_error_count, 27);
+    assert_eq!(public_error_count, 28);
+    assert!(PUBLIC_API.contains("pub struct myc::MycDoctorError"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycRuntimeFoundation {"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycStateHost {"));
 }

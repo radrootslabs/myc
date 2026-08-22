@@ -5,6 +5,7 @@
 mod admin_v1;
 mod cli_v1;
 mod config_v1;
+mod doctor_v1;
 mod nip46_admission;
 mod nip46_authorization;
 mod nip46_replay;
@@ -52,6 +53,13 @@ pub use config_v1::{
     MYC_CONFIG_DOCUMENT_MAX_UTF8_BYTES, MYC_CONFIG_SCHEMA, MYC_CONFIG_SCHEMA_VERSION,
     MycConfigDocumentV1, MycConfigProfile, MycConfigV1Error, MycConfigV1ErrorKind,
     MycConfigValueSource, MycEffectiveConfigV1, parse_myc_config_v1,
+};
+pub use doctor_v1::{
+    MYC_DOCTOR_CHECK_COUNT, MYC_DOCTOR_CONTRACT_VERSION, MYC_DOCTOR_REPORT_MAX_UTF8_BYTES,
+    MYC_DOCTOR_SUMMARY_MAX_UTF8_BYTES, MycDoctorAggregateStatus, MycDoctorCheckDefinition,
+    MycDoctorCheckId, MycDoctorCheckResult, MycDoctorCheckStatus, MycDoctorError,
+    MycDoctorErrorKind, MycDoctorFuture, MycDoctorObservation, MycDoctorProbe,
+    MycDoctorRemediationCode, MycDoctorReport, myc_doctor_check_definitions, run_myc_doctor,
 };
 pub use nip46_admission::{
     MYC_NIP46_EVENT_ID_MAX_BYTES, MYC_NIP46_PUBLIC_KEY_MAX_BYTES, MYC_NIP46_SIGNATURE_MAX_BYTES,

@@ -114,6 +114,14 @@
   Rekey, replace, and every other live mutation have no direct-state fallback.
   Do not reparse process arguments or let a live CLI plan obtain SQLite,
   provider, relay, task, signal, or runtime authority.
+- Step 153 freezes one ordered 13-check doctor engine. Check adapters retain
+  their operation-specific authority and may return only closed observations;
+  the engine owns exact deadlines, required/optional aggregation, fixed safe
+  summaries/remediation codes, bounded canonical JSON, and exit 6 for required
+  failure or timeout. Do not admit raw errors, paths, URLs, keys, credentials,
+  arbitrary details, unbounded output, detached probe work, or
+  liveness/readiness probe authority. A pass must prove every contracted scope
+  facet, and deadline cancellation must stop or synchronously own cleanup.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.
