@@ -630,6 +630,17 @@ pub myc::MycRuntimeReadinessReason::SignerProviderUnavailable
 pub myc::MycRuntimeReadinessReason::SubscriberNotActive
 impl myc::MycRuntimeReadinessReason
 pub const fn myc::MycRuntimeReadinessReason::as_str(self) -> &'static str
+pub enum myc::MycRuntimeSupervisionErrorKind
+pub myc::MycRuntimeSupervisionErrorKind::EmptyTaskSet
+pub myc::MycRuntimeSupervisionErrorKind::JoinFailed
+pub myc::MycRuntimeSupervisionErrorKind::TaskPanicked
+pub myc::MycRuntimeSupervisionErrorKind::TaskRegistration
+pub myc::MycRuntimeSupervisionErrorKind::TaskReturnedError
+pub myc::MycRuntimeSupervisionErrorKind::TooManyTasks
+pub myc::MycRuntimeSupervisionErrorKind::UnexpectedCancellation
+pub myc::MycRuntimeSupervisionErrorKind::UnexpectedCompletion
+impl myc::MycRuntimeSupervisionErrorKind
+pub const fn myc::MycRuntimeSupervisionErrorKind::code(self) -> &'static str
 pub enum myc::MycServicePhase
 pub myc::MycServicePhase::Degraded
 pub myc::MycServicePhase::Failed
@@ -1003,6 +1014,17 @@ impl core::fmt::Debug for myc::MycCredentialResolutionError
 pub fn myc::MycCredentialResolutionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for myc::MycCredentialResolutionError
 pub fn myc::MycCredentialResolutionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycCriticalTask
+impl myc::MycCriticalTask
+pub fn myc::MycCriticalTask::new<F, Fut>(F) -> Self where F: core::ops::function::FnOnce(myc::MycTaskCancellation) -> Fut + core::marker::Send + 'static, Fut: core::future::future::Future<Output = core::result::Result<(), myc::MycCriticalTaskError>> + core::marker::Send + 'static
+impl core::fmt::Debug for myc::MycCriticalTask
+pub fn myc::MycCriticalTask::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycCriticalTaskError
+impl myc::MycCriticalTaskError
+pub const fn myc::MycCriticalTaskError::failed() -> Self
+impl core::error::Error for myc::MycCriticalTaskError
+impl core::fmt::Display for myc::MycCriticalTaskError
+pub fn myc::MycCriticalTaskError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycDecryptedIdentity
 impl myc::MycDecryptedIdentity
 pub fn myc::MycDecryptedIdentity::public_identity(&self) -> &myc::MycProviderPublicIdentity
@@ -1694,6 +1716,17 @@ pub fn myc::MycRuntimeReadiness::required(&self) -> &[myc::MycRuntimePrerequisit
 pub fn myc::MycRuntimeReadiness::satisfied(&self) -> &[myc::MycRuntimePrerequisite]
 impl core::fmt::Debug for myc::MycRuntimeReadiness
 pub fn myc::MycRuntimeReadiness::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycRuntimeSupervisionError
+impl myc::MycRuntimeSupervisionError
+pub const fn myc::MycRuntimeSupervisionError::code(self) -> &'static str
+pub const fn myc::MycRuntimeSupervisionError::diagnostic(self) -> myc::MycLogRecord
+pub const fn myc::MycRuntimeSupervisionError::kind(self) -> myc::MycRuntimeSupervisionErrorKind
+pub const fn myc::MycRuntimeSupervisionError::process_result(self) -> myc::MycProcessResult
+impl core::error::Error for myc::MycRuntimeSupervisionError
+impl core::fmt::Debug for myc::MycRuntimeSupervisionError
+pub fn myc::MycRuntimeSupervisionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycRuntimeSupervisionError
+pub fn myc::MycRuntimeSupervisionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycSignerCorrelationId(_)
 impl myc::MycSignerCorrelationId
 pub const fn myc::MycSignerCorrelationId::as_bytes(&self) -> &[u8; 32]
@@ -1906,6 +1939,19 @@ pub struct myc::MycStatusUnixSeconds(_)
 impl myc::MycStatusUnixSeconds
 pub const fn myc::MycStatusUnixSeconds::get(self) -> u64
 pub fn myc::MycStatusUnixSeconds::new(u64) -> core::result::Result<Self, myc::MycStatusError>
+pub struct myc::MycSupervisedRuntime
+impl myc::MycSupervisedRuntime
+pub fn myc::MycSupervisedRuntime::new(impl core::iter::traits::collect::IntoIterator<Item = myc::MycCriticalTask>) -> core::result::Result<Self, myc::MycRuntimeSupervisionError>
+pub async fn myc::MycSupervisedRuntime::run(self) -> core::result::Result<(), myc::MycRuntimeSupervisionError>
+pub fn myc::MycSupervisedRuntime::task_count(&self) -> usize
+impl core::fmt::Debug for myc::MycSupervisedRuntime
+pub fn myc::MycSupervisedRuntime::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycTaskCancellation
+impl myc::MycTaskCancellation
+pub async fn myc::MycTaskCancellation::cancelled(&self)
+pub fn myc::MycTaskCancellation::is_cancelled(&self) -> bool
+impl core::fmt::Debug for myc::MycTaskCancellation
+pub fn myc::MycTaskCancellation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycUntrustedProviderOutput(_)
 impl myc::MycUntrustedProviderOutput
 pub fn myc::MycUntrustedProviderOutput::as_bytes(&self) -> &[u8]
@@ -1963,6 +2009,7 @@ pub const myc::MYC_CONFIG_DOCUMENT_MAX_UTF8_BYTES: usize
 pub const myc::MYC_CONFIG_SCHEMA: &str
 pub const myc::MYC_CONFIG_SCHEMA_VERSION: u32
 pub const myc::MYC_CONNECTION_PERMISSION_MAX_COUNT: usize
+pub const myc::MYC_CRITICAL_TASK_MAX_COUNT: usize
 pub const myc::MYC_DELIVERY_ATTEMPT_MAX_COUNT: u32
 pub const myc::MYC_DELIVERY_RECOVERY_BATCH_MAX_COUNT: usize
 pub const myc::MYC_DELIVERY_RELAY_ID_MAX_BYTES: usize
@@ -2007,6 +2054,7 @@ pub const myc::MYC_RATE_RETENTION_MAX_MS: u64
 pub const myc::MYC_RATE_WINDOW_MAX_MS: u64
 pub const myc::MYC_READYZ_PATH: &str
 pub const myc::MYC_RUNTIME_FOUNDATION_CONTRACT_VERSION: u32
+pub const myc::MYC_RUNTIME_SUPERVISION_CONTRACT_VERSION: u32
 pub const myc::MYC_SIGNER_STATUS_CONTRACT_VERSION: u32
 pub const myc::MYC_STATE_APPLICATION_ID: u32
 pub const myc::MYC_STATE_BASE_SCHEMA_VERSION: u32

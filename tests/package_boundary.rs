@@ -23,6 +23,9 @@ const DIAGNOSTICS_CONTRACT: &str =
     include_str!("../contracts/services_hardening/diagnostics.v1.json");
 const MAIN: &str = include_str!("../src/main.rs");
 const STATUS_V1: &str = include_str!("../src/status_v1.rs");
+const RUNTIME_SUPERVISION: &str = include_str!("../src/runtime_supervision.rs");
+const RUNTIME_SUPERVISION_CONTRACT: &str =
+    include_str!("../contracts/services_hardening/runtime_supervision.v1.json");
 const STATUS_CONTRACT: &str = include_str!("../contracts/services_hardening/status_cache.v1.json");
 const OPERATIONS_V1: &str = include_str!("../src/operations_v1.rs");
 const OPERATIONS_CONTRACT: &str =
@@ -64,6 +67,7 @@ const SOURCES: &[&str] = &[
     include_str!("../src/provider_verification.rs"),
     include_str!("../src/runtime_context.rs"),
     include_str!("../src/runtime_foundation.rs"),
+    include_str!("../src/runtime_supervision.rs"),
     include_str!("../src/status_v1.rs"),
     include_str!("../src/state_catalog.rs"),
     include_str!("../src/state_completion.rs"),
@@ -109,6 +113,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "provider_verification",
             "runtime_context",
             "runtime_foundation",
+            "runtime_supervision",
             "status_v1",
             "state_catalog",
             "state_completion",
@@ -234,6 +239,12 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub fn myc::verify_myc_nip46_event",
         "pub fn myc::verify_myc_nip46_request",
         "pub async fn myc::open_myc_runtime_foundation",
+        "pub struct myc::MycCriticalTask",
+        "pub struct myc::MycCriticalTaskError",
+        "pub struct myc::MycRuntimeSupervisionError",
+        "pub enum myc::MycRuntimeSupervisionErrorKind",
+        "pub struct myc::MycSupervisedRuntime",
+        "pub struct myc::MycTaskCancellation",
     ] {
         assert!(
             PUBLIC_API.contains(required),
@@ -263,6 +274,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "provider_verification",
         "runtime_context",
         "runtime_foundation",
+        "runtime_supervision",
         "status_v1",
         "state_catalog",
         "state_completion",
@@ -529,6 +541,90 @@ fn step157_control_plane_wave_is_machine_bound_native_and_test_only() {
             !CONTROL_PLANE_WAVE_090_A.contains(forbidden),
             "Step 157 gate gained forbidden authority `{forbidden}`"
         );
+    }
+}
+
+#[test]
+fn step158_runtime_supervision_is_one_owned_bounded_redacted_graph() {
+    let contract: serde_json::Value = serde_json::from_str(RUNTIME_SUPERVISION_CONTRACT)
+        .expect("Step 158 runtime-supervision contract");
+    assert_eq!(contract["schema"], "radroots.myc.runtime-supervision.v1");
+    assert_eq!(contract["contract_version"], 1);
+    assert_eq!(contract["step"], 158);
+    assert_eq!(contract["task_set"]["minimum_count"], 1);
+    assert_eq!(contract["task_set"]["maximum_count"], 32);
+    assert_eq!(contract["task_set"]["classification"], "critical");
+    assert_eq!(
+        contract["task_set"]["shutdown_phase_assignment"],
+        "deferred_to_step_159"
+    );
+    assert_eq!(contract["task_set"]["detached_tasks"], false);
+    assert_eq!(
+        contract["fatal_outcomes"],
+        serde_json::json!([
+            "task_returned_error",
+            "task_panicked",
+            "unexpected_completion",
+            "unexpected_cancellation",
+            "join_failed"
+        ])
+    );
+    assert_eq!(
+        contract["fatal_effect"]["all_task_joins_observed_before_return"],
+        true
+    );
+    assert_eq!(
+        contract["deferred"],
+        serde_json::json!([
+            "process_panic_hook",
+            "signal_installation",
+            "first_signal_graceful_shutdown",
+            "second_signal_forced_shutdown",
+            "shutdown_grace_deadline",
+            "ordered_durability_drain"
+        ])
+    );
+    for required in [
+        "MYC_CRITICAL_TASK_MAX_COUNT: usize = 32",
+        ".take(MYC_CRITICAL_TASK_MAX_COUNT + 1)",
+        "TaskClassification::Critical",
+        "supervisor.request_cancellation()",
+        "supervisor.supervise().await",
+        "MycProcessResult::UnexpectedInternal",
+        "MycLogRecord::critical_task_failed()",
+        "MycTaskCancellation([sealed])",
+        "MycCriticalTask([sealed])",
+    ] {
+        assert!(
+            RUNTIME_SUPERVISION.contains(required),
+            "Step 158 implementation is missing `{required}`"
+        );
+    }
+    for forbidden in [
+        "pub use radroots_service_host",
+        "pub fn cancellation_token",
+        "pub fn request_cancellation",
+        "JoinHandle",
+        "tokio::spawn",
+        "spawn_blocking",
+        "signal::",
+        "process::exit",
+        "std::time::SystemTime",
+        "rand::",
+        "getrandom",
+        "fn source(",
+    ] {
+        assert!(
+            !RUNTIME_SUPERVISION.contains(forbidden),
+            "Step 158 boundary gained forbidden authority `{forbidden}`"
+        );
+    }
+    for required in [
+        "one sealed, bounded critical-task graph",
+        "task names and handles remain internal",
+        "Step 159 owns\nthe process panic hook, signal installation",
+    ] {
+        assert!(README.contains(required), "README is missing `{required}`");
     }
 }
 
@@ -878,7 +974,7 @@ fn public_errors_remain_crate_owned_redacted_and_source_free() {
         .lines()
         .filter(|line| line.starts_with("pub struct myc::") && line.ends_with("Error"))
         .count();
-    assert_eq!(public_error_count, 30);
+    assert_eq!(public_error_count, 32);
     assert!(PUBLIC_API.contains("pub struct myc::MycDoctorError"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycRuntimeFoundation {"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycStateHost {"));

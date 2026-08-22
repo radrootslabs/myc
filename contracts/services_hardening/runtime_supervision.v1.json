@@ -1,0 +1,56 @@
+{
+  "schema": "radroots.myc.runtime-supervision.v1",
+  "contract_version": 1,
+  "step": 158,
+  "task_set": {
+    "minimum_count": 1,
+    "maximum_count": 32,
+    "classification": "critical",
+    "shutdown_phase_assignment": "deferred_to_step_159",
+    "names": "internal_bounded_ordinals",
+    "caller_named_tasks": false,
+    "task_handles_exposed": false,
+    "detached_tasks": false
+  },
+  "task_boundary": {
+    "input": "cooperative_cancellation_observer_only",
+    "output": "success_or_source_free_failure",
+    "raw_service_host_types_exposed": false,
+    "raw_join_error_exposed": false
+  },
+  "fatal_outcomes": [
+    "task_returned_error",
+    "task_panicked",
+    "unexpected_completion",
+    "unexpected_cancellation",
+    "join_failed"
+  ],
+  "fatal_effect": {
+    "peer_cancellation": "coordinated",
+    "all_task_joins_observed_before_return": true,
+    "process_result": "unexpected_internal",
+    "diagnostic": "critical_task_failed"
+  },
+  "resource_policy": {
+    "iterator_ingestion": "maximum_plus_one",
+    "unbounded_queue": false,
+    "runtime_creation": false,
+    "ambient_time": false,
+    "ambient_entropy": false
+  },
+  "deferred": [
+    "process_panic_hook",
+    "signal_installation",
+    "first_signal_graceful_shutdown",
+    "second_signal_forced_shutdown",
+    "shutdown_grace_deadline",
+    "ordered_durability_drain"
+  ],
+  "nonclaims": [
+    "concrete_relay_task_implementation",
+    "provider_execution",
+    "rcld_promotion",
+    "nix",
+    "oci"
+  ]
+}

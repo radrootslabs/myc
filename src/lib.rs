@@ -26,6 +26,7 @@ mod provider_local_signer;
 mod provider_verification;
 mod runtime_context;
 mod runtime_foundation;
+mod runtime_supervision;
 mod state_catalog;
 mod state_completion;
 mod state_connection;
@@ -140,6 +141,11 @@ pub use runtime_foundation::{
     MYC_RUNTIME_FOUNDATION_CONTRACT_VERSION, MycRuntimeFoundation, MycRuntimeFoundationError,
     MycRuntimeFoundationErrorKind, MycRuntimePrerequisite, MycRuntimeReadiness,
     MycRuntimeReadinessReason, open_myc_runtime_foundation,
+};
+pub use runtime_supervision::{
+    MYC_CRITICAL_TASK_MAX_COUNT, MYC_RUNTIME_SUPERVISION_CONTRACT_VERSION, MycCriticalTask,
+    MycCriticalTaskError, MycRuntimeSupervisionError, MycRuntimeSupervisionErrorKind,
+    MycSupervisedRuntime, MycTaskCancellation,
 };
 pub use state_catalog::{
     MYC_MIGRATION_CATALOG_SHA256, MYC_STATE_BASE_SCHEMA_VERSION, MYC_STATE_SCHEMA_CATALOG_SHA256,

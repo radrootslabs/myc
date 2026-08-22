@@ -117,7 +117,13 @@ credential, secret, or decrypted content. Every public Myc error remains a
 crate-owned source-free classification, so ordinary `Display`, `Debug`, and
 whole-chain traversal cannot bypass redaction. Current binary dispatch reports
 invalid input as exit 2 and the intentionally unavailable later executor as
-exit 3; Steps 158 and 159 own real daemon/task/signal execution.
+exit 3. The Myc runtime now owns one sealed, bounded critical-task graph over
+the shared supervisor: task error, panic, join failure, unexpected cancellation,
+or success before cancellation cancels peers, joins every task, and maps to the
+fixed unexpected-internal process result. Tasks receive only a cooperative
+cancellation observer; task names and handles remain internal. Step 159 owns
+the process panic hook, signal installation, externally requested and forced
+shutdown, the configured grace deadline, and durability-aware ordered drain.
 
 `parse_myc_config_v1` caps original bytes before decoding, checks the schema
 header before closed contract admission, rejects duplicate, null, unknown, and

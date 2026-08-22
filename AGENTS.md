@@ -202,6 +202,10 @@
   failpoints. Supervise and join every authoritative task; panic, error, or
   unexpected successful return from a critical task must coordinate shutdown
   and produce a nonzero process result.
+- Keep the Myc critical-task graph bounded and sealed. A task receives only its
+  cooperative cancellation observer; callers cannot name tasks, extract task
+  handles, detach work, install signals, or select process exits through this
+  library boundary. Step 159 owns signal and forced-shutdown composition.
 
 ## 6. Admission, commit, and publication invariants
 
