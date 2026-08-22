@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 const ROOT: &str = include_str!("../src/lib.rs");
 const README: &str = include_str!("../README");
 const PUBLIC_API: &str = include_str!("../contracts/api_baselines/myc.txt");
+const ADMIN_V1: &str = include_str!("../src/admin_v1.rs");
 const NIP46_VERIFICATION: &str = include_str!("../src/nip46_verification.rs");
 const NIP46_AUTHORIZATION: &str = include_str!("../src/nip46_authorization.rs");
 const NIP46_REPLAY: &str = include_str!("../src/nip46_replay.rs");
@@ -31,6 +32,7 @@ const NIP46_RESPONSE_CONTRACT: &str =
 const DELIVERY_RECOVERY_EXPORT_CONTRACT: &str =
     include_str!("../contracts/services_hardening/delivery_recovery_export.v1.json");
 const SOURCES: &[&str] = &[
+    include_str!("../src/admin_v1.rs"),
     include_str!("../src/cli_v1.rs"),
     include_str!("../src/config_v1.rs"),
     include_str!("../src/nip46_admission.rs"),
@@ -68,6 +70,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             .filter_map(|line| line.strip_suffix(';'))
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([
+            "admin_v1",
             "cli_v1",
             "config_v1",
             "nip46_admission",
@@ -116,6 +119,13 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
 #[test]
 fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
     for required in [
+        "pub struct myc::MycAdminRequestDocument",
+        "pub struct myc::MycAdminResponseDocument",
+        "pub enum myc::MycAdminMethod",
+        "pub enum myc::MycAdminRoute",
+        "pub trait myc::MycAdminHandler",
+        "pub struct myc::MycAdminRouter",
+        "pub fn myc::build_myc_admin_router",
         "pub struct myc::MycRuntimeContext",
         "pub struct myc::MycRuntimeFoundation",
         "pub struct myc::MycRuntimeReadiness",
@@ -178,6 +188,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
     }
 
     for module in [
+        "admin_v1",
         "cli_v1",
         "config_v1",
         "nip46_admission",
@@ -442,6 +453,57 @@ fn step146_first_wave_gate_is_machine_bound_and_test_only() {
 }
 
 #[test]
+fn step150_admin_adapter_is_closed_typed_and_transport_bounded() {
+    for required in [
+        "pub const ALL: [Self; 21]",
+        "models.len() == 35",
+        "operator_route_inventory_is_exact",
+        "AdminMutationRequest<Value>",
+        "strict_json(bytes)",
+        "MycAdminDocumentErrorKind::DuplicateField",
+        "MycAdminDocumentErrorKind::NullForbidden",
+        "MycAdminHandlerErrorKind::InvalidCursor",
+        "MycAdminHandlerErrorKind::OperationIdConflict",
+        "original committed response",
+        "same route, filters, and snapshot",
+        "relay submission or delivery is not implied",
+        "all_twenty_one_routes_round_trip_over_the_hardened_unix_boundary",
+    ] {
+        assert!(
+            ADMIN_V1.contains(required),
+            "Step 150 adapter is missing `{required}`"
+        );
+    }
+    for forbidden in [
+        "TcpListener",
+        "axum::",
+        "warp::",
+        "actix",
+        "SqlitePool",
+        "SqliteConnection",
+        "tokio::spawn(async move { handler",
+        "SystemTime",
+        "rand::",
+        "getrandom",
+        "process::exit",
+    ] {
+        assert!(
+            !ADMIN_V1.contains(forbidden),
+            "Step 150 adapter gained forbidden authority `{forbidden}`"
+        );
+    }
+    for required in [
+        "exact 21-route",
+        "all 35 model",
+        "Raw shared-host routers and JSON values never cross the public",
+        "operation_id_conflict",
+        "not the later daemon runtime",
+    ] {
+        assert!(README.contains(required), "README is missing `{required}`");
+    }
+}
+
+#[test]
 fn step144_authorization_is_configuration_bound_and_reuses_durable_state() {
     for forbidden in [
         "sqlx::",
@@ -528,7 +590,7 @@ fn public_errors_remain_crate_owned_redacted_and_source_free() {
         .lines()
         .filter(|line| line.starts_with("pub struct myc::") && line.ends_with("Error"))
         .count();
-    assert_eq!(public_error_count, 24);
+    assert_eq!(public_error_count, 27);
     assert!(!PUBLIC_API.contains("pub struct myc::MycRuntimeFoundation {"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycStateHost {"));
 }

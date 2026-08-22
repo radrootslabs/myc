@@ -31,8 +31,8 @@
   `radroots.service.source-lock.v1.toml`, the relevant implementation and tests,
   and `flake.nix` or migrations when they are in scope.
 - `.radroots-consumer-root` is the standalone source-lock identity and must
-  remain exactly `myc`. The reserved pre-implementation control-plane
-  contract is `contracts/services_hardening/operator_contract.v1.json`.
+  remain exactly `myc`. The implemented control-plane contract is
+  `contracts/services_hardening/operator_contract.v1.json`.
   Service implementation must use its exact routes, operation IDs, model
   fields, doctor checks, and shared host/exit references; prototype CLI or
   HTTP behavior is not authority to reinterpret that contract.
@@ -100,6 +100,13 @@
   code may commit a completion only through the atomic exact-response method;
   a retained completion without its immutable response and initial delivery
   state is inconsistent evidence and must never be repaired implicitly.
+- Step 150 implements the exact 21-route and 35-model Myc Unix-admin adapter.
+  Keep the shared Lib router private; reject model drift, unknown/duplicate/null
+  fields, noncanonical response bytes, invalid path/query values, and unsafe
+  errors at the adapter boundary. Domain handlers must bind authenticated
+  cursors to route/filter/snapshot identity and must retain exact operation-ID
+  replay/conflict evidence before returning success. Do not infer relay
+  delivery from a successful local mutation and do not add TCP admin routes.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

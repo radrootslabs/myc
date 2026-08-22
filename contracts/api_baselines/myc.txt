@@ -9,6 +9,53 @@ pub use myc::RadrootsServiceInstanceArtifacts
 pub use myc::RuntimeContext
 pub use myc::RuntimeContextSource
 pub use myc::ServiceId
+pub enum myc::MycAdminDocumentErrorKind
+pub myc::MycAdminDocumentErrorKind::DuplicateField
+pub myc::MycAdminDocumentErrorKind::InvalidModel
+pub myc::MycAdminDocumentErrorKind::Malformed
+pub myc::MycAdminDocumentErrorKind::NonCanonical
+pub myc::MycAdminDocumentErrorKind::NullForbidden
+pub myc::MycAdminDocumentErrorKind::TooLarge
+pub enum myc::MycAdminHandlerErrorKind
+pub myc::MycAdminHandlerErrorKind::Conflict
+pub myc::MycAdminHandlerErrorKind::Internal
+pub myc::MycAdminHandlerErrorKind::InvalidCursor
+pub myc::MycAdminHandlerErrorKind::NotFound
+pub myc::MycAdminHandlerErrorKind::OperationIdConflict
+pub myc::MycAdminHandlerErrorKind::Unavailable
+pub enum myc::MycAdminMethod
+pub myc::MycAdminMethod::Get
+pub myc::MycAdminMethod::Post
+pub enum myc::MycAdminRoute
+pub myc::MycAdminRoute::AuditEvents
+pub myc::MycAdminRoute::AuditSummary
+pub myc::MycAdminRoute::ChallengeAuthorize
+pub myc::MycAdminRoute::ChallengeRequire
+pub myc::MycAdminRoute::ConnectionApprove
+pub myc::MycAdminRoute::ConnectionReject
+pub myc::MycAdminRoute::ConnectionRevoke
+pub myc::MycAdminRoute::ConnectionsList
+pub myc::MycAdminRoute::DiscoveryDesired
+pub myc::MycAdminRoute::DiscoveryPublish
+pub myc::MycAdminRoute::DiscoveryRefresh
+pub myc::MycAdminRoute::DiscoveryRender
+pub myc::MycAdminRoute::EffectiveConfig
+pub myc::MycAdminRoute::IdentityPublic
+pub myc::MycAdminRoute::IdentityRekey
+pub myc::MycAdminRoute::IdentityReplace
+pub myc::MycAdminRoute::IdentityStatus
+pub myc::MycAdminRoute::MetricsSnapshot
+pub myc::MycAdminRoute::StateBackup
+pub myc::MycAdminRoute::StateStatus
+pub myc::MycAdminRoute::Status
+impl myc::MycAdminRoute
+pub const myc::MycAdminRoute::ALL: [Self; 21]
+pub const fn myc::MycAdminRoute::is_mutation(self) -> bool
+pub const fn myc::MycAdminRoute::method(self) -> myc::MycAdminMethod
+pub const fn myc::MycAdminRoute::operation_id(self) -> &'static str
+pub const fn myc::MycAdminRoute::path(self) -> &'static str
+pub const fn myc::MycAdminRoute::request_model(self) -> &'static str
+pub const fn myc::MycAdminRoute::response_model(self) -> &'static str
 pub enum myc::MycAuditKind
 pub myc::MycAuditKind::ChallengeAuthorization
 pub myc::MycAuditKind::ChallengeCreation
@@ -551,6 +598,42 @@ pub myc::MycStateRepositoryErrorKind::CommitOutcomeUnknown
 pub myc::MycStateRepositoryErrorKind::Transaction
 impl myc::MycStateRepositoryErrorKind
 pub const fn myc::MycStateRepositoryErrorKind::code(self) -> &'static str
+pub struct myc::MycAdminDocumentError
+impl myc::MycAdminDocumentError
+pub const fn myc::MycAdminDocumentError::kind(self) -> myc::MycAdminDocumentErrorKind
+impl core::error::Error for myc::MycAdminDocumentError
+impl core::fmt::Display for myc::MycAdminDocumentError
+pub fn myc::MycAdminDocumentError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAdminHandlerError
+impl myc::MycAdminHandlerError
+pub const fn myc::MycAdminHandlerError::kind(self) -> myc::MycAdminHandlerErrorKind
+pub const fn myc::MycAdminHandlerError::new(myc::MycAdminHandlerErrorKind) -> Self
+impl core::error::Error for myc::MycAdminHandlerError
+impl core::fmt::Display for myc::MycAdminHandlerError
+pub fn myc::MycAdminHandlerError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAdminRequestDocument
+impl myc::MycAdminRequestDocument
+pub fn myc::MycAdminRequestDocument::correlation_id(&self) -> &str
+pub fn myc::MycAdminRequestDocument::model_bytes(&self) -> &[u8]
+pub fn myc::MycAdminRequestDocument::operation_id(&self) -> core::option::Option<&str>
+pub fn myc::MycAdminRequestDocument::parameter(&self, &str) -> core::option::Option<&str>
+pub const fn myc::MycAdminRequestDocument::route(&self) -> myc::MycAdminRoute
+impl core::fmt::Debug for myc::MycAdminRequestDocument
+pub fn myc::MycAdminRequestDocument::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAdminResponseDocument
+impl myc::MycAdminResponseDocument
+pub fn myc::MycAdminResponseDocument::canonical_bytes(&self) -> &[u8]
+pub fn myc::MycAdminResponseDocument::from_canonical_bytes(myc::MycAdminRoute, &[u8]) -> core::result::Result<Self, myc::MycAdminDocumentError>
+pub const fn myc::MycAdminResponseDocument::route(&self) -> myc::MycAdminRoute
+impl core::fmt::Debug for myc::MycAdminResponseDocument
+pub fn myc::MycAdminResponseDocument::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAdminRouter
+impl core::fmt::Debug for myc::MycAdminRouter
+pub fn myc::MycAdminRouter::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAdminRouterError
+impl core::error::Error for myc::MycAdminRouterError
+impl core::fmt::Display for myc::MycAdminRouterError
+pub fn myc::MycAdminRouterError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycAuditCorrelationId(_)
 impl myc::MycAuditCorrelationId
 pub const fn myc::MycAuditCorrelationId::new([u8; 32]) -> Self
@@ -1601,9 +1684,12 @@ pub const myc::MYC_STATE_SCHEMA_VERSION_9_OBJECT_COUNT: u32
 pub const myc::MYC_STATE_SCHEMA_VERSION_9_SHA256: [u8; 32]
 pub const myc::MYC_WRAPPING_CREDENTIAL_ARTIFACT_BYTES: usize
 pub const myc::MYC_WRAPPING_CREDENTIAL_CONTRACT_VERSION: u32
+pub trait myc::MycAdminHandler: core::marker::Send + core::marker::Sync + 'static
+pub fn myc::MycAdminHandler::handle<'a>(&'a self, myc::MycAdminRequestDocument) -> myc::MycAdminFuture<'a>
 pub fn myc::admit_myc_nip46_event(myc::MycNip46AdmissionLimits, &[u8]) -> core::result::Result<myc::MycBoundedNip46Event, myc::MycNip46AdmissionError>
 pub fn myc::admit_myc_nip46_request(myc::MycNip46AdmissionLimits, &[u8]) -> core::result::Result<myc::MycBoundedNip46Request, myc::MycNip46AdmissionError>
 pub fn myc::bind_myc_nip46_replay(myc::MycVerifiedNip46Event, myc::MycVerifiedNip46Request) -> core::result::Result<myc::MycReplayBoundNip46Request, myc::MycSignerRequestError>
+pub fn myc::build_myc_admin_router<H>(alloc::sync::Arc<H>) -> core::result::Result<myc::MycAdminRouter, myc::MycAdminRouterError> where H: myc::MycAdminHandler
 pub async fn myc::finalize_myc_state_restore(myc::MycStagedStateRestore) -> core::result::Result<(), myc::MycStateMaintenanceError>
 pub async fn myc::initialize_myc_state(&myc::MycRuntimeContext, &myc::MycStateMetadata, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<(), myc::MycStateHostError>
 pub fn myc::myc_migration_catalog() -> core::result::Result<radroots_service_sqlite::migration::MigrationCatalog, myc::MycStateCatalogError>
@@ -1625,3 +1711,4 @@ pub fn myc::validate_myc_state_catalogs(&radroots_service_sqlite::migration::Mig
 pub fn myc::verify_myc_nip46_event(myc::MycBoundedNip46Event, &myc::MycProviderBinding, myc::MycNip46ObservedAtUnixSeconds, myc::MycNip46AuthoredTimePolicy) -> core::result::Result<myc::MycVerifiedNip46Event, myc::MycNip46VerificationError>
 pub fn myc::verify_myc_nip46_request(myc::MycBoundedNip46Request) -> core::result::Result<myc::MycVerifiedNip46Request, myc::MycNip46VerificationError>
 pub fn myc::verify_myc_state_backup(&[u8], radroots_service_sqlite::backup::manifest::BackupManifestSha256, &std::path::Path, &myc::MycStateMetadata, core::num::nonzero::NonZeroU64) -> core::result::Result<myc::MycVerifiedStateBackup, myc::MycStateMaintenanceError>
+pub type myc::MycAdminFuture<'a> = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<myc::MycAdminResponseDocument, myc::MycAdminHandlerError>> + core::marker::Send + 'a)>>

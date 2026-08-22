@@ -114,6 +114,36 @@ authority. Explicit desired/current offline NIP-05 export re-reads verified
 state, works through read-only inspection, and returns canonical compact
 `names` plus NIP-46 discovery JSON without hosting it.
 
+The implemented v1 Myc administration adapter registers the exact 21-route
+inventory and validates every request and response against all 35 model
+references in `contracts/services_hardening/operator_contract.v1.json`. It
+reuses the hardened Lib HTTP/1.1-over-Unix server for original-wire duplicate
+and null rejection, percent-decoded bounded path parameters, peer admission,
+deadlines, concurrency, body limits, and effective correlation IDs. The Myc
+boundary additionally rejects unknown or missing model fields, invalid query
+types, noncanonical response JSON, unsafe URLs and identifiers, and response
+model drift. Raw shared-host routers and JSON values never cross the public
+API.
+
+The domain handler receives compact canonical model bytes plus the durable
+operation ID. A successful mutation means its contract-defined local effect
+and operation audit are committed; it does not claim relay submission or
+delivery. Identical operation-ID reuse must return the original committed
+result, different-byte reuse returns `operation_id_conflict`, and pagination
+cursors remain authenticated to the same route, filters, and snapshot. This
+checkpoint supplies the typed protocol adapter, not the later daemon runtime,
+cached status/metrics producer, CLI dispatch, or TCP operations surface.
+
+The transport capability and admitted request remain non-forgeable outside
+the crate:
+
+```compile_fail
+use myc::{MycAdminRequestDocument, MycAdminRouter};
+
+let _request = MycAdminRequestDocument {};
+let _router = MycAdminRouter {};
+```
+
 The public Myc repository exposes no raw pool, connection, transaction-control
 handle, path, or SQL. Binding and request-admission mutations execute only
 inside the shared `ServiceSqliteTransaction` runner. Provider and relay work

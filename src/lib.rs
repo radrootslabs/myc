@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 #![doc = include_str!("../README")]
 
+mod admin_v1;
 mod cli_v1;
 mod config_v1;
 mod nip46_admission;
@@ -33,6 +34,12 @@ mod state_repository;
 mod state_request;
 mod state_response;
 
+pub use admin_v1::{
+    MycAdminDocumentError, MycAdminDocumentErrorKind, MycAdminFuture, MycAdminHandler,
+    MycAdminHandlerError, MycAdminHandlerErrorKind, MycAdminMethod, MycAdminRequestDocument,
+    MycAdminResponseDocument, MycAdminRoute, MycAdminRouter, MycAdminRouterError,
+    build_myc_admin_router,
+};
 pub use cli_v1::{
     MycBootstrapProfileV1, MycCliInvocationV1, MycCliV1Error, MycCliV1ErrorKind, MycCommandV1,
     MycConfigCommandV1, MycIdentityCommandV1, MycStateCommandV1, parse_myc_cli_v1_from,

@@ -49,7 +49,7 @@ fn source_lock_identity_and_shared_host_reference_are_exact() {
     let value = contract();
     assert_eq!(value["schema"], "radroots.myc.operator-contract.v1");
     assert_eq!(value["contract_version"], 1);
-    assert_eq!(value["decision_state"], "reserved_preimplementation");
+    assert_eq!(value["decision_state"], "implemented");
     assert_eq!(value["service"], "myc");
     assert_eq!(
         value["shared_host_contract"],
