@@ -103,6 +103,27 @@ pub enum myc::MycBootstrapProfileV1
 pub myc::MycBootstrapProfileV1::Interactive
 pub myc::MycBootstrapProfileV1::RepoLocal
 pub myc::MycBootstrapProfileV1::ServiceHost
+pub enum myc::MycCliAdminOperationV1
+pub myc::MycCliAdminOperationV1::IdentityPublic
+pub myc::MycCliAdminOperationV1::IdentityRekey
+pub myc::MycCliAdminOperationV1::IdentityReplace
+pub myc::MycCliAdminOperationV1::IdentityStatus
+pub myc::MycCliAdminOperationV1::StateBackup
+pub myc::MycCliAdminOperationV1::StateStatus
+pub myc::MycCliAdminOperationV1::Status
+impl myc::MycCliAdminOperationV1
+pub const fn myc::MycCliAdminOperationV1::route(self) -> myc::MycAdminRoute
+pub enum myc::MycCliOfflineOperationV1
+pub myc::MycCliOfflineOperationV1::Config
+pub myc::MycCliOfflineOperationV1::Doctor
+pub myc::MycCliOfflineOperationV1::IdentityExclusive
+pub myc::MycCliOfflineOperationV1::IdentityReadOnly
+pub myc::MycCliOfflineOperationV1::StateExclusive
+pub myc::MycCliOfflineOperationV1::StateReadOnly
+pub enum myc::MycCliPrimaryAuthorityV1
+pub myc::MycCliPrimaryAuthorityV1::Daemon
+pub myc::MycCliPrimaryAuthorityV1::LiveUnixAdmin
+pub myc::MycCliPrimaryAuthorityV1::Offline
 pub enum myc::MycCliV1ErrorKind
 pub myc::MycCliV1ErrorKind::InvalidArguments
 pub myc::MycCliV1ErrorKind::InvalidConfigPath
@@ -712,6 +733,14 @@ pub fn myc::MycBoundedNip46Request::plaintext_bytes(&self) -> usize
 pub const fn myc::MycBoundedNip46Request::request_id_bytes(&self) -> usize
 impl core::fmt::Debug for myc::MycBoundedNip46Request
 pub fn myc::MycBoundedNip46Request::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycCliExecutionPlanV1
+impl myc::MycCliExecutionPlanV1
+pub const fn myc::MycCliExecutionPlanV1::admin_operation(&self) -> core::option::Option<myc::MycCliAdminOperationV1>
+pub const fn myc::MycCliExecutionPlanV1::allows_daemon_unavailable_offline_fallback(&self) -> bool
+pub const fn myc::MycCliExecutionPlanV1::offline_operation(&self) -> core::option::Option<myc::MycCliOfflineOperationV1>
+pub const fn myc::MycCliExecutionPlanV1::primary_authority(&self) -> myc::MycCliPrimaryAuthorityV1
+impl core::fmt::Debug for myc::MycCliExecutionPlanV1
+pub fn myc::MycCliExecutionPlanV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycCliInvocationV1
 impl myc::MycCliInvocationV1
 pub const fn myc::MycCliInvocationV1::command(&self) -> myc::MycCommandV1
@@ -1700,6 +1729,7 @@ pub async fn myc::open_myc_state_inspection(&myc::MycRuntimeContext, &myc::MycSt
 pub async fn myc::open_myc_state_read_write(&myc::MycRuntimeContext, &myc::MycStateMetadata, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<myc::MycStateHost, myc::MycStateHostError>
 pub fn myc::parse_myc_cli_v1_from<I, T>(I) -> core::result::Result<myc::MycCliInvocationV1, myc::MycCliV1Error> where I: core::iter::traits::collect::IntoIterator<Item = T>, T: core::convert::Into<std::ffi::os_str::OsString> + core::clone::Clone
 pub fn myc::parse_myc_config_v1(&[u8], myc::MycConfigProfile) -> core::result::Result<myc::MycConfigDocumentV1, myc::MycConfigV1Error>
+pub const fn myc::plan_myc_cli_v1(&myc::MycCliInvocationV1) -> myc::MycCliExecutionPlanV1
 pub fn myc::prepare_myc_nip46_decrypt_work(myc::MycVerifiedNip46Event, &myc::MycProviderBinding, myc::MycProviderDeadlineUnixMs) -> core::result::Result<myc::MycNip46DecryptWork, myc::MycNip46WorkError>
 pub fn myc::prepare_myc_nip46_request(myc::MycDecryptedNip46Request, myc::MycSignerOperationNonce, myc::MycRequestReceivedAtUnixMs) -> core::result::Result<myc::MycPreparedNip46Request, myc::MycNip46WorkError>
 pub fn myc::prepare_myc_nip46_work(myc::MycPreparedNip46Request, myc::MycSignerRequestRecord, core::option::Option<myc::MycConnectionRecord>, &myc::MycProviderContract, myc::MycConnectionTimeUnixMs, core::option::Option<myc::MycProviderDeadlineUnixMs>) -> core::result::Result<myc::MycNip46Work, myc::MycNip46WorkError>

@@ -43,8 +43,10 @@ pub use admin_v1::{
     build_myc_admin_router,
 };
 pub use cli_v1::{
-    MycBootstrapProfileV1, MycCliInvocationV1, MycCliV1Error, MycCliV1ErrorKind, MycCommandV1,
-    MycConfigCommandV1, MycIdentityCommandV1, MycStateCommandV1, parse_myc_cli_v1_from,
+    MycBootstrapProfileV1, MycCliAdminOperationV1, MycCliExecutionPlanV1, MycCliInvocationV1,
+    MycCliOfflineOperationV1, MycCliPrimaryAuthorityV1, MycCliV1Error, MycCliV1ErrorKind,
+    MycCommandV1, MycConfigCommandV1, MycIdentityCommandV1, MycStateCommandV1,
+    parse_myc_cli_v1_from, plan_myc_cli_v1,
 };
 pub use config_v1::{
     MYC_CONFIG_DOCUMENT_MAX_UTF8_BYTES, MYC_CONFIG_SCHEMA, MYC_CONFIG_SCHEMA_VERSION,

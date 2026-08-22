@@ -119,6 +119,11 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
 #[test]
 fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
     for required in [
+        "pub struct myc::MycCliExecutionPlanV1",
+        "pub enum myc::MycCliPrimaryAuthorityV1",
+        "pub enum myc::MycCliOfflineOperationV1",
+        "pub enum myc::MycCliAdminOperationV1",
+        "pub const fn myc::plan_myc_cli_v1",
         "pub struct myc::MycAdminRequestDocument",
         "pub struct myc::MycAdminResponseDocument",
         "pub enum myc::MycAdminMethod",

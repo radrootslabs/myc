@@ -242,6 +242,33 @@
       }
     }
   },
+  "cli_dispatch": {
+    "parse_count": 1,
+    "primary_authorities": ["daemon", "offline", "live_unix_admin"],
+    "live_direct_sqlite_access": false,
+    "live_mutation_offline_fallback": false,
+    "read_only_offline_fallback_requires_free_daemon_writer_lock": true,
+    "commands": [
+      { "command": "run", "primary_authority": "daemon" },
+      { "command": "config init", "primary_authority": "offline", "offline_operation": "config" },
+      { "command": "config validate", "primary_authority": "offline", "offline_operation": "config" },
+      { "command": "config show", "primary_authority": "offline", "offline_operation": "config" },
+      { "command": "config schema", "primary_authority": "offline", "offline_operation": "config" },
+      { "command": "state init", "primary_authority": "offline", "offline_operation": "state_exclusive" },
+      { "command": "state status", "primary_authority": "live_unix_admin", "admin_route": "/v1/state/status", "offline_operation": "state_read_only", "daemon_unavailable_offline_fallback": true },
+      { "command": "state backup", "primary_authority": "live_unix_admin", "admin_route": "/v1/state/backup", "offline_operation": "state_read_only", "daemon_unavailable_offline_fallback": true },
+      { "command": "state restore", "primary_authority": "offline", "offline_operation": "state_exclusive" },
+      { "command": "state verify", "primary_authority": "offline", "offline_operation": "state_exclusive" },
+      { "command": "state migrate", "primary_authority": "offline", "offline_operation": "state_exclusive" },
+      { "command": "identity init", "primary_authority": "offline", "offline_operation": "identity_exclusive" },
+      { "command": "identity status", "primary_authority": "live_unix_admin", "admin_route": "/v1/identity/status", "offline_operation": "identity_read_only", "daemon_unavailable_offline_fallback": true },
+      { "command": "identity rekey", "primary_authority": "live_unix_admin", "admin_route": "/v1/identity/rekey" },
+      { "command": "identity replace", "primary_authority": "live_unix_admin", "admin_route": "/v1/identity/replace" },
+      { "command": "identity export-public", "primary_authority": "live_unix_admin", "admin_route": "/v1/identity/public", "offline_operation": "identity_read_only", "daemon_unavailable_offline_fallback": true },
+      { "command": "status", "primary_authority": "live_unix_admin", "admin_route": "/v1/status", "offline_operation": "state_read_only", "daemon_unavailable_offline_fallback": true },
+      { "command": "doctor", "primary_authority": "offline", "offline_operation": "doctor" }
+    ]
+  },
   "doctor": {
     "shared_schema": "radroots.service.doctor.v1",
     "contract_version": 1,

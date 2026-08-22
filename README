@@ -52,6 +52,14 @@ The process binary uses only this parser. Hardened command execution remains
 fail-closed until its ordered runtime-dispatch steps are complete; no prototype
 command is used as a fallback.
 
+The parsed invocation is projected once into a sealed execution plan. `run`
+selects daemon authority; config, exclusive state/identity provisioning, and
+doctor select offline authority; state/identity/service inspection and live
+mutations select the permissioned Unix-admin authority. Only explicitly
+read-only status, backup, and public-identity operations may fall back when a
+later executor proves the daemon writer lock is free. Rekey and replace never
+fall back to direct state access, and no live plan carries SQLite authority.
+
 `parse_myc_config_v1` caps original bytes before decoding, checks the schema
 header before closed contract admission, rejects duplicate, null, unknown, and
 semantically inconsistent input, and returns an immutable document plus a

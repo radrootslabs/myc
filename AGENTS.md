@@ -107,6 +107,13 @@
   cursors to route/filter/snapshot identity and must retain exact operation-ID
   replay/conflict evidence before returning success. Do not infer relay
   delivery from a successful local mutation and do not add TCP admin routes.
+- Step 152 freezes the one-parse CLI execution split. Every admitted command
+  must select exactly daemon, offline, or permissioned Unix-admin authority;
+  only the explicitly contracted read-only status, backup, and public-identity
+  operations may fall back after proving the daemon writer lock is free.
+  Rekey, replace, and every other live mutation have no direct-state fallback.
+  Do not reparse process arguments or let a live CLI plan obtain SQLite,
+  provider, relay, task, signal, or runtime authority.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

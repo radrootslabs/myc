@@ -58,6 +58,120 @@ pub enum MycIdentityCommandV1 {
     ExportPublic,
 }
 
+/// The only three process authorities selected by the hardened CLI.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MycCliPrimaryAuthorityV1 {
+    Daemon,
+    Offline,
+    LiveUnixAdmin,
+}
+
+/// The closed offline operation classes selected before any state access.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MycCliOfflineOperationV1 {
+    Config,
+    StateExclusive,
+    StateReadOnly,
+    IdentityExclusive,
+    IdentityReadOnly,
+    Doctor,
+}
+
+/// The closed Unix-admin operations reachable from the command inventory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MycCliAdminOperationV1 {
+    Status,
+    StateStatus,
+    StateBackup,
+    IdentityStatus,
+    IdentityRekey,
+    IdentityReplace,
+    IdentityPublic,
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+impl MycCliAdminOperationV1 {
+    /// Returns the exact native Unix-admin route selected by this operation.
+    #[must_use]
+    pub const fn route(self) -> crate::MycAdminRoute {
+        match self {
+            Self::Status => crate::MycAdminRoute::Status,
+            Self::StateStatus => crate::MycAdminRoute::StateStatus,
+            Self::StateBackup => crate::MycAdminRoute::StateBackup,
+            Self::IdentityStatus => crate::MycAdminRoute::IdentityStatus,
+            Self::IdentityRekey => crate::MycAdminRoute::IdentityRekey,
+            Self::IdentityReplace => crate::MycAdminRoute::IdentityReplace,
+            Self::IdentityPublic => crate::MycAdminRoute::IdentityPublic,
+        }
+    }
+}
+
+/// A sealed, side-effect-free execution plan for one admitted CLI invocation.
+///
+/// Construction is owned by [`plan_myc_cli_v1`]. A live mutation never carries
+/// an offline fallback, while explicitly read-only status, backup, and public
+/// identity operations may fall back only after later execution proves the
+/// daemon writer lock is free.
+///
+/// ```compile_fail
+/// use myc::{MycCliExecutionPlanV1, MycCliPrimaryAuthorityV1};
+///
+/// let _ = MycCliExecutionPlanV1 {
+///     primary_authority: MycCliPrimaryAuthorityV1::Offline,
+///     offline_operation: None,
+///     admin_operation: None,
+///     daemon_unavailable_offline_fallback: true,
+/// };
+/// ```
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct MycCliExecutionPlanV1 {
+    primary_authority: MycCliPrimaryAuthorityV1,
+    offline_operation: Option<MycCliOfflineOperationV1>,
+    admin_operation: Option<MycCliAdminOperationV1>,
+    daemon_unavailable_offline_fallback: bool,
+}
+
+impl MycCliExecutionPlanV1 {
+    /// Returns the authority that must be attempted first.
+    #[must_use]
+    pub const fn primary_authority(&self) -> MycCliPrimaryAuthorityV1 {
+        self.primary_authority
+    }
+
+    /// Returns the bounded offline operation, when the plan admits one.
+    #[must_use]
+    pub const fn offline_operation(&self) -> Option<MycCliOfflineOperationV1> {
+        self.offline_operation
+    }
+
+    /// Returns the bounded Unix-admin operation, when the plan admits one.
+    #[must_use]
+    pub const fn admin_operation(&self) -> Option<MycCliAdminOperationV1> {
+        self.admin_operation
+    }
+
+    /// Returns whether a missing daemon may fall back to read-only offline work.
+    #[must_use]
+    pub const fn allows_daemon_unavailable_offline_fallback(&self) -> bool {
+        self.daemon_unavailable_offline_fallback
+    }
+}
+
+impl fmt::Debug for MycCliExecutionPlanV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MycCliExecutionPlanV1")
+            .field("primary_authority", &self.primary_authority)
+            .field("offline_operation", &self.offline_operation)
+            .field("admin_operation", &self.admin_operation)
+            .field(
+                "daemon_unavailable_offline_fallback",
+                &self.daemon_unavailable_offline_fallback,
+            )
+            .finish()
+    }
+}
+
 /// Stable source-free classification for command-line admission failures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MycCliV1ErrorKind {
@@ -211,6 +325,94 @@ where
         config_path: parsed.config,
         command: parsed.command.into(),
     })
+}
+
+/// Selects the sole permitted execution authority for an admitted command.
+///
+/// This function performs no filesystem, database, socket, environment, task,
+/// or process work. Later executors consume the plan without reparsing process
+/// arguments. In particular, no live command receives direct SQLite authority.
+#[must_use]
+pub const fn plan_myc_cli_v1(invocation: &MycCliInvocationV1) -> MycCliExecutionPlanV1 {
+    match invocation.command {
+        MycCommandV1::Run => daemon_plan(),
+        MycCommandV1::Config(_) => offline_plan(MycCliOfflineOperationV1::Config),
+        MycCommandV1::State(MycStateCommandV1::Init)
+        | MycCommandV1::State(MycStateCommandV1::Restore)
+        | MycCommandV1::State(MycStateCommandV1::Verify)
+        | MycCommandV1::State(MycStateCommandV1::Migrate) => {
+            offline_plan(MycCliOfflineOperationV1::StateExclusive)
+        }
+        MycCommandV1::State(MycStateCommandV1::Status) => read_only_admin_plan(
+            MycCliAdminOperationV1::StateStatus,
+            MycCliOfflineOperationV1::StateReadOnly,
+        ),
+        MycCommandV1::State(MycStateCommandV1::Backup) => read_only_admin_plan(
+            MycCliAdminOperationV1::StateBackup,
+            MycCliOfflineOperationV1::StateReadOnly,
+        ),
+        MycCommandV1::Identity(MycIdentityCommandV1::Init) => {
+            offline_plan(MycCliOfflineOperationV1::IdentityExclusive)
+        }
+        MycCommandV1::Identity(MycIdentityCommandV1::Status) => read_only_admin_plan(
+            MycCliAdminOperationV1::IdentityStatus,
+            MycCliOfflineOperationV1::IdentityReadOnly,
+        ),
+        MycCommandV1::Identity(MycIdentityCommandV1::ExportPublic) => read_only_admin_plan(
+            MycCliAdminOperationV1::IdentityPublic,
+            MycCliOfflineOperationV1::IdentityReadOnly,
+        ),
+        MycCommandV1::Identity(MycIdentityCommandV1::Rekey) => {
+            admin_plan(MycCliAdminOperationV1::IdentityRekey)
+        }
+        MycCommandV1::Identity(MycIdentityCommandV1::Replace) => {
+            admin_plan(MycCliAdminOperationV1::IdentityReplace)
+        }
+        MycCommandV1::Status => read_only_admin_plan(
+            MycCliAdminOperationV1::Status,
+            MycCliOfflineOperationV1::StateReadOnly,
+        ),
+        MycCommandV1::Doctor => offline_plan(MycCliOfflineOperationV1::Doctor),
+    }
+}
+
+const fn daemon_plan() -> MycCliExecutionPlanV1 {
+    MycCliExecutionPlanV1 {
+        primary_authority: MycCliPrimaryAuthorityV1::Daemon,
+        offline_operation: None,
+        admin_operation: None,
+        daemon_unavailable_offline_fallback: false,
+    }
+}
+
+const fn offline_plan(operation: MycCliOfflineOperationV1) -> MycCliExecutionPlanV1 {
+    MycCliExecutionPlanV1 {
+        primary_authority: MycCliPrimaryAuthorityV1::Offline,
+        offline_operation: Some(operation),
+        admin_operation: None,
+        daemon_unavailable_offline_fallback: false,
+    }
+}
+
+const fn admin_plan(operation: MycCliAdminOperationV1) -> MycCliExecutionPlanV1 {
+    MycCliExecutionPlanV1 {
+        primary_authority: MycCliPrimaryAuthorityV1::LiveUnixAdmin,
+        offline_operation: None,
+        admin_operation: Some(operation),
+        daemon_unavailable_offline_fallback: false,
+    }
+}
+
+const fn read_only_admin_plan(
+    admin_operation: MycCliAdminOperationV1,
+    offline_operation: MycCliOfflineOperationV1,
+) -> MycCliExecutionPlanV1 {
+    MycCliExecutionPlanV1 {
+        primary_authority: MycCliPrimaryAuthorityV1::LiveUnixAdmin,
+        offline_operation: Some(offline_operation),
+        admin_operation: Some(admin_operation),
+        daemon_unavailable_offline_fallback: true,
+    }
 }
 
 fn validate_bootstrap_paths(
