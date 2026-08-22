@@ -38,17 +38,17 @@ use crate::{
 
 const CONFIG: &str = include_str!("../contracts/services_hardening/config.v1.example.toml");
 const CORPUS: &str = include_str!("../contracts/services_hardening/nip46_wave_080_a.v1.json");
-const OBSERVED_AT_SECONDS: u64 = 1_725_000_000;
-const RECEIVED_AT_MS: u64 = 1_725_000_000_000;
-const PROVIDER_DEADLINE_MS: u64 = RECEIVED_AT_MS + 120_000;
+pub(crate) const OBSERVED_AT_SECONDS: u64 = 1_725_000_000;
+pub(crate) const RECEIVED_AT_MS: u64 = 1_725_000_000_000;
+pub(crate) const PROVIDER_DEADLINE_MS: u64 = RECEIVED_AT_MS + 120_000;
 
 #[derive(Clone, Copy)]
-enum Encryption {
+pub(crate) enum Encryption {
     Nip04,
     Nip44V2,
 }
 
-fn keys(seed: u8) -> Keys {
+pub(crate) fn keys(seed: u8) -> Keys {
     Keys::parse(&format!("{seed:02x}{}", "00".repeat(31))).expect("test keys")
 }
 
@@ -67,7 +67,7 @@ fn configuration_source() -> String {
         .replacen("max_attempts = 10", "max_attempts = 2", 1)
 }
 
-fn configuration() -> MycConfigDocumentV1 {
+pub(crate) fn configuration() -> MycConfigDocumentV1 {
     parse_myc_config_v1(
         configuration_source().as_bytes(),
         MycConfigProfile::RepoLocal,
@@ -75,7 +75,7 @@ fn configuration() -> MycConfigDocumentV1 {
     .expect("wave configuration")
 }
 
-fn runtime(root: &Path) -> crate::MycRuntimeContext {
+pub(crate) fn runtime(root: &Path) -> crate::MycRuntimeContext {
     let invocation = parse_myc_cli_v1_from([
         "myc",
         "--profile",
@@ -94,7 +94,7 @@ fn runtime(root: &Path) -> crate::MycRuntimeContext {
     .expect("runtime context")
 }
 
-fn metadata(runtime: &crate::MycRuntimeContext) -> MycStateMetadata {
+pub(crate) fn metadata(runtime: &crate::MycRuntimeContext) -> MycStateMetadata {
     MycStateMetadata::new(
         runtime,
         &configuration(),
@@ -104,7 +104,7 @@ fn metadata(runtime: &crate::MycRuntimeContext) -> MycStateMetadata {
     .expect("state metadata")
 }
 
-fn migration_evidence() -> (MigrationAppliedAtUnixSeconds, MigrationBuildIdentity) {
+pub(crate) fn migration_evidence() -> (MigrationAppliedAtUnixSeconds, MigrationBuildIdentity) {
     let applied_at =
         MigrationAppliedAtUnixSeconds::new(OBSERVED_AT_SECONDS).expect("migration time");
     let build = MigrationBuildIdentity::new(
@@ -180,7 +180,7 @@ fn decrypt_work(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn prepared_request(
+pub(crate) fn prepared_request(
     config: &MycConfigDocumentV1,
     client: &Keys,
     request_id: &str,
@@ -212,7 +212,7 @@ fn prepared_request(
     .expect("prepared request")
 }
 
-fn connect_request() -> Request {
+pub(crate) fn connect_request() -> Request {
     Request::from_parts(
         Method::Connect,
         vec![
@@ -224,7 +224,7 @@ fn connect_request() -> Request {
     .expect("connect request")
 }
 
-fn unsigned_sign_event() -> ConnectUnsignedEvent {
+pub(crate) fn unsigned_sign_event() -> ConnectUnsignedEvent {
     let event = NostrUnsignedEvent::new(
         keys(3).public_key(),
         Timestamp::from_secs(OBSERVED_AT_SECONDS),
@@ -235,15 +235,15 @@ fn unsigned_sign_event() -> ConnectUnsignedEvent {
     ConnectUnsignedEvent::from_json(&event.as_json()).expect("unsigned event")
 }
 
-fn permissions() -> MycConnectionPermissionSet {
+pub(crate) fn permissions() -> MycConnectionPermissionSet {
     MycConnectionPermissionSet::new(&[MycConnectionPermission::SignEvent(1)]).expect("permissions")
 }
 
-fn connection_time(value: u64) -> MycConnectionTimeUnixMs {
+pub(crate) fn connection_time(value: u64) -> MycConnectionTimeUnixMs {
     MycConnectionTimeUnixMs::new(value).expect("connection time")
 }
 
-fn untrusted_response(
+pub(crate) fn untrusted_response(
     operation: &crate::MycProviderOperation,
     outer_correlation_id: String,
     result: WireProviderResult,

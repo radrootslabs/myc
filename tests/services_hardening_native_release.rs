@@ -52,7 +52,7 @@ fn native_release_contract_and_manifest_metadata_are_exact() {
             },
             "contract_versions": {
                 "config": 1,
-                "state": 7,
+                "state": 8,
                 "admin": 1,
                 "status": 1,
                 "provider": 1
@@ -112,7 +112,7 @@ fn native_release_contract_and_manifest_metadata_are_exact() {
             service = "myc"
             host_feature_profile = "service-host"
             config_contract_version = 1
-            state_contract_version = 7
+            state_contract_version = 8
             admin_contract_version = 1
             status_contract_version = 1
             provider_contract_version = 1

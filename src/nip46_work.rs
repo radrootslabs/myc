@@ -302,6 +302,28 @@ pub struct MycNip46Work {
 }
 
 impl MycNip46Work {
+    #[cfg(test)]
+    pub(crate) fn local_for_test(
+        request: MycSignerRequestRecord,
+        connection: MycConnectionRecord,
+        method: MycSignerRequestMethod,
+    ) -> Self {
+        assert!(matches!(
+            method,
+            MycSignerRequestMethod::GetPublicKey
+                | MycSignerRequestMethod::GetSessionCapability
+                | MycSignerRequestMethod::Ping
+                | MycSignerRequestMethod::SwitchRelays
+                | MycSignerRequestMethod::Logout
+        ));
+        Self {
+            request,
+            connection: Some(connection),
+            method,
+            payload: Nip46WorkPayload::Local,
+        }
+    }
+
     /// Returns the exact admitted durable request record.
     #[must_use]
     pub const fn request_record(&self) -> &MycSignerRequestRecord {

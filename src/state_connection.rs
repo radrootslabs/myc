@@ -1079,6 +1079,26 @@ impl fmt::Debug for MycAuthorizationChallengeAuthorization {
 }
 
 impl MycStateRepository<'_> {
+    /// Reads one fully validated durable connection decision by stable operation identity.
+    pub async fn read_connection_decision(
+        &self,
+        operation_id: MycSignerOperationId,
+    ) -> Result<MycConnectionDecisionRecord, MycStateRepositoryError> {
+        let expected = PersistedMetadata::from(self.expected());
+        self.host()
+            .transaction(move |transaction| {
+                Box::pin(async move {
+                    verify_metadata(transaction, &expected).await?;
+                    let decision = read_decision(transaction, operation_id)
+                        .await?
+                        .ok_or(ConnectionOperationError::Binding)?;
+                    decision_record(transaction, operation_id, decision).await
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
+    }
+
     /// Atomically records trusted, explicit-approval, or direct-denial admission.
     pub async fn admit_connection(
         &self,

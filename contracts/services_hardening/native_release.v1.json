@@ -32,7 +32,7 @@
   },
   "contract_versions": {
     "config": 1,
-    "state": 7,
+    "state": 8,
     "admin": 1,
     "status": 1,
     "provider": 1

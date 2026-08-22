@@ -75,11 +75,23 @@ without changing the canonical common artifact inventory.
 
 Create-new initialization reserves the shared schema-v1 metadata and migration
 ledger, retains exclusive writer authority, applies the exact Myc schema-v2
-through schema-v7 migrations, binds the normalized configuration, expected
+through schema-v8 migrations, binds the normalized configuration, expected
 identity roles, and policy versions through a sealed typed repository, and
 explicitly closes the host before reporting success. Existing writable open can
-resume any exact v1 through v6 prefix; read-only inspection requires the current
+resume any exact v1 through v7 prefix; read-only inspection requires the current
 catalog and exact immutable Myc binding.
+
+Schema v8 adds immutable NIP-46 operation-completion evidence. The Step 147
+integration checkpoint binds each durable request to its stable operation and
+correlation identities, terminal connect authority or exact active session,
+safe completion reason, and any independently verified inner signed-event
+bytes and digest. Logout revocation and completion insertion share one
+transaction, exact replay returns the stored decision, and failed transactions
+expose neither effect. Protected provider output is never persisted. This is an
+integration component, not the final production response boundary: Step 148
+must compose it with the outer signed response bytes, immutable relay targets,
+and initial outbox state in one transaction before RCLD-RSHR-080 can be
+promoted to `master`.
 
 The public Myc repository exposes no raw pool, connection, transaction-control
 handle, path, or SQL. Binding and request-admission mutations execute only
