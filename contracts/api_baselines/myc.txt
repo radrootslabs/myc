@@ -302,6 +302,12 @@ pub myc::MycNip46AdmissionErrorKind::TooManyTags
 pub enum myc::MycNip46EncryptionContext
 pub myc::MycNip46EncryptionContext::Nip04
 pub myc::MycNip46EncryptionContext::Nip44V2
+pub enum myc::MycNip46ReplayDisposition
+pub myc::MycNip46ReplayDisposition::ConflictingEventReuse
+pub myc::MycNip46ReplayDisposition::ConflictingRequestReuse
+pub myc::MycNip46ReplayDisposition::DistinctRequest
+pub myc::MycNip46ReplayDisposition::DuplicateEvent
+pub myc::MycNip46ReplayDisposition::ExactRequestReplay
 pub enum myc::MycNip46VerificationErrorKind
 pub myc::MycNip46VerificationErrorKind::AuthoredTimeRejected
 pub myc::MycNip46VerificationErrorKind::InvalidEventId
@@ -937,6 +943,11 @@ pub fn myc::MycNip46ClientPublicKey::as_hex(&self) -> &str
 pub fn myc::MycNip46ClientPublicKey::new(&str) -> core::result::Result<Self, myc::MycSignerRequestError>
 impl core::fmt::Debug for myc::MycNip46ClientPublicKey
 pub fn myc::MycNip46ClientPublicKey::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46ConnectionIdentity(_)
+impl myc::MycNip46ConnectionIdentity
+pub const fn myc::MycNip46ConnectionIdentity::as_bytes(&self) -> &[u8; 32]
+impl core::fmt::Debug for myc::MycNip46ConnectionIdentity
+pub fn myc::MycNip46ConnectionIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycNip46EventId(_)
 impl myc::MycNip46EventId
 pub const fn myc::MycNip46EventId::as_bytes(&self) -> &[u8; 32]
@@ -944,10 +955,18 @@ impl myc::MycNip46EventId
 pub const fn myc::MycNip46EventId::from_bytes([u8; 32]) -> Self
 impl core::fmt::Debug for myc::MycNip46EventId
 pub fn myc::MycNip46EventId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46LogicalRequestIdentity(_)
+impl myc::MycNip46LogicalRequestIdentity
+pub const fn myc::MycNip46LogicalRequestIdentity::as_bytes(&self) -> &[u8; 32]
+impl core::fmt::Debug for myc::MycNip46LogicalRequestIdentity
+pub fn myc::MycNip46LogicalRequestIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycNip46ObservedAtUnixSeconds(_)
 impl myc::MycNip46ObservedAtUnixSeconds
 pub const fn myc::MycNip46ObservedAtUnixSeconds::get(self) -> u64
 pub fn myc::MycNip46ObservedAtUnixSeconds::new(u64) -> core::result::Result<Self, myc::MycNip46VerificationError>
+pub struct myc::MycNip46ReplayKey
+impl core::fmt::Debug for myc::MycNip46ReplayKey
+pub fn myc::MycNip46ReplayKey::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycNip46RequestId(_)
 impl myc::MycNip46RequestId
 pub fn myc::MycNip46RequestId::as_str(&self) -> &str
@@ -1082,6 +1101,18 @@ impl myc::MycRateRelayId
 pub fn myc::MycRateRelayId::new(&str) -> core::result::Result<Self, myc::MycGovernanceStateError>
 impl core::fmt::Debug for myc::MycRateRelayId
 pub fn myc::MycRateRelayId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycReplayBoundNip46Request
+impl myc::MycReplayBoundNip46Request
+pub fn myc::MycReplayBoundNip46Request::classify_against(&self, myc::MycNip46ReplayKey) -> myc::MycNip46ReplayDisposition
+pub const fn myc::MycReplayBoundNip46Request::client_public_key(&self) -> &myc::MycNip46ClientPublicKey
+pub const fn myc::MycReplayBoundNip46Request::connection_identity(&self) -> myc::MycNip46ConnectionIdentity
+pub const fn myc::MycReplayBoundNip46Request::event_id(&self) -> myc::MycNip46EventId
+pub const fn myc::MycReplayBoundNip46Request::replay_key(&self) -> myc::MycNip46ReplayKey
+pub const fn myc::MycReplayBoundNip46Request::request_digest(&self) -> myc::MycSignerRequestDigest
+pub const fn myc::MycReplayBoundNip46Request::request_id(&self) -> &myc::MycNip46RequestId
+pub const fn myc::MycReplayBoundNip46Request::request_identity(&self) -> myc::MycNip46LogicalRequestIdentity
+impl core::fmt::Debug for myc::MycReplayBoundNip46Request
+pub fn myc::MycReplayBoundNip46Request::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycRequestReceivedAtUnixMs(_)
 impl myc::MycRequestReceivedAtUnixMs
 pub const fn myc::MycRequestReceivedAtUnixMs::get(self) -> u64
@@ -1392,6 +1423,7 @@ pub const myc::MYC_WRAPPING_CREDENTIAL_ARTIFACT_BYTES: usize
 pub const myc::MYC_WRAPPING_CREDENTIAL_CONTRACT_VERSION: u32
 pub fn myc::admit_myc_nip46_event(myc::MycNip46AdmissionLimits, &[u8]) -> core::result::Result<myc::MycBoundedNip46Event, myc::MycNip46AdmissionError>
 pub fn myc::admit_myc_nip46_request(myc::MycNip46AdmissionLimits, &[u8]) -> core::result::Result<myc::MycBoundedNip46Request, myc::MycNip46AdmissionError>
+pub fn myc::bind_myc_nip46_replay(myc::MycVerifiedNip46Event, myc::MycVerifiedNip46Request) -> core::result::Result<myc::MycReplayBoundNip46Request, myc::MycSignerRequestError>
 pub async fn myc::finalize_myc_state_restore(myc::MycStagedStateRestore) -> core::result::Result<(), myc::MycStateMaintenanceError>
 pub async fn myc::initialize_myc_state(&myc::MycRuntimeContext, &myc::MycStateMetadata, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<(), myc::MycStateHostError>
 pub fn myc::myc_migration_catalog() -> core::result::Result<radroots_service_sqlite::migration::MigrationCatalog, myc::MycStateCatalogError>

@@ -13,7 +13,7 @@ use serde::Deserialize;
 
 use crate::{
     MycBoundedNip46Event, MycBoundedNip46Request, MycNip46ClientPublicKey, MycNip46EventId,
-    MycNip46RequestId, MycProviderBinding, MycProviderRole,
+    MycNip46RequestId, MycProviderBinding, MycProviderPublicIdentity, MycProviderRole,
 };
 
 const NIP04_IV_BYTES: usize = 16;
@@ -170,6 +170,7 @@ pub struct MycVerifiedNip46Event {
     encrypted_content: Box<str>,
     event_id: MycNip46EventId,
     client_public_key: MycNip46ClientPublicKey,
+    receiver_public_key: MycProviderPublicIdentity,
     authored_at_unix_seconds: u64,
     encryption_context: MycNip46EncryptionContext,
 }
@@ -191,6 +192,10 @@ impl MycVerifiedNip46Event {
     #[must_use]
     pub const fn client_public_key(&self) -> &MycNip46ClientPublicKey {
         &self.client_public_key
+    }
+
+    pub(crate) const fn receiver_public_key(&self) -> &MycProviderPublicIdentity {
+        &self.receiver_public_key
     }
 
     /// Returns the verified event authored time.
@@ -257,6 +262,10 @@ impl MycVerifiedNip46Request {
     #[must_use]
     pub const fn parameter_bytes(&self) -> usize {
         self.parameter_bytes
+    }
+
+    pub(crate) fn canonical_request(&self) -> &[u8] {
+        &self.canonical_request
     }
 }
 
@@ -349,6 +358,7 @@ pub fn verify_myc_nip46_event(
         encrypted_content,
         event_id: MycNip46EventId::from_bytes(event.id.to_bytes()),
         client_public_key,
+        receiver_public_key: expected_receiver.clone(),
         authored_at_unix_seconds: event.created_at.as_secs(),
         encryption_context,
     })

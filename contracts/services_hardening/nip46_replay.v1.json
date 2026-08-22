@@ -1,0 +1,45 @@
+{
+  "schema": "radroots.myc.nip46-replay.v1",
+  "contract_version": 1,
+  "prerequisite": "nip46_verification.v1",
+  "connection_identity": {
+    "domain": "radroots.myc.nip46.connection_identity.v1\\0",
+    "preimage": "domain_then_u64_be_receiver_public_key_byte_length_and_exact_lowercase_ascii_receiver_then_u64_be_client_public_key_byte_length_and_exact_lowercase_ascii_client",
+    "digest": "sha256",
+    "stability": "same_configured_transport_receiver_and_verified_client_identity_same_connection_identity"
+  },
+  "request_identity": {
+    "domain": "radroots.myc.nip46.request_identity.v1\\0",
+    "preimage": "domain_then_u64_be_client_public_key_byte_length_and_exact_lowercase_ascii_public_key_then_u64_be_request_id_byte_length_and_exact_request_id",
+    "digest": "sha256",
+    "scope": "catalog_local_verified_client_transport_identity_and_validated_request_id_compared_only_with_matching_connection_identity"
+  },
+  "request_digest": {
+    "domain": "radroots.myc.nip46.request.v1\\0",
+    "preimage": "domain_then_u64_be_canonical_typed_request_byte_length_then_exact_canonical_typed_request_bytes",
+    "digest": "sha256",
+    "plaintext_retention": "private_sealed_capability_only"
+  },
+  "retained_replay_key": "copyable_redacted_event_connection_request_and_content_digests_only_no_event_ciphertext_or_plaintext",
+  "classification_precedence": [
+    "same_event_connection_request_identity_and_digest_is_duplicate_event",
+    "same_event_with_other_request_identity_or_digest_is_conflicting_event_reuse",
+    "distinct_event_and_same_connection_request_identity_and_digest_is_exact_request_replay",
+    "distinct_event_and_same_connection_request_identity_with_other_digest_is_conflicting_request_reuse",
+    "distinct_connection_or_request_identity_is_distinct_request"
+  ],
+  "durable_authority": {
+    "owner": "existing_myc_state_repository_dual_request_and_event_dedup",
+    "operation_identity": "first_durable_admission_uses_injected_entropy_and_exact_replay_returns_original_operation_and_correlation",
+    "new_replay_store": "forbidden"
+  },
+  "nonclaims": [
+    "ciphertext_decryption",
+    "plaintext_event_cryptographic_binding",
+    "supported_method_admission",
+    "authorization",
+    "provider_execution",
+    "database_mutation",
+    "relay_publication"
+  ]
+}

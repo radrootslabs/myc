@@ -4,6 +4,7 @@
 mod cli_v1;
 mod config_v1;
 mod nip46_admission;
+mod nip46_replay;
 mod nip46_verification;
 mod provider_contract;
 mod provider_credential;
@@ -37,6 +38,10 @@ pub use nip46_admission::{
     MycBoundedNip46Event, MycBoundedNip46Request, MycNip46AdmissionError,
     MycNip46AdmissionErrorKind, MycNip46AdmissionLimits, admit_myc_nip46_event,
     admit_myc_nip46_request,
+};
+pub use nip46_replay::{
+    MycNip46ConnectionIdentity, MycNip46LogicalRequestIdentity, MycNip46ReplayDisposition,
+    MycNip46ReplayKey, MycReplayBoundNip46Request, bind_myc_nip46_replay,
 };
 pub use nip46_verification::{
     MycNip46AuthoredTimePolicy, MycNip46EncryptionContext, MycNip46ObservedAtUnixSeconds,

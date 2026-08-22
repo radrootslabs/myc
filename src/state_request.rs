@@ -997,7 +997,7 @@ fn bounded_count(
     u64::try_from(value).map_err(|_| RequestOperationError::Binding)
 }
 
-fn derive_request_identity(
+pub(crate) fn derive_request_identity(
     client_public_key: &MycNip46ClientPublicKey,
     request_id: &MycNip46RequestId,
 ) -> [u8; 32] {

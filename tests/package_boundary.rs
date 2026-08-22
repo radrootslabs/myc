@@ -6,12 +6,16 @@ const ROOT: &str = include_str!("../src/lib.rs");
 const README: &str = include_str!("../README");
 const PUBLIC_API: &str = include_str!("../contracts/api_baselines/myc.txt");
 const NIP46_VERIFICATION: &str = include_str!("../src/nip46_verification.rs");
+const NIP46_REPLAY: &str = include_str!("../src/nip46_replay.rs");
 const NIP46_VERIFICATION_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_verification.v1.json");
+const NIP46_REPLAY_CONTRACT: &str =
+    include_str!("../contracts/services_hardening/nip46_replay.v1.json");
 const SOURCES: &[&str] = &[
     include_str!("../src/cli_v1.rs"),
     include_str!("../src/config_v1.rs"),
     include_str!("../src/nip46_admission.rs"),
+    include_str!("../src/nip46_replay.rs"),
     include_str!("../src/nip46_verification.rs"),
     include_str!("../src/provider_contract.rs"),
     include_str!("../src/provider_credential.rs"),
@@ -43,6 +47,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "cli_v1",
             "config_v1",
             "nip46_admission",
+            "nip46_replay",
             "nip46_verification",
             "provider_contract",
             "provider_credential",
@@ -91,11 +96,17 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub struct myc::MycVerifiedNip46Event",
         "pub struct myc::MycVerifiedNip46Request",
         "pub struct myc::MycNip46AuthoredTimePolicy",
+        "pub struct myc::MycNip46ConnectionIdentity",
+        "pub struct myc::MycNip46LogicalRequestIdentity",
+        "pub struct myc::MycNip46ReplayKey",
+        "pub struct myc::MycReplayBoundNip46Request",
+        "pub enum myc::MycNip46ReplayDisposition",
         "pub enum myc::MycNip46VerificationErrorKind",
         "pub struct myc::MycStateHost",
         "pub struct myc::MycStateRepository",
         "pub fn myc::admit_myc_nip46_event",
         "pub fn myc::admit_myc_nip46_request",
+        "pub fn myc::bind_myc_nip46_replay",
         "pub fn myc::verify_myc_nip46_event",
         "pub fn myc::verify_myc_nip46_request",
         "pub async fn myc::open_myc_runtime_foundation",
@@ -110,6 +121,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "cli_v1",
         "config_v1",
         "nip46_admission",
+        "nip46_replay",
         "nip46_verification",
         "provider_contract",
         "provider_credential",
@@ -156,6 +168,38 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         assert!(
             !PUBLIC_API.contains(forbidden),
             "implementation-owned public type `{forbidden}` escaped"
+        );
+    }
+}
+
+#[test]
+fn step143_replay_binding_remains_pure_and_reuses_the_durable_authority() {
+    for forbidden in [
+        "ServiceSqlite",
+        "sqlx::",
+        "tokio::spawn",
+        "std::time::SystemTime",
+        "rand::",
+        "getrandom",
+        "RelayPool",
+        "nip04::decrypt",
+        "nip44::decrypt",
+    ] {
+        assert!(
+            !NIP46_REPLAY.contains(forbidden),
+            "Step 143 gained forbidden authority `{forbidden}`"
+        );
+    }
+    for required in [
+        "existing_myc_state_repository_dual_request_and_event_dedup",
+        "\"new_replay_store\": \"forbidden\"",
+        "\"plaintext_event_cryptographic_binding\"",
+        "\"supported_method_admission\"",
+        "\"database_mutation\"",
+    ] {
+        assert!(
+            NIP46_REPLAY_CONTRACT.contains(required),
+            "Step 143 contract is missing `{required}`"
         );
     }
 }
