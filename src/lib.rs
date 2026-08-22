@@ -35,6 +35,7 @@ mod state_recovery;
 mod state_repository;
 mod state_request;
 mod state_response;
+mod status_v1;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub use admin_v1::{
@@ -215,4 +216,14 @@ pub use state_request::{
 pub use state_response::{
     MycNip46ResponseCommitAdmission, MycNip46ResponseCommitError, MycNip46ResponseCommitErrorKind,
     MycNip46ResponseCommitRecord, MycNip46ResponseCommitRequest, MycNip46ResponseRecord,
+};
+pub use status_v1::{
+    MYC_DETAILED_STATUS_MAX_UTF8_BYTES, MYC_STATUS_CACHE_CONTRACT_VERSION,
+    MYC_STATUS_REASON_CODE_COUNT, MycConnectionCountsV1, MycIdentityHealthV1, MycIntegrityStateV1,
+    MycOutboxStatusV1, MycPersistenceHealthV1, MycPersistenceStatusV1, MycProviderHealthV1,
+    MycProviderStatusV1, MycRelayTransportStatusV1, MycServicePhase, MycStatusBuildInfoV1,
+    MycStatusBuildMode, MycStatusCommonV1, MycStatusConfigurationIdentityV1,
+    MycStatusConfigurationSource, MycStatusError, MycStatusErrorKind, MycStatusObservationV1,
+    MycStatusPublisher, MycStatusReader, MycStatusReasonCode, MycStatusReasonCodes,
+    MycStatusSnapshot, MycStatusUnixSeconds, MycTransportHealthV1, myc_status_cache,
 };

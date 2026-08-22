@@ -15,6 +15,8 @@ const NIP46_COMPLETION: &str = include_str!("../src/state_completion.rs");
 const NIP46_RESPONSE: &str = include_str!("../src/state_response.rs");
 const DELIVERY_RECOVERY: &str = include_str!("../src/state_recovery.rs");
 const DOCTOR_V1: &str = include_str!("../src/doctor_v1.rs");
+const STATUS_V1: &str = include_str!("../src/status_v1.rs");
+const STATUS_CONTRACT: &str = include_str!("../contracts/services_hardening/status_cache.v1.json");
 const DISCOVERY_STATE: &str = include_str!("../src/state_discovery.rs");
 const NIP46_VERIFICATION_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_verification.v1.json");
@@ -49,6 +51,7 @@ const SOURCES: &[&str] = &[
     include_str!("../src/provider_verification.rs"),
     include_str!("../src/runtime_context.rs"),
     include_str!("../src/runtime_foundation.rs"),
+    include_str!("../src/status_v1.rs"),
     include_str!("../src/state_catalog.rs"),
     include_str!("../src/state_completion.rs"),
     include_str!("../src/state_connection.rs"),
@@ -90,6 +93,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "provider_verification",
             "runtime_context",
             "runtime_foundation",
+            "status_v1",
             "state_catalog",
             "state_completion",
             "state_connection",
@@ -114,6 +118,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
         "public errors use Myc-owned stable classifications",
         "```compile_fail",
         "[Myc API baseline](contracts/api_baselines/myc.txt)",
+        "Status publication and cached snapshots can be obtained only",
     ] {
         assert!(README.contains(required), "README is missing `{required}`");
     }
@@ -137,6 +142,12 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub enum myc::MycDoctorRemediationCode",
         "pub trait myc::MycDoctorProbe",
         "pub async fn myc::run_myc_doctor",
+        "pub struct myc::MycStatusPublisher",
+        "pub struct myc::MycStatusReader",
+        "pub struct myc::MycStatusSnapshot",
+        "pub struct myc::MycStatusCommonV1",
+        "pub struct myc::MycStatusObservationV1",
+        "pub fn myc::myc_status_cache",
         "pub struct myc::MycAdminRequestDocument",
         "pub struct myc::MycAdminResponseDocument",
         "pub enum myc::MycAdminMethod",
@@ -224,6 +235,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "provider_verification",
         "runtime_context",
         "runtime_foundation",
+        "status_v1",
         "state_catalog",
         "state_completion",
         "state_connection",
@@ -266,6 +278,62 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         assert!(
             !PUBLIC_API.contains(forbidden),
             "implementation-owned public type `{forbidden}` escaped"
+        );
+    }
+}
+
+#[test]
+fn status_cache_is_passive_latest_value_and_dependency_neutral() {
+    for required in [
+        "CachedServiceStatePublisher<MycCachedStatus>",
+        "pub struct MycStatusPublisher",
+        "pub struct MycStatusReader",
+        "pub struct MycStatusSnapshot",
+        "pub fn myc_status_cache(",
+        "status.to_bounded_json()",
+        "self.inner.publish(next)",
+        "self.inner.snapshot()",
+        "connection_counts: MycConnectionCountsV1",
+        "oldest_pending_at_utc: Option<MycStatusUnixSeconds>",
+        "MYC_STATUS_REASON_CODE_COUNT: usize = 12",
+    ] {
+        assert!(STATUS_V1.contains(required), "missing `{required}`");
+    }
+    for forbidden in [
+        "sqlx::",
+        "std::fs::",
+        "tokio::spawn",
+        "spawn_blocking",
+        "std::time::SystemTime",
+        "std::env::",
+        "reqwest::",
+        "url::Url",
+        "provider.execute",
+        "relay.connect",
+        "dns",
+    ] {
+        assert!(!STATUS_V1.contains(forbidden), "found `{forbidden}`");
+    }
+    assert!(PUBLIC_API.contains("impl core::clone::Clone for myc::MycStatusReader"));
+    assert!(!PUBLIC_API.contains("impl core::clone::Clone for myc::MycStatusPublisher"));
+    assert!(!PUBLIC_API.contains("impl core::clone::Clone for myc::MycStatusSnapshot"));
+    for required in [
+        "identity_unavailable",
+        "database_schema_mismatch",
+        "database_read_only",
+        "database_low_disk",
+        "required_relay_unavailable",
+        "subscriber_not_active",
+        "signer_provider_unavailable",
+        "outbox_invariant_failed",
+        "publication_backlog_exceeded",
+        "admin_listener_failed",
+        "operations_listener_failed",
+        "shutdown_in_progress",
+    ] {
+        assert!(
+            STATUS_CONTRACT.contains(required),
+            "status contract is missing `{required}`"
         );
     }
 }
@@ -642,7 +710,7 @@ fn public_errors_remain_crate_owned_redacted_and_source_free() {
         .lines()
         .filter(|line| line.starts_with("pub struct myc::") && line.ends_with("Error"))
         .count();
-    assert_eq!(public_error_count, 28);
+    assert_eq!(public_error_count, 29);
     assert!(PUBLIC_API.contains("pub struct myc::MycDoctorError"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycRuntimeFoundation {"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycStateHost {"));

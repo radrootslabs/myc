@@ -122,6 +122,14 @@
   arbitrary details, unbounded output, detached probe work, or
   liveness/readiness probe authority. A pass must prove every contracted scope
   facet, and deadline cancellation must stop or synchronously own cleanup.
+- Step 154 freezes one passive latest-value status cache around the shared Lib
+  lifecycle primitive. The non-clone publisher encodes the complete bounded v1
+  local-status envelope before atomic replacement; cloneable readers may only
+  return the retained immutable snapshot. Status reads never query SQLite,
+  providers, relays, credentials, DNS, time, or fresh probes and never spawn a
+  task. Keep connection-count keys and identity roles closed, preserve the last
+  valid snapshot on any failed publication, admit only the fixed twelve status
+  reasons, and keep detailed status on the permissioned Unix-admin boundary.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

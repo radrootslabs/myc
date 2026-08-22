@@ -24,6 +24,16 @@ fn forge(_: MycRuntimeFoundation) {}
 The reviewed all-features surface is frozen in the
 [Myc API baseline](contracts/api_baselines/myc.txt).
 
+Status publication and cached snapshots can be obtained only through the
+validated factory and its sealed handles:
+
+```compile_fail
+use myc::{MycStatusPublisher, MycStatusSnapshot};
+
+let _publisher = MycStatusPublisher {};
+let _snapshot = MycStatusSnapshot {};
+```
+
 The native package and dependency-trust metadata is frozen by
 `contracts/services_hardening/native_release.v1.json`. Linux x86_64 and
 aarch64 are declared release targets, not qualified artifacts. The canonical
@@ -70,6 +80,19 @@ fixed summaries and remediation codes. Raw errors, paths, relay URLs,
 credentials, public keys, and arbitrary detail strings cannot enter the report.
 A pass requires every machine-listed scope facet. Probe futures own their work,
 must stop safely when dropped at deadline, and may not detach later mutation.
+
+The service status boundary uses the shared service-host lifecycle contract
+behind one Myc-owned non-clone publisher and cloneable passive readers. Each
+publication validates the lifecycle transition and encodes the complete
+bounded `service_status_v1` payload before atomically replacing the single
+retained immutable snapshot. Repeated reads return that exact cached value and
+perform no SQLite, provider, relay, credential, DNS, clock, filesystem, or
+fresh-probe work. Connection counts use the closed pending/active/denied/
+expired vocabulary, identity health uses the fixed transport/user/discovery
+roles, failed publication preserves the last valid snapshot, and detailed
+status remains local to the permissioned Unix-admin surface. Status reason
+codes use a closed twelve-value vocabulary; arbitrary strings cannot enter the
+cached response.
 
 `parse_myc_config_v1` caps original bytes before decoding, checks the schema
 header before closed contract admission, rejects duplicate, null, unknown, and

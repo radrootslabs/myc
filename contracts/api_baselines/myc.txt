@@ -378,6 +378,10 @@ pub myc::MycIdentityCommandV1::Init
 pub myc::MycIdentityCommandV1::Rekey
 pub myc::MycIdentityCommandV1::Replace
 pub myc::MycIdentityCommandV1::Status
+pub enum myc::MycIntegrityStateV1
+pub myc::MycIntegrityStateV1::Failed
+pub myc::MycIntegrityStateV1::VerificationRequired
+pub myc::MycIntegrityStateV1::Verified
 pub enum myc::MycLocalSignerTransportErrorKind
 pub myc::MycLocalSignerTransportErrorKind::Deadline
 pub myc::MycLocalSignerTransportErrorKind::InvalidBinding
@@ -481,6 +485,11 @@ pub enum myc::MycNip46WorkKind
 pub myc::MycNip46WorkKind::Connect
 pub myc::MycNip46WorkKind::Local
 pub myc::MycNip46WorkKind::Provider
+pub enum myc::MycPersistenceHealthV1
+pub myc::MycPersistenceHealthV1::ReadOnly
+pub myc::MycPersistenceHealthV1::Ready
+pub myc::MycPersistenceHealthV1::RepairRequired
+pub myc::MycPersistenceHealthV1::Unavailable
 pub enum myc::MycProviderCapability
 pub myc::MycProviderCapability::Describe
 pub myc::MycProviderCapability::Nip04Decrypt
@@ -501,6 +510,10 @@ pub myc::MycProviderContractErrorKind::InvalidInput
 pub myc::MycProviderContractErrorKind::InvalidLimits
 pub myc::MycProviderContractErrorKind::InvalidOutput
 pub myc::MycProviderContractErrorKind::UnsupportedOperation
+pub enum myc::MycProviderHealthV1
+pub myc::MycProviderHealthV1::Degraded
+pub myc::MycProviderHealthV1::Ready
+pub myc::MycProviderHealthV1::Unavailable
 pub enum myc::MycProviderInstanceId
 pub myc::MycProviderInstanceId::Discovery
 pub myc::MycProviderInstanceId::Transport
@@ -580,6 +593,13 @@ pub myc::MycRuntimeReadinessReason::SignerProviderUnavailable
 pub myc::MycRuntimeReadinessReason::SubscriberNotActive
 impl myc::MycRuntimeReadinessReason
 pub const fn myc::MycRuntimeReadinessReason::as_str(self) -> &'static str
+pub enum myc::MycServicePhase
+pub myc::MycServicePhase::Degraded
+pub myc::MycServicePhase::Failed
+pub myc::MycServicePhase::Ready
+pub myc::MycServicePhase::Starting
+pub myc::MycServicePhase::Stopping
+pub myc::MycServicePhase::Unready
 pub enum myc::MycSignerRequestAdmission
 pub myc::MycSignerRequestAdmission::Admitted(myc::MycSignerRequestRecord)
 pub myc::MycSignerRequestAdmission::ConflictingReuse(myc::MycSignerRequestRecord)
@@ -663,6 +683,50 @@ pub myc::MycStateRepositoryErrorKind::CommitOutcomeUnknown
 pub myc::MycStateRepositoryErrorKind::Transaction
 impl myc::MycStateRepositoryErrorKind
 pub const fn myc::MycStateRepositoryErrorKind::code(self) -> &'static str
+pub enum myc::MycStatusBuildMode
+pub myc::MycStatusBuildMode::Development
+pub myc::MycStatusBuildMode::Release
+pub enum myc::MycStatusConfigurationSource
+pub myc::MycStatusConfigurationSource::DerivedRepoLocal
+pub myc::MycStatusConfigurationSource::ExplicitConfig
+pub enum myc::MycStatusErrorKind
+pub myc::MycStatusErrorKind::Encoding
+pub myc::MycStatusErrorKind::InvalidBuildInfo
+pub myc::MycStatusErrorKind::InvalidConfiguration
+pub myc::MycStatusErrorKind::InvalidIdentityHealth
+pub myc::MycStatusErrorKind::InvalidLifecycle
+pub myc::MycStatusErrorKind::InvalidModel
+pub myc::MycStatusErrorKind::InvalidPersistence
+pub myc::MycStatusErrorKind::InvalidProviderState
+pub myc::MycStatusErrorKind::InvalidReasonCode
+pub myc::MycStatusErrorKind::InvalidTime
+pub myc::MycStatusErrorKind::InvalidTransition
+pub myc::MycStatusErrorKind::InvalidTransportState
+pub myc::MycStatusErrorKind::PublisherDropped
+pub myc::MycStatusErrorKind::ResponseTooLarge
+pub myc::MycStatusErrorKind::TooManyReasonCodes
+impl myc::MycStatusErrorKind
+pub const fn myc::MycStatusErrorKind::code(self) -> &'static str
+pub enum myc::MycStatusReasonCode
+pub myc::MycStatusReasonCode::AdminListenerFailed
+pub myc::MycStatusReasonCode::DatabaseLowDisk
+pub myc::MycStatusReasonCode::DatabaseReadOnly
+pub myc::MycStatusReasonCode::DatabaseSchemaMismatch
+pub myc::MycStatusReasonCode::IdentityUnavailable
+pub myc::MycStatusReasonCode::OperationsListenerFailed
+pub myc::MycStatusReasonCode::OutboxInvariantFailed
+pub myc::MycStatusReasonCode::PublicationBacklogExceeded
+pub myc::MycStatusReasonCode::RequiredRelayUnavailable
+pub myc::MycStatusReasonCode::ShutdownInProgress
+pub myc::MycStatusReasonCode::SignerProviderUnavailable
+pub myc::MycStatusReasonCode::SubscriberNotActive
+impl myc::MycStatusReasonCode
+pub const fn myc::MycStatusReasonCode::as_str(self) -> &'static str
+pub fn myc::MycStatusReasonCode::new(impl core::convert::AsRef<str>) -> core::result::Result<Self, myc::MycStatusError>
+pub enum myc::MycTransportHealthV1
+pub myc::MycTransportHealthV1::Degraded
+pub myc::MycTransportHealthV1::Ready
+pub myc::MycTransportHealthV1::Unavailable
 pub struct myc::MycAdminDocumentError
 impl myc::MycAdminDocumentError
 pub const fn myc::MycAdminDocumentError::kind(self) -> myc::MycAdminDocumentErrorKind
@@ -825,6 +889,13 @@ impl myc::MycConnectionAdmissionRequest
 pub fn myc::MycConnectionAdmissionRequest::new(myc::MycSignerOperationId, myc::MycNip46ClientPublicKey, myc::MycConnectionPermissionSet, myc::MycConnectionPolicyGeneration, myc::MycConnectionNonce, myc::MycConnectionTimeUnixMs, core::option::Option<myc::MycConnectionTimeUnixMs>, myc::MycConnectionAdmissionPolicy, myc::MycRateRelayId) -> core::result::Result<Self, myc::MycConnectionStateError>
 impl core::fmt::Debug for myc::MycConnectionAdmissionRequest
 pub fn myc::MycConnectionAdmissionRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycConnectionCountsV1
+impl myc::MycConnectionCountsV1
+pub const fn myc::MycConnectionCountsV1::active(self) -> u64
+pub const fn myc::MycConnectionCountsV1::denied(self) -> u64
+pub const fn myc::MycConnectionCountsV1::expired(self) -> u64
+pub const fn myc::MycConnectionCountsV1::new(u64, u64, u64, u64) -> Self
+pub const fn myc::MycConnectionCountsV1::pending(self) -> u64
 pub struct myc::MycConnectionDecisionRecord
 impl myc::MycConnectionDecisionRecord
 pub const fn myc::MycConnectionDecisionRecord::connection(&self) -> core::option::Option<&myc::MycConnectionRecord>
@@ -1130,6 +1201,12 @@ impl core::fmt::Debug for myc::MycGovernanceStateError
 pub fn myc::MycGovernanceStateError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for myc::MycGovernanceStateError
 pub fn myc::MycGovernanceStateError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycIdentityHealthV1
+impl myc::MycIdentityHealthV1
+pub const fn myc::MycIdentityHealthV1::is_available(&self) -> bool
+pub const fn myc::MycIdentityHealthV1::is_configured(&self) -> bool
+pub fn myc::MycIdentityHealthV1::new(bool, bool, myc::MycStatusReasonCodes) -> core::result::Result<Self, myc::MycStatusError>
+pub const fn myc::MycIdentityHealthV1::reason_codes(&self) -> &myc::MycStatusReasonCodes
 pub struct myc::MycLocalSignerClient
 impl myc::MycLocalSignerClient
 pub async fn myc::MycLocalSignerClient::execute(&self, &myc::MycProviderOperation) -> core::result::Result<myc::MycLocalSignerUntrustedResponse, myc::MycLocalSignerTransportError>
@@ -1331,6 +1408,17 @@ impl myc::MycNormalizedConfigDigest
 pub const fn myc::MycNormalizedConfigDigest::as_bytes(&self) -> &[u8; 32]
 impl core::fmt::Debug for myc::MycNormalizedConfigDigest
 pub fn myc::MycNormalizedConfigDigest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycOutboxStatusV1
+impl myc::MycOutboxStatusV1
+pub const fn myc::MycOutboxStatusV1::new(u64, u64, core::option::Option<myc::MycStatusUnixSeconds>) -> Self
+pub const fn myc::MycOutboxStatusV1::oldest_pending_at_utc(self) -> core::option::Option<myc::MycStatusUnixSeconds>
+pub const fn myc::MycOutboxStatusV1::pending(self) -> u64
+pub const fn myc::MycOutboxStatusV1::unknown(self) -> u64
+pub struct myc::MycPersistenceStatusV1
+impl myc::MycPersistenceStatusV1
+pub fn myc::MycPersistenceStatusV1::new(myc::MycPersistenceHealthV1, u32, u64, myc::MycIntegrityStateV1, myc::MycStatusReasonCodes) -> core::result::Result<Self, myc::MycStatusError>
+impl core::fmt::Debug for myc::MycPersistenceStatusV1
+pub fn myc::MycPersistenceStatusV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycPreparedNip46Request
 impl myc::MycPreparedNip46Request
 pub const fn myc::MycPreparedNip46Request::method(&self) -> myc::MycSignerRequestMethod
@@ -1432,6 +1520,14 @@ pub struct myc::MycProviderResponseObservedAtUnixMs(_)
 impl myc::MycProviderResponseObservedAtUnixMs
 pub const fn myc::MycProviderResponseObservedAtUnixMs::get(self) -> u64
 pub fn myc::MycProviderResponseObservedAtUnixMs::new(u64) -> core::result::Result<Self, myc::MycProviderVerificationError>
+pub struct myc::MycProviderStatusV1
+impl myc::MycProviderStatusV1
+pub const fn myc::MycProviderStatusV1::discovery(&self) -> &myc::MycIdentityHealthV1
+pub const fn myc::MycProviderStatusV1::health(&self) -> myc::MycProviderHealthV1
+pub fn myc::MycProviderStatusV1::new(myc::MycIdentityHealthV1, myc::MycIdentityHealthV1, myc::MycIdentityHealthV1, myc::MycStatusReasonCodes) -> core::result::Result<Self, myc::MycStatusError>
+pub const fn myc::MycProviderStatusV1::reason_codes(&self) -> &myc::MycStatusReasonCodes
+pub const fn myc::MycProviderStatusV1::transport(&self) -> &myc::MycIdentityHealthV1
+pub const fn myc::MycProviderStatusV1::user(&self) -> &myc::MycIdentityHealthV1
 pub struct myc::MycProviderVerificationError
 impl myc::MycProviderVerificationError
 pub const fn myc::MycProviderVerificationError::code(self) -> &'static str
@@ -1452,6 +1548,13 @@ impl myc::MycRateRelayId
 pub fn myc::MycRateRelayId::new(&str) -> core::result::Result<Self, myc::MycGovernanceStateError>
 impl core::fmt::Debug for myc::MycRateRelayId
 pub fn myc::MycRateRelayId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycRelayTransportStatusV1
+impl myc::MycRelayTransportStatusV1
+pub const fn myc::MycRelayTransportStatusV1::connected_relay_count(&self) -> u64
+pub const fn myc::MycRelayTransportStatusV1::health(&self) -> myc::MycTransportHealthV1
+pub fn myc::MycRelayTransportStatusV1::new(myc::MycTransportHealthV1, bool, u64, myc::MycStatusReasonCodes) -> core::result::Result<Self, myc::MycStatusError>
+pub const fn myc::MycRelayTransportStatusV1::reason_codes(&self) -> &myc::MycStatusReasonCodes
+pub const fn myc::MycRelayTransportStatusV1::required_relays_ready(&self) -> bool
 pub struct myc::MycReplayBoundNip46Request
 impl myc::MycReplayBoundNip46Request
 pub fn myc::MycReplayBoundNip46Request::classify_against(&self, myc::MycNip46ReplayKey) -> myc::MycNip46ReplayDisposition
@@ -1664,6 +1767,65 @@ impl core::fmt::Debug for myc::MycStateRepositoryError
 pub fn myc::MycStateRepositoryError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for myc::MycStateRepositoryError
 pub fn myc::MycStateRepositoryError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStatusBuildInfoV1
+impl myc::MycStatusBuildInfoV1
+pub fn myc::MycStatusBuildInfoV1::new(myc::MycStatusBuildMode, core::option::Option<&str>, core::option::Option<&str>, core::option::Option<&str>, core::option::Option<&str>, core::option::Option<&str>, core::option::Option<&str>) -> core::result::Result<Self, myc::MycStatusError>
+impl core::fmt::Debug for myc::MycStatusBuildInfoV1
+pub fn myc::MycStatusBuildInfoV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStatusCommonV1
+impl myc::MycStatusCommonV1
+pub fn myc::MycStatusCommonV1::new(myc::MycServicePhase, bool, myc::MycStatusReasonCodes, u64, myc::MycStatusBuildInfoV1, myc::MycStatusConfigurationIdentityV1, myc::MycPersistenceStatusV1) -> core::result::Result<Self, myc::MycStatusError>
+impl core::fmt::Debug for myc::MycStatusCommonV1
+pub fn myc::MycStatusCommonV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStatusConfigurationIdentityV1
+impl myc::MycStatusConfigurationIdentityV1
+pub fn myc::MycStatusConfigurationIdentityV1::new(impl core::convert::AsRef<str>, myc::MycStatusConfigurationSource) -> core::result::Result<Self, myc::MycStatusError>
+impl core::fmt::Debug for myc::MycStatusConfigurationIdentityV1
+pub fn myc::MycStatusConfigurationIdentityV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStatusError
+impl myc::MycStatusError
+pub const fn myc::MycStatusError::code(self) -> &'static str
+pub const fn myc::MycStatusError::kind(self) -> myc::MycStatusErrorKind
+impl core::error::Error for myc::MycStatusError
+impl core::fmt::Debug for myc::MycStatusError
+pub fn myc::MycStatusError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycStatusError
+pub fn myc::MycStatusError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStatusObservationV1
+impl myc::MycStatusObservationV1
+pub fn myc::MycStatusObservationV1::new(myc::MycStatusCommonV1, myc::MycProviderStatusV1, myc::MycRelayTransportStatusV1, myc::MycConnectionCountsV1, myc::MycOutboxStatusV1) -> Self
+impl core::fmt::Debug for myc::MycStatusObservationV1
+pub fn myc::MycStatusObservationV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStatusPublisher
+impl myc::MycStatusPublisher
+pub fn myc::MycStatusPublisher::publish(&mut self, myc::MycStatusObservationV1) -> core::result::Result<(), myc::MycStatusError>
+pub fn myc::MycStatusPublisher::subscribe(&self) -> myc::MycStatusReader
+impl core::fmt::Debug for myc::MycStatusPublisher
+pub fn myc::MycStatusPublisher::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStatusReader
+impl myc::MycStatusReader
+pub async fn myc::MycStatusReader::changed(&mut self) -> core::result::Result<myc::MycStatusSnapshot, myc::MycStatusError>
+pub fn myc::MycStatusReader::snapshot(&self) -> myc::MycStatusSnapshot
+impl core::clone::Clone for myc::MycStatusReader
+pub fn myc::MycStatusReader::clone(&self) -> Self
+impl core::fmt::Debug for myc::MycStatusReader
+pub fn myc::MycStatusReader::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStatusReasonCodes(_)
+impl myc::MycStatusReasonCodes
+pub fn myc::MycStatusReasonCodes::as_slice(&self) -> &[myc::MycStatusReasonCode]
+pub const fn myc::MycStatusReasonCodes::empty() -> Self
+pub fn myc::MycStatusReasonCodes::new(impl core::iter::traits::collect::IntoIterator<Item = myc::MycStatusReasonCode>) -> core::result::Result<Self, myc::MycStatusError>
+pub struct myc::MycStatusSnapshot
+impl myc::MycStatusSnapshot
+pub fn myc::MycStatusSnapshot::detailed_status_json(&self) -> &[u8]
+pub fn myc::MycStatusSnapshot::is_ready(&self) -> bool
+pub fn myc::MycStatusSnapshot::phase(&self) -> myc::MycServicePhase
+impl core::fmt::Debug for myc::MycStatusSnapshot
+pub fn myc::MycStatusSnapshot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStatusUnixSeconds(_)
+impl myc::MycStatusUnixSeconds
+pub const fn myc::MycStatusUnixSeconds::get(self) -> u64
+pub fn myc::MycStatusUnixSeconds::new(u64) -> core::result::Result<Self, myc::MycStatusError>
 pub struct myc::MycUntrustedProviderOutput(_)
 impl myc::MycUntrustedProviderOutput
 pub fn myc::MycUntrustedProviderOutput::as_bytes(&self) -> &[u8]
@@ -1726,6 +1888,7 @@ pub const myc::MYC_DELIVERY_RECOVERY_BATCH_MAX_COUNT: usize
 pub const myc::MYC_DELIVERY_RELAY_ID_MAX_BYTES: usize
 pub const myc::MYC_DELIVERY_RETRY_JITTER_MAX_MS: u64
 pub const myc::MYC_DELIVERY_TARGET_MAX_COUNT: usize
+pub const myc::MYC_DETAILED_STATUS_MAX_UTF8_BYTES: usize
 pub const myc::MYC_DISCOVERY_DOCUMENT_MAX_BYTES: usize
 pub const myc::MYC_DOCTOR_CHECK_COUNT: usize
 pub const myc::MYC_DOCTOR_CONTRACT_VERSION: u32
@@ -1789,6 +1952,8 @@ pub const myc::MYC_STATE_SCHEMA_VERSION_8_SHA256: [u8; 32]
 pub const myc::MYC_STATE_SCHEMA_VERSION_9_MIGRATION_SHA256: [u8; 32]
 pub const myc::MYC_STATE_SCHEMA_VERSION_9_OBJECT_COUNT: u32
 pub const myc::MYC_STATE_SCHEMA_VERSION_9_SHA256: [u8; 32]
+pub const myc::MYC_STATUS_CACHE_CONTRACT_VERSION: u32
+pub const myc::MYC_STATUS_REASON_CODE_COUNT: usize
 pub const myc::MYC_WRAPPING_CREDENTIAL_ARTIFACT_BYTES: usize
 pub const myc::MYC_WRAPPING_CREDENTIAL_CONTRACT_VERSION: u32
 pub trait myc::MycAdminHandler: core::marker::Send + core::marker::Sync + 'static
@@ -1804,6 +1969,7 @@ pub async fn myc::initialize_myc_state(&myc::MycRuntimeContext, &myc::MycStateMe
 pub const fn myc::myc_doctor_check_definitions() -> &'static [myc::MycDoctorCheckDefinition; 13]
 pub fn myc::myc_migration_catalog() -> core::result::Result<radroots_service_sqlite::migration::MigrationCatalog, myc::MycStateCatalogError>
 pub fn myc::myc_schema_catalog() -> core::result::Result<radroots_service_sqlite::integrity::catalog::SchemaCatalog, myc::MycStateCatalogError>
+pub fn myc::myc_status_cache(radroots_runtime_paths::identifier::InstanceId, myc::MycStatusObservationV1) -> core::result::Result<(myc::MycStatusPublisher, myc::MycStatusReader), myc::MycStatusError>
 pub fn myc::open_myc_encrypted_identity(&myc::MycProviderBinding, &myc::MycWrappingCredential) -> core::result::Result<myc::MycDecryptedIdentity, myc::MycEncryptedIdentityEnvelopeError>
 pub async fn myc::open_myc_runtime_foundation(myc::MycRuntimeContext, myc::MycConfigDocumentV1, myc::MycStateMetadata, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<myc::MycRuntimeFoundation, myc::MycRuntimeFoundationError>
 pub async fn myc::open_myc_state_inspection(&myc::MycRuntimeContext, &myc::MycStateMetadata) -> core::result::Result<myc::MycStateHost, myc::MycStateHostError>

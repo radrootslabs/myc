@@ -1,0 +1,46 @@
+{
+  "schema": "radroots.myc.status-cache.v1",
+  "contract_version": 1,
+  "step": 154,
+  "shared_cache": "radroots_service_host::cached_service_state",
+  "publication": {
+    "authority": "single_non_clone_publisher",
+    "capacity": "one_latest_immutable_arc",
+    "replacement": "atomic",
+    "phase_transition": "shared_service_operational_state",
+    "failed_publication": "previous_snapshot_retained"
+  },
+  "read": {
+    "kind": "passive_cached_snapshot",
+    "await_required": false,
+    "sqlite": false,
+    "provider": false,
+    "relay": false,
+    "credential": false,
+    "dns": false,
+    "clock": false,
+    "fresh_probe": false,
+    "task_spawn": false
+  },
+  "detailed_status": {
+    "model": "service_status_v1",
+    "service": "myc",
+    "local_transport": "permissioned_unix_admin_only",
+    "construction": "bounded_encode_before_atomic_publication",
+    "maximum_utf8_bytes": 1048576,
+    "connection_count_keys": ["pending", "active", "denied", "expired"],
+    "identity_roles": ["transport", "user", "discovery"],
+    "reason_codes": ["identity_unavailable", "database_schema_mismatch", "database_read_only", "database_low_disk", "required_relay_unavailable", "subscriber_not_active", "signer_provider_unavailable", "outbox_invariant_failed", "publication_backlog_exceeded", "admin_listener_failed", "operations_listener_failed", "shutdown_in_progress"],
+    "oldest_pending_time": "optional_nonnegative_i64_range_unix_seconds",
+    "protected_material": false,
+    "filesystem_paths": false,
+    "raw_errors": false
+  },
+  "deferred": [
+    "unix_admin_handler_binding",
+    "tcp_operations_binding",
+    "metrics_rendering",
+    "final_runtime_task_graph",
+    "signal_handling"
+  ]
+}
