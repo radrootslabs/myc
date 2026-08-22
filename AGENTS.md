@@ -95,6 +95,11 @@
   source archive, and the generated service lock. Native target metadata does
   not qualify an artifact; Nix, OCI, signing, tags, publication, and deployment
   remain deferred.
+- Step 148 closes the production NIP-46 response authority in
+  `contracts/services_hardening/nip46_response_commit.v1.json`. Production
+  code may commit a completion only through the atomic exact-response method;
+  a retained completion without its immutable response and initial delivery
+  state is inconsistent evidence and must never be repaired implicitly.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

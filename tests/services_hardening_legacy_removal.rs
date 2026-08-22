@@ -8,6 +8,7 @@ const MAIN_SOURCE: &str = include_str!("../src/main.rs");
 const MANIFEST: &str = include_str!("../Cargo.toml");
 const ACTIVE_STATE_SOURCES: &[&str] = &[
     include_str!("../src/state_catalog.rs"),
+    include_str!("../src/state_completion.rs"),
     include_str!("../src/state_connection.rs"),
     include_str!("../src/state_delivery.rs"),
     include_str!("../src/state_discovery.rs"),
@@ -17,6 +18,7 @@ const ACTIVE_STATE_SOURCES: &[&str] = &[
     include_str!("../src/state_metadata.rs"),
     include_str!("../src/state_repository.rs"),
     include_str!("../src/state_request.rs"),
+    include_str!("../src/state_response.rs"),
 ];
 
 #[test]
@@ -111,7 +113,7 @@ fn prototype_environment_and_cli_sources_are_absent() {
 
 #[test]
 fn active_state_tree_has_one_shared_database_and_no_legacy_backend() {
-    assert_eq!(LIB_SOURCE.matches("mod state_").count(), 10);
+    assert_eq!(LIB_SOURCE.matches("mod state_").count(), 12);
     assert!(!LIB_SOURCE.contains("pub mod state_"));
     let active_state = ACTIVE_STATE_SOURCES.join("\n");
     for forbidden in [

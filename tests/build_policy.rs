@@ -83,6 +83,6 @@ fn source_lock_binds_the_current_cargo_lock() {
         "source_archive_sha256 = \"975474804e6358b9228981add0a23181dbdd1afddf5ae12579c82220876bc379\""
     ));
     assert!(SOURCE_LOCK.ends_with(
-        "[contract_versions]\nconfig = 1\nstate = 7\nadmin = 1\nstatus = 1\nprovider = 1\n"
+        "[contract_versions]\nconfig = 1\nstate = 9\nadmin = 1\nstatus = 1\nprovider = 1\n"
     ));
 }

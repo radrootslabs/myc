@@ -30,6 +30,7 @@ mod state_maintenance;
 mod state_metadata;
 mod state_repository;
 mod state_request;
+mod state_response;
 
 pub use cli_v1::{
     MycBootstrapProfileV1, MycCliInvocationV1, MycCliV1Error, MycCliV1ErrorKind, MycCommandV1,
@@ -120,8 +121,9 @@ pub use state_catalog::{
     MYC_STATE_SCHEMA_VERSION_7_MIGRATION_SHA256, MYC_STATE_SCHEMA_VERSION_7_OBJECT_COUNT,
     MYC_STATE_SCHEMA_VERSION_7_SHA256, MYC_STATE_SCHEMA_VERSION_8_MIGRATION_SHA256,
     MYC_STATE_SCHEMA_VERSION_8_OBJECT_COUNT, MYC_STATE_SCHEMA_VERSION_8_SHA256,
-    MycStateCatalogError, MycStateCatalogErrorKind, myc_migration_catalog, myc_schema_catalog,
-    validate_myc_state_catalogs,
+    MYC_STATE_SCHEMA_VERSION_9_MIGRATION_SHA256, MYC_STATE_SCHEMA_VERSION_9_OBJECT_COUNT,
+    MYC_STATE_SCHEMA_VERSION_9_SHA256, MycStateCatalogError, MycStateCatalogErrorKind,
+    myc_migration_catalog, myc_schema_catalog, validate_myc_state_catalogs,
 };
 pub use state_completion::{
     MycNip46CommitAdmission, MycNip46CommitError, MycNip46CommitErrorKind, MycNip46CommitRecord,
@@ -184,4 +186,8 @@ pub use state_request::{
     MycSignerCorrelationId, MycSignerOperationId, MycSignerOperationNonce, MycSignerRequest,
     MycSignerRequestAdmission, MycSignerRequestDigest, MycSignerRequestError,
     MycSignerRequestErrorKind, MycSignerRequestMethod, MycSignerRequestRecord,
+};
+pub use state_response::{
+    MycNip46ResponseCommitAdmission, MycNip46ResponseCommitError, MycNip46ResponseCommitErrorKind,
+    MycNip46ResponseCommitRecord, MycNip46ResponseCommitRequest, MycNip46ResponseRecord,
 };

@@ -512,6 +512,10 @@ pub struct MycSignerRequestRecord {
 }
 
 impl MycSignerRequestRecord {
+    pub(crate) const fn client_public_key(&self) -> &MycNip46ClientPublicKey {
+        &self.client_public_key
+    }
+
     #[must_use]
     /// Returns the stable logical operation identity.
     pub const fn operation_id(&self) -> MycSignerOperationId {

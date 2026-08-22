@@ -1655,7 +1655,7 @@ async fn read_job_by_source(
     }
 }
 
-async fn read_job(
+pub(crate) async fn read_job(
     transaction: &mut ServiceSqliteTransaction<'_>,
     job_id: MycDeliveryJobId,
 ) -> Result<Option<MycDeliveryJobRecord>, DeliveryOperationError> {

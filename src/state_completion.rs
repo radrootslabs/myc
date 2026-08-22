@@ -3,12 +3,13 @@
 use core::fmt;
 use std::error::Error;
 
-use radroots_service_sqlite::{
-    ServiceSqliteTransaction, ServiceSqliteTransactionError, ServiceSqliteTransactionErrorKind,
-};
+use radroots_service_sqlite::ServiceSqliteTransaction;
+#[cfg(test)]
+use radroots_service_sqlite::{ServiceSqliteTransactionError, ServiceSqliteTransactionErrorKind};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 
+#[cfg(test)]
 use crate::state_repository::{
     MycStateRepository, MycStateRepositoryError, MycStateRepositoryErrorKind, PersistedMetadata,
     RepositoryOperationError, require_expected_metadata,
@@ -409,6 +410,7 @@ impl fmt::Debug for MycNip46CommitAdmission {
     }
 }
 
+#[cfg(test)]
 impl MycStateRepository<'_> {
     /// Atomically records the Step 147 completion component.
     ///
@@ -416,7 +418,7 @@ impl MycStateRepository<'_> {
     /// response commit. Step 148 must compose this component with the outer
     /// signed response, immutable relay targets, and initial outbox state in
     /// the same transaction before RCLD-RSHR-080 may be promoted to `master`.
-    pub async fn commit_nip46_operation(
+    pub(crate) async fn commit_nip46_operation(
         &self,
         request: &MycNip46CommitRequest,
     ) -> Result<MycNip46CommitAdmission, MycStateRepositoryError> {
@@ -437,7 +439,15 @@ impl MycStateRepository<'_> {
 }
 
 impl MycNip46CommitRequest {
-    fn owned(&self) -> Self {
+    pub(crate) const fn signer_request(&self) -> &MycSignerRequestRecord {
+        &self.request
+    }
+
+    pub(crate) const fn completed_at(&self) -> MycConnectionTimeUnixMs {
+        self.completed_at
+    }
+
+    pub(crate) fn owned(&self) -> Self {
         Self {
             request: self.request.clone(),
             connection_id: self.connection_id,
@@ -456,12 +466,12 @@ impl MycNip46CommitRequest {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CommitOperationError {
+pub(crate) enum CommitOperationError {
     Binding,
     Storage,
 }
 
-async fn commit_operation(
+pub(crate) async fn commit_operation(
     transaction: &mut ServiceSqliteTransaction<'_>,
     request: &MycNip46CommitRequest,
 ) -> Result<MycNip46CommitAdmission, CommitOperationError> {
@@ -804,6 +814,7 @@ fn require_one(rows: u64) -> Result<(), CommitOperationError> {
         .ok_or(CommitOperationError::Storage)
 }
 
+#[cfg(test)]
 const fn map_repository_error(error: RepositoryOperationError) -> CommitOperationError {
     match error {
         RepositoryOperationError::Binding => CommitOperationError::Binding,
@@ -811,6 +822,7 @@ const fn map_repository_error(error: RepositoryOperationError) -> CommitOperatio
     }
 }
 
+#[cfg(test)]
 fn map_transaction_error(
     error: ServiceSqliteTransactionError<CommitOperationError>,
 ) -> MycStateRepositoryError {

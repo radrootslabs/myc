@@ -2,7 +2,7 @@
 
 use std::{error::Error as _, fs, os::unix::fs::PermissionsExt};
 
-use nostr::UnsignedEvent as NostrUnsignedEvent;
+use nostr::{JsonUtil as _, Kind, Tag, Timestamp, UnsignedEvent as NostrUnsignedEvent};
 use radroots_nostr_connect::message::Request;
 use sha2::{Digest, Sha256};
 use sqlx::{ConnectOptions as _, Connection as _, Row as _, sqlite::SqliteConnectOptions};
@@ -10,8 +10,10 @@ use sqlx::{ConnectOptions as _, Connection as _, Row as _, sqlite::SqliteConnect
 use crate::{
     MycAuditCorrelationId, MycConnectionAdmissionPolicy, MycConnectionNonce,
     MycConnectionOperatorDecision, MycConnectionPolicyGeneration, MycLocalSignerUntrustedResponse,
-    MycNip46CommitAdmission, MycNip46CommitRequest, MycNip46SessionEffect,
-    MycProviderDeadlineUnixMs, MycProviderResponseObservedAtUnixMs, MycProviderRole,
+    MycNip46CommitAdmission, MycNip46CommitRequest, MycNip46ResponseCommitAdmission,
+    MycNip46ResponseCommitRequest, MycNip46SessionEffect, MycProviderCorrelationId,
+    MycProviderDeadlineUnixMs, MycProviderOperation, MycProviderOperationId,
+    MycProviderOperationInput, MycProviderResponseObservedAtUnixMs, MycProviderRole,
     MycRateRelayId, MycSignerRequestAdmission, MycSignerRequestMethod, MycStateRepositoryErrorKind,
     initialize_myc_state, open_myc_state_read_write, prepare_myc_nip46_work,
     provider_local_signer::{ProtectedWireHex, WireProviderResult},
@@ -90,8 +92,61 @@ async fn active_connection(
     (work, active, decision)
 }
 
+fn atomic_response_request(
+    config: &crate::MycConfigDocumentV1,
+    completion: &MycNip46CommitRequest,
+) -> (MycNip46ResponseCommitRequest, Vec<u8>) {
+    let unsigned = NostrUnsignedEvent::new(
+        keys(3).public_key(),
+        Timestamp::from_secs(OBSERVED_AT_SECONDS + 3),
+        Kind::Custom(24_133),
+        vec![Tag::public_key(keys(10).public_key())],
+        "encrypted-response",
+    );
+    let operation = MycProviderOperation::new(
+        config
+            .provider_contract()
+            .binding(MycProviderRole::User)
+            .expect("user binding"),
+        MycProviderOperationId::from_bytes([0x91; 32]),
+        MycProviderCorrelationId::from_bytes([0x92; 32]),
+        MycProviderDeadlineUnixMs::new(PROVIDER_DEADLINE_MS).expect("provider deadline"),
+        MycProviderOperationInput::sign_event(unsigned.as_json().as_bytes())
+            .expect("response signing input"),
+    )
+    .expect("response operation");
+    let signed = unsigned.sign_with_keys(&keys(3)).expect("signed response");
+    let bytes = serde_json::to_vec(&signed).expect("canonical response");
+    let response: MycLocalSignerUntrustedResponse = untrusted_response(
+        &operation,
+        hex::encode(operation.correlation_id().as_bytes()),
+        WireProviderResult::SignEvent {
+            payload_hex: ProtectedWireHex::from_bytes(&bytes),
+        },
+    );
+    let verified = response
+        .verify(
+            config
+                .provider_contract()
+                .binding(MycProviderRole::User)
+                .expect("user binding"),
+            &operation,
+            MycProviderResponseObservedAtUnixMs::new(RECEIVED_AT_MS + 3_001)
+                .expect("response time"),
+        )
+        .expect("verified response");
+    let request = MycNip46ResponseCommitRequest::new(
+        completion,
+        &operation,
+        &verified,
+        crate::MycDeliveryTimeUnixMs::new(RECEIVED_AT_MS + 3_003).expect("commit time"),
+    )
+    .expect("atomic response request");
+    (request, bytes)
+}
+
 #[tokio::test]
-async fn verified_signed_artifact_commits_exactly_once_without_outbox_state() {
+async fn verified_signed_response_commits_completion_and_outbox_exactly_once() {
     let directory = tempfile::tempdir().expect("temporary root");
     let runtime = runtime(directory.path());
     fs::create_dir_all(runtime.context().paths().state()).expect("state directory");
@@ -163,6 +218,15 @@ async fn verified_signed_artifact_commits_exactly_once_without_outbox_state() {
             .session_effect(),
         MycNip46SessionEffect::ConnectionAdmitted
     );
+    let (partial_response, _) = atomic_response_request(&config, &connect_commit);
+    assert_eq!(
+        repository
+            .commit_nip46_response(&partial_response)
+            .await
+            .expect_err("completion-only legacy state is not repaired")
+            .kind(),
+        MycStateRepositoryErrorKind::Binding
+    );
 
     let prepared = prepared_request(
         &config,
@@ -223,28 +287,75 @@ async fn verified_signed_artifact_commits_exactly_once_without_outbox_state() {
     assert!(!request_debug.contains(&hex::encode(operation.operation_id().as_bytes())));
     assert!(!request_debug.contains(&hex::encode(operation.correlation_id().as_bytes())));
     assert!(!request_debug.contains(String::from_utf8_lossy(&signed_bytes).as_ref()));
-    let committed = repository
-        .commit_nip46_operation(&request)
-        .await
-        .expect("completion commit");
-    assert!(matches!(committed, MycNip46CommitAdmission::Committed(_)));
+    let (atomic_request, response_bytes) = atomic_response_request(&config, &request);
     assert_eq!(
-        committed.record().method(),
+        repository
+            .commit_nip46_response(&atomic_request.fail_after_completion_for_test())
+            .await
+            .expect_err("completion-edge failure rolls back")
+            .kind(),
+        MycStateRepositoryErrorKind::Transaction
+    );
+    assert_eq!(
+        repository
+            .commit_nip46_response(&atomic_request.fail_after_response_for_test())
+            .await
+            .expect_err("response-edge failure rolls back")
+            .kind(),
+        MycStateRepositoryErrorKind::Transaction
+    );
+    let committed = repository
+        .commit_nip46_response(&atomic_request)
+        .await
+        .expect("atomic response commit");
+    assert!(matches!(
+        committed,
+        MycNip46ResponseCommitAdmission::Committed(_)
+    ));
+    assert_eq!(
+        committed.record().completion().method(),
         MycSignerRequestMethod::SignEvent
     );
     assert_eq!(
-        committed.record().artifact_sha256(),
+        committed.record().completion().artifact_sha256(),
         Some(&<[u8; 32]>::from(Sha256::digest(&signed_bytes)))
     );
+    assert_eq!(
+        committed.record().response().signed_response_bytes(),
+        response_bytes
+    );
+    assert!(
+        committed
+            .record()
+            .response()
+            .delivery_job()
+            .targets()
+            .iter()
+            .all(|target| target.attempt_count() == 0
+                && target.status() == crate::MycDeliveryTargetStatus::Pending)
+    );
     let record_debug = format!("{:?}", committed.record());
-    assert!(!record_debug.contains(&hex::encode(committed.record().operation_id().as_bytes())));
-    assert!(!record_debug.contains(&hex::encode(committed.record().correlation_id().as_bytes())));
+    assert!(!record_debug.contains(&hex::encode(
+        committed.record().completion().operation_id().as_bytes()
+    )));
+    assert!(!record_debug.contains(&hex::encode(
+        committed.record().completion().correlation_id().as_bytes()
+    )));
     assert!(!record_debug.contains(&hex::encode(Sha256::digest(&signed_bytes))));
     let replay = repository
-        .commit_nip46_operation(&request)
+        .commit_nip46_response(&atomic_request)
         .await
-        .expect("exact completion replay");
-    assert!(matches!(replay, MycNip46CommitAdmission::ExactReplay(_)));
+        .expect("exact atomic replay");
+    assert!(matches!(
+        replay,
+        MycNip46ResponseCommitAdmission::ExactReplay(_)
+    ));
+    let retry = repository
+        .read_nip46_response(committed.record().response().delivery_job().id())
+        .await
+        .expect("response retry read")
+        .expect("retained response");
+    assert_eq!(retry.signed_response_bytes(), response_bytes);
     host.close().await.expect("host close");
 
     let options = SqliteConnectOptions::new()
@@ -271,7 +382,14 @@ async fn verified_signed_artifact_commits_exactly_once_without_outbox_state() {
             .fetch_one(&mut connection)
             .await
             .expect("delivery job count"),
-        0
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM nip46_signed_responses")
+            .fetch_one(&mut connection)
+            .await
+            .expect("response count"),
+        1
     );
     connection.close().await.expect("inspection close");
 }

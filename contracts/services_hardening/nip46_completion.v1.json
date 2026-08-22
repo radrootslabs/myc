@@ -30,7 +30,8 @@
   },
   "production_composition": {
     "step147_checkpoint": "integration_only_not_promotable",
-    "step147_component": "must_be_composed_before_master_promotion",
+    "step147_component": "composed_by_step148_atomic_response_commit",
+    "composition_status": "satisfied_on_rcld_080_integration_branch",
     "commit_owner": 148,
     "required_same_transaction_members": [
       "step147_completion",

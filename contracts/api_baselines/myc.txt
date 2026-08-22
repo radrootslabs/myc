@@ -320,6 +320,19 @@ pub myc::MycNip46ReplayDisposition::ConflictingRequestReuse
 pub myc::MycNip46ReplayDisposition::DistinctRequest
 pub myc::MycNip46ReplayDisposition::DuplicateEvent
 pub myc::MycNip46ReplayDisposition::ExactRequestReplay
+pub enum myc::MycNip46ResponseCommitAdmission
+pub myc::MycNip46ResponseCommitAdmission::Committed(myc::MycNip46ResponseCommitRecord)
+pub myc::MycNip46ResponseCommitAdmission::ExactReplay(myc::MycNip46ResponseCommitRecord)
+impl myc::MycNip46ResponseCommitAdmission
+pub const fn myc::MycNip46ResponseCommitAdmission::record(&self) -> &myc::MycNip46ResponseCommitRecord
+impl core::fmt::Debug for myc::MycNip46ResponseCommitAdmission
+pub fn myc::MycNip46ResponseCommitAdmission::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum myc::MycNip46ResponseCommitErrorKind
+pub myc::MycNip46ResponseCommitErrorKind::InvalidBinding
+pub myc::MycNip46ResponseCommitErrorKind::InvalidResponse
+pub myc::MycNip46ResponseCommitErrorKind::InvalidTime
+impl myc::MycNip46ResponseCommitErrorKind
+pub const fn myc::MycNip46ResponseCommitErrorKind::code(self) -> &'static str
 pub enum myc::MycNip46SessionEffect
 pub myc::MycNip46SessionEffect::ConnectionAdmitted
 pub myc::MycNip46SessionEffect::ConnectionRevoked
@@ -1036,6 +1049,38 @@ pub fn myc::MycNip46RequestId::as_str(&self) -> &str
 pub fn myc::MycNip46RequestId::new(&str) -> core::result::Result<Self, myc::MycSignerRequestError>
 impl core::fmt::Debug for myc::MycNip46RequestId
 pub fn myc::MycNip46RequestId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46ResponseCommitError
+impl myc::MycNip46ResponseCommitError
+pub const fn myc::MycNip46ResponseCommitError::code(self) -> &'static str
+pub const fn myc::MycNip46ResponseCommitError::kind(self) -> myc::MycNip46ResponseCommitErrorKind
+impl core::error::Error for myc::MycNip46ResponseCommitError
+impl core::fmt::Debug for myc::MycNip46ResponseCommitError
+pub fn myc::MycNip46ResponseCommitError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycNip46ResponseCommitError
+pub fn myc::MycNip46ResponseCommitError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46ResponseCommitRecord
+impl myc::MycNip46ResponseCommitRecord
+pub const fn myc::MycNip46ResponseCommitRecord::completion(&self) -> &myc::MycNip46CommitRecord
+pub const fn myc::MycNip46ResponseCommitRecord::response(&self) -> &myc::MycNip46ResponseRecord
+impl core::fmt::Debug for myc::MycNip46ResponseCommitRecord
+pub fn myc::MycNip46ResponseCommitRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46ResponseCommitRequest
+impl myc::MycNip46ResponseCommitRequest
+pub fn myc::MycNip46ResponseCommitRequest::new(&myc::MycNip46CommitRequest, &myc::MycProviderOperation, &myc::MycVerifiedProviderResponse, myc::MycDeliveryTimeUnixMs) -> core::result::Result<Self, myc::MycNip46ResponseCommitError>
+impl core::fmt::Debug for myc::MycNip46ResponseCommitRequest
+pub fn myc::MycNip46ResponseCommitRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46ResponseRecord
+impl myc::MycNip46ResponseRecord
+pub const fn myc::MycNip46ResponseRecord::authored_at_unix_s(&self) -> u64
+pub const fn myc::MycNip46ResponseRecord::committed_at(&self) -> myc::MycDeliveryTimeUnixMs
+pub const fn myc::MycNip46ResponseRecord::delivery_job(&self) -> &myc::MycDeliveryJobRecord
+pub const fn myc::MycNip46ResponseRecord::operation_id(&self) -> myc::MycSignerOperationId
+pub const fn myc::MycNip46ResponseRecord::response_digest(&self) -> myc::MycDeliveryArtifactDigest
+pub const fn myc::MycNip46ResponseRecord::response_event_id(&self) -> &[u8; 32]
+pub const fn myc::MycNip46ResponseRecord::response_provider_operation_id(&self) -> &[u8; 32]
+pub fn myc::MycNip46ResponseRecord::signed_response_bytes(&self) -> &[u8]
+impl core::fmt::Debug for myc::MycNip46ResponseRecord
+pub fn myc::MycNip46ResponseRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycNip46VerificationError
 impl myc::MycNip46VerificationError
 pub const fn myc::MycNip46VerificationError::kind(self) -> myc::MycNip46VerificationErrorKind
@@ -1381,7 +1426,8 @@ pub async fn myc::MycStateRepository<'_>::promote_delivered_discovery_state(&sel
 pub async fn myc::MycStateRepository<'_>::read_discovery_document_for_job(&self, myc::MycDeliveryJobId) -> core::result::Result<core::option::Option<myc::MycDiscoveryDocumentRecord>, myc::MycStateRepositoryError>
 pub async fn myc::MycStateRepository<'_>::read_discovery_publication_state(&self) -> core::result::Result<core::option::Option<myc::MycDiscoveryPublicationState>, myc::MycStateRepositoryError>
 impl myc::MycStateRepository<'_>
-pub async fn myc::MycStateRepository<'_>::commit_nip46_operation(&self, &myc::MycNip46CommitRequest) -> core::result::Result<myc::MycNip46CommitAdmission, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::commit_nip46_response(&self, &myc::MycNip46ResponseCommitRequest) -> core::result::Result<myc::MycNip46ResponseCommitAdmission, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::read_nip46_response(&self, myc::MycDeliveryJobId) -> core::result::Result<core::option::Option<myc::MycNip46ResponseRecord>, myc::MycStateRepositoryError>
 impl myc::MycStateRepository<'_>
 pub async fn myc::MycStateRepository<'_>::compact_governance_evidence(&self, myc::MycConnectionTimeUnixMs, myc::MycGovernanceCompactionPolicy, myc::MycAuditCorrelationId) -> core::result::Result<myc::MycGovernanceCompactionOutcome, myc::MycStateRepositoryError>
 pub async fn myc::MycStateRepository<'_>::read_audit_page(&self, myc::MycAuditPageLimit, core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<myc::MycAuditPage, myc::MycStateRepositoryError>
@@ -1513,6 +1559,9 @@ pub const myc::MYC_STATE_SCHEMA_VERSION_7_SHA256: [u8; 32]
 pub const myc::MYC_STATE_SCHEMA_VERSION_8_MIGRATION_SHA256: [u8; 32]
 pub const myc::MYC_STATE_SCHEMA_VERSION_8_OBJECT_COUNT: u32
 pub const myc::MYC_STATE_SCHEMA_VERSION_8_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_9_MIGRATION_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_9_OBJECT_COUNT: u32
+pub const myc::MYC_STATE_SCHEMA_VERSION_9_SHA256: [u8; 32]
 pub const myc::MYC_WRAPPING_CREDENTIAL_ARTIFACT_BYTES: usize
 pub const myc::MYC_WRAPPING_CREDENTIAL_CONTRACT_VERSION: u32
 pub fn myc::admit_myc_nip46_event(myc::MycNip46AdmissionLimits, &[u8]) -> core::result::Result<myc::MycBoundedNip46Event, myc::MycNip46AdmissionError>

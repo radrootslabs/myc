@@ -75,10 +75,10 @@ without changing the canonical common artifact inventory.
 
 Create-new initialization reserves the shared schema-v1 metadata and migration
 ledger, retains exclusive writer authority, applies the exact Myc schema-v2
-through schema-v8 migrations, binds the normalized configuration, expected
+through schema-v9 migrations, binds the normalized configuration, expected
 identity roles, and policy versions through a sealed typed repository, and
 explicitly closes the host before reporting success. Existing writable open can
-resume any exact v1 through v7 prefix; read-only inspection requires the current
+resume any exact v1 through v8 prefix; read-only inspection requires the current
 catalog and exact immutable Myc binding.
 
 Schema v8 adds immutable NIP-46 operation-completion evidence. The Step 147
@@ -92,6 +92,15 @@ integration component, not the final production response boundary: Step 148
 must compose it with the outer signed response bytes, immutable relay targets,
 and initial outbox state in one transaction before RCLD-RSHR-080 can be
 promoted to `master`.
+
+Schema v9 closes that production boundary. `commit_nip46_response` admits only
+an independently signature-verified, canonical kind-24133 response bound to the
+original client and exact provider signing operation. One SQLite transaction
+commits the Step 147 completion, exact response bytes and SHA-256 identity,
+immutable configured relay targets, pending delivery job, and zero-attempt
+target state. Exact replay returns only the retained response bytes; partial
+legacy completion state and mismatched replay fail closed. Provider execution
+and relay I/O remain outside the transaction.
 
 The public Myc repository exposes no raw pool, connection, transaction-control
 handle, path, or SQL. Binding and request-admission mutations execute only

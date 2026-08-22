@@ -11,6 +11,7 @@ const NIP46_REPLAY: &str = include_str!("../src/nip46_replay.rs");
 const NIP46_WORK: &str = include_str!("../src/nip46_work.rs");
 const NIP46_WAVE_080_A: &str = include_str!("../src/nip46_wave_080_a.rs");
 const NIP46_COMPLETION: &str = include_str!("../src/state_completion.rs");
+const NIP46_RESPONSE: &str = include_str!("../src/state_response.rs");
 const NIP46_VERIFICATION_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_verification.v1.json");
 const NIP46_REPLAY_CONTRACT: &str =
@@ -23,6 +24,8 @@ const NIP46_WAVE_080_A_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_wave_080_a.v1.json");
 const NIP46_COMPLETION_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_completion.v1.json");
+const NIP46_RESPONSE_CONTRACT: &str =
+    include_str!("../contracts/services_hardening/nip46_response_commit.v1.json");
 const SOURCES: &[&str] = &[
     include_str!("../src/cli_v1.rs"),
     include_str!("../src/config_v1.rs"),
@@ -49,6 +52,7 @@ const SOURCES: &[&str] = &[
     include_str!("../src/state_metadata.rs"),
     include_str!("../src/state_repository.rs"),
     include_str!("../src/state_request.rs"),
+    include_str!("../src/state_response.rs"),
 ];
 
 #[test]
@@ -86,6 +90,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "state_metadata",
             "state_repository",
             "state_request",
+            "state_response",
         ])
     );
     assert!(!ROOT.contains("pub mod "));
@@ -136,7 +141,13 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub enum myc::MycNip46CommitAdmission",
         "pub enum myc::MycNip46SessionEffect",
         "pub enum myc::MycNip46CommitErrorKind",
-        "pub async fn myc::MycStateRepository<'_>::commit_nip46_operation",
+        "pub struct myc::MycNip46ResponseCommitRequest",
+        "pub struct myc::MycNip46ResponseRecord",
+        "pub struct myc::MycNip46ResponseCommitRecord",
+        "pub enum myc::MycNip46ResponseCommitAdmission",
+        "pub enum myc::MycNip46ResponseCommitErrorKind",
+        "pub async fn myc::MycStateRepository<'_>::commit_nip46_response",
+        "pub async fn myc::MycStateRepository<'_>::read_nip46_response",
         "pub async fn myc::MycStateRepository<'_>::read_connection_decision",
         "pub fn myc::admit_myc_nip46_event",
         "pub fn myc::admit_myc_nip46_request",
@@ -182,6 +193,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "state_metadata",
         "state_repository",
         "state_request",
+        "state_response",
     ] {
         assert!(
             !PUBLIC_API.contains(&format!("pub mod myc::{module}")),
@@ -215,6 +227,64 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
 }
 
 #[test]
+fn step148_response_commit_is_one_atomic_exact_byte_authority() {
+    let contract: serde_json::Value =
+        serde_json::from_str(NIP46_RESPONSE_CONTRACT).expect("Step 148 contract");
+    assert_eq!(contract["schema"], "radroots.myc.nip46-response-commit.v1");
+    assert_eq!(contract["contract_version"], 1);
+    assert_eq!(contract["step"], 148);
+    assert_eq!(contract["schema_version"], 9);
+    for required in [
+        "sealed_step147_completion_component",
+        "independently_signature_verified_canonical_kind_24133_event",
+        "exact_signed_response_bytes_sha256_and_event_id",
+        "zero_attempt_target_state",
+        "committed_response_bytes_only",
+        "completion_without_response_or_job",
+        "fail_closed_without_repair",
+        "relay_io_inside_transaction",
+        "response_reconstruction_on_retry",
+    ] {
+        assert!(
+            NIP46_RESPONSE_CONTRACT.contains(required),
+            "Step 148 contract is missing `{required}`"
+        );
+    }
+    for required in [
+        "ServiceSqliteTransaction",
+        "commit_operation(transaction",
+        "nip46_signed_responses",
+        "create_job(",
+        "read_response_by_operation",
+        "signed_response_bytes",
+        "fail_after_completion_for_test",
+        "fail_after_response_for_test",
+    ] {
+        assert!(
+            NIP46_RESPONSE.contains(required),
+            "Step 148 implementation is missing `{required}`"
+        );
+    }
+    assert!(!PUBLIC_API.contains("commit_nip46_operation"));
+    for forbidden in [
+        "RelayPool",
+        ".publish(",
+        "tokio::spawn",
+        "std::time::SystemTime",
+        "Timestamp::now",
+        "rand::",
+        "getrandom",
+        "SqlitePool",
+        "rusqlite",
+    ] {
+        assert!(
+            !NIP46_RESPONSE.contains(forbidden),
+            "Step 148 gained forbidden authority `{forbidden}`"
+        );
+    }
+}
+
+#[test]
 fn step147_completion_is_atomic_redacted_and_defers_delivery_authority() {
     let contract: serde_json::Value =
         serde_json::from_str(NIP46_COMPLETION_CONTRACT).expect("Step 147 contract");
@@ -231,7 +301,8 @@ fn step147_completion_is_atomic_redacted_and_defers_delivery_authority() {
         "protected_provider_output\": \"not_persisted",
         "failed_transaction\": \"no_session_or_completion_effect",
         "step147_checkpoint\": \"integration_only_not_promotable",
-        "step147_component\": \"must_be_composed_before_master_promotion",
+        "step147_component\": \"composed_by_step148_atomic_response_commit",
+        "composition_status\": \"satisfied_on_rcld_080_integration_branch",
         "commit_owner\": 148",
         "promotion_owner\": 151",
         "outer_signed_nip46_response\": 148",
@@ -444,7 +515,7 @@ fn public_errors_remain_crate_owned_redacted_and_source_free() {
         .lines()
         .filter(|line| line.starts_with("pub struct myc::") && line.ends_with("Error"))
         .count();
-    assert_eq!(public_error_count, 23);
+    assert_eq!(public_error_count, 24);
     assert!(!PUBLIC_API.contains("pub struct myc::MycRuntimeFoundation {"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycStateHost {"));
 }
