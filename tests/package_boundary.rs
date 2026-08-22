@@ -5,10 +5,14 @@ use std::collections::BTreeSet;
 const ROOT: &str = include_str!("../src/lib.rs");
 const README: &str = include_str!("../README");
 const PUBLIC_API: &str = include_str!("../contracts/api_baselines/myc.txt");
+const NIP46_VERIFICATION: &str = include_str!("../src/nip46_verification.rs");
+const NIP46_VERIFICATION_CONTRACT: &str =
+    include_str!("../contracts/services_hardening/nip46_verification.v1.json");
 const SOURCES: &[&str] = &[
     include_str!("../src/cli_v1.rs"),
     include_str!("../src/config_v1.rs"),
     include_str!("../src/nip46_admission.rs"),
+    include_str!("../src/nip46_verification.rs"),
     include_str!("../src/provider_contract.rs"),
     include_str!("../src/provider_credential.rs"),
     include_str!("../src/provider_envelope.rs"),
@@ -39,6 +43,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "cli_v1",
             "config_v1",
             "nip46_admission",
+            "nip46_verification",
             "provider_contract",
             "provider_credential",
             "provider_envelope",
@@ -83,10 +88,16 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub struct myc::MycBoundedNip46Request",
         "pub struct myc::MycNip46AdmissionLimits",
         "pub enum myc::MycNip46AdmissionErrorKind",
+        "pub struct myc::MycVerifiedNip46Event",
+        "pub struct myc::MycVerifiedNip46Request",
+        "pub struct myc::MycNip46AuthoredTimePolicy",
+        "pub enum myc::MycNip46VerificationErrorKind",
         "pub struct myc::MycStateHost",
         "pub struct myc::MycStateRepository",
         "pub fn myc::admit_myc_nip46_event",
         "pub fn myc::admit_myc_nip46_request",
+        "pub fn myc::verify_myc_nip46_event",
+        "pub fn myc::verify_myc_nip46_request",
         "pub async fn myc::open_myc_runtime_foundation",
     ] {
         assert!(
@@ -99,6 +110,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "cli_v1",
         "config_v1",
         "nip46_admission",
+        "nip46_verification",
         "provider_contract",
         "provider_credential",
         "provider_envelope",
@@ -170,7 +182,39 @@ fn public_errors_remain_crate_owned_redacted_and_source_free() {
         .lines()
         .filter(|line| line.starts_with("pub struct myc::") && line.ends_with("Error"))
         .count();
-    assert_eq!(public_error_count, 20);
+    assert_eq!(public_error_count, 21);
     assert!(!PUBLIC_API.contains("pub struct myc::MycRuntimeFoundation {"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycStateHost {"));
+}
+
+#[test]
+fn step142_verification_remains_pure_and_defers_later_authority() {
+    for forbidden in [
+        "nip04::decrypt",
+        "nip44::decrypt",
+        "ServiceSqlite",
+        "sqlx::",
+        "tokio::spawn",
+        "std::time::SystemTime",
+        "Timestamp::now",
+        "RelayPool",
+    ] {
+        assert!(
+            !NIP46_VERIFICATION.contains(forbidden),
+            "Step 142 gained forbidden authority `{forbidden}`"
+        );
+    }
+    for required in [
+        "\"decryption\": \"deferred_to_step_145\"",
+        "\"plaintext_event_binding\": \"deferred_to_step_145\"",
+        "\"replay_and_conflicting_reuse\": \"deferred_to_step_143\"",
+        "\"authorization\"",
+        "\"database_mutation\"",
+        "\"relay_publication\"",
+    ] {
+        assert!(
+            NIP46_VERIFICATION_CONTRACT.contains(required),
+            "Step 142 contract is missing `{required}`"
+        );
+    }
 }

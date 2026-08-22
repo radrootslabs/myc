@@ -262,6 +262,10 @@ impl MycBoundedNip46Event {
     pub const fn tag_bytes(&self) -> usize {
         self.tag_bytes
     }
+
+    pub(crate) fn into_verification_parts(self) -> (Box<[u8]>, Box<str>) {
+        (self.original, self.encrypted_content)
+    }
 }
 
 impl fmt::Debug for MycBoundedNip46Event {
@@ -315,6 +319,10 @@ impl MycBoundedNip46Request {
     #[must_use]
     pub const fn parameter_bytes(&self) -> usize {
         self.parameter_bytes
+    }
+
+    pub(crate) fn into_verification_parts(self) -> (Box<[u8]>, usize, usize) {
+        (self.plaintext, self.parameter_count, self.parameter_bytes)
     }
 }
 

@@ -1,0 +1,51 @@
+{
+  "schema": "radroots.myc.nip46-verification.v1",
+  "contract_version": 1,
+  "prerequisite": "nip46_admission.v1",
+  "event": {
+    "kind": 24133,
+    "fields": "exact_closed_step141_shape",
+    "identifiers": "canonical_lowercase_fixed_width_hex",
+    "event_id": "recomputed_and_exact",
+    "signature": "bip340_schnorr_verified",
+    "sender": "valid_xonly_public_key_distinct_from_receiver",
+    "receiver_binding": "configured_transport_role_provider_binding_only",
+    "receiver": "exactly_one_exact_two_element_p_tag_matching_bound_transport_identity",
+    "other_tags": "forbidden",
+    "original_bytes": "retained_exactly",
+    "relay_io": "forbidden"
+  },
+  "authored_time": {
+    "observation": "positive_injected_unix_seconds",
+    "policy": "explicit_caller_supplied_inclusive_past_and_future_seconds",
+    "default": "none",
+    "arithmetic": "saturating_closed_interval"
+  },
+  "encryption": {
+    "contexts": ["nip04", "nip44_v2"],
+    "nip04": "canonical_base64_nonempty_block_ciphertext_plus_exact_16_byte_iv",
+    "nip44_v2": "canonical_base64_version_2_exact_payload_length_class",
+    "ciphertext": "retained_bounded_and_redacted",
+    "decryption": "deferred_to_step_145",
+    "plaintext_event_binding": "deferred_to_step_145"
+  },
+  "request": {
+    "input": "step141_bounded_plaintext",
+    "decoder": "radroots_nostr_connect_request_message",
+    "shape": "exact_id_method_string_params_string_array",
+    "identifier": "nonempty_bounded_trimmed_control_free",
+    "method_and_params": "typed_and_semantically_validated",
+    "canonical_bytes": "privately_retained_typed_reserialization",
+    "unsupported_method_rejection": "deferred_to_step_145",
+    "replay_and_conflicting_reuse": "deferred_to_step_143"
+  },
+  "nonclaims": [
+    "decryption",
+    "plaintext_event_binding",
+    "replay",
+    "authorization",
+    "provider_execution",
+    "database_mutation",
+    "relay_publication"
+  ]
+}

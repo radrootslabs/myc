@@ -299,6 +299,24 @@ pub myc::MycNip46AdmissionErrorKind::TagsTooLarge
 pub myc::MycNip46AdmissionErrorKind::TooManyRequestParameters
 pub myc::MycNip46AdmissionErrorKind::TooManyTagElements
 pub myc::MycNip46AdmissionErrorKind::TooManyTags
+pub enum myc::MycNip46EncryptionContext
+pub myc::MycNip46EncryptionContext::Nip04
+pub myc::MycNip46EncryptionContext::Nip44V2
+pub enum myc::MycNip46VerificationErrorKind
+pub myc::MycNip46VerificationErrorKind::AuthoredTimeRejected
+pub myc::MycNip46VerificationErrorKind::InvalidEventId
+pub myc::MycNip46VerificationErrorKind::InvalidKind
+pub myc::MycNip46VerificationErrorKind::InvalidNip04Envelope
+pub myc::MycNip46VerificationErrorKind::InvalidNip44Envelope
+pub myc::MycNip46VerificationErrorKind::InvalidObservationTime
+pub myc::MycNip46VerificationErrorKind::InvalidReceiver
+pub myc::MycNip46VerificationErrorKind::InvalidSender
+pub myc::MycNip46VerificationErrorKind::InvalidSignature
+pub myc::MycNip46VerificationErrorKind::InvalidTimePolicy
+pub myc::MycNip46VerificationErrorKind::InvalidTransportBinding
+pub myc::MycNip46VerificationErrorKind::InvalidTypedRequest
+pub myc::MycNip46VerificationErrorKind::MalformedEvent
+pub myc::MycNip46VerificationErrorKind::NonCanonicalEvent
 pub enum myc::MycProviderCapability
 pub myc::MycProviderCapability::Describe
 pub myc::MycProviderCapability::Nip04Decrypt
@@ -908,6 +926,11 @@ pub const fn myc::MycNip46AdmissionLimits::event_wire_bytes(self) -> usize
 pub fn myc::MycNip46AdmissionLimits::from_config(&myc::MycConfigDocumentV1) -> core::result::Result<Self, myc::MycNip46AdmissionError>
 impl core::fmt::Debug for myc::MycNip46AdmissionLimits
 pub fn myc::MycNip46AdmissionLimits::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46AuthoredTimePolicy
+impl myc::MycNip46AuthoredTimePolicy
+pub const fn myc::MycNip46AuthoredTimePolicy::maximum_future_seconds(self) -> u64
+pub const fn myc::MycNip46AuthoredTimePolicy::maximum_past_seconds(self) -> u64
+pub fn myc::MycNip46AuthoredTimePolicy::new(u64, u64) -> core::result::Result<Self, myc::MycNip46VerificationError>
 pub struct myc::MycNip46ClientPublicKey(_)
 impl myc::MycNip46ClientPublicKey
 pub fn myc::MycNip46ClientPublicKey::as_hex(&self) -> &str
@@ -921,12 +944,24 @@ impl myc::MycNip46EventId
 pub const fn myc::MycNip46EventId::from_bytes([u8; 32]) -> Self
 impl core::fmt::Debug for myc::MycNip46EventId
 pub fn myc::MycNip46EventId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46ObservedAtUnixSeconds(_)
+impl myc::MycNip46ObservedAtUnixSeconds
+pub const fn myc::MycNip46ObservedAtUnixSeconds::get(self) -> u64
+pub fn myc::MycNip46ObservedAtUnixSeconds::new(u64) -> core::result::Result<Self, myc::MycNip46VerificationError>
 pub struct myc::MycNip46RequestId(_)
 impl myc::MycNip46RequestId
 pub fn myc::MycNip46RequestId::as_str(&self) -> &str
 pub fn myc::MycNip46RequestId::new(&str) -> core::result::Result<Self, myc::MycSignerRequestError>
 impl core::fmt::Debug for myc::MycNip46RequestId
 pub fn myc::MycNip46RequestId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46VerificationError
+impl myc::MycNip46VerificationError
+pub const fn myc::MycNip46VerificationError::kind(self) -> myc::MycNip46VerificationErrorKind
+impl core::error::Error for myc::MycNip46VerificationError
+impl core::fmt::Debug for myc::MycNip46VerificationError
+pub fn myc::MycNip46VerificationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycNip46VerificationError
+pub fn myc::MycNip46VerificationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycNormalizedConfigDigest(_)
 impl myc::MycNormalizedConfigDigest
 pub const fn myc::MycNormalizedConfigDigest::as_bytes(&self) -> &[u8; 32]
@@ -1247,6 +1282,24 @@ pub fn myc::MycUntrustedProviderOutput::as_bytes(&self) -> &[u8]
 pub fn myc::MycUntrustedProviderOutput::new(&[u8]) -> core::result::Result<Self, myc::MycProviderContractError>
 impl core::fmt::Debug for myc::MycUntrustedProviderOutput
 pub fn myc::MycUntrustedProviderOutput::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycVerifiedNip46Event
+impl myc::MycVerifiedNip46Event
+pub const fn myc::MycVerifiedNip46Event::authored_at_unix_seconds(&self) -> u64
+pub const fn myc::MycVerifiedNip46Event::client_public_key(&self) -> &myc::MycNip46ClientPublicKey
+pub fn myc::MycVerifiedNip46Event::encrypted_content(&self) -> &str
+pub const fn myc::MycVerifiedNip46Event::encryption_context(&self) -> myc::MycNip46EncryptionContext
+pub const fn myc::MycVerifiedNip46Event::event_id(&self) -> myc::MycNip46EventId
+pub fn myc::MycVerifiedNip46Event::original_bytes(&self) -> &[u8]
+impl core::fmt::Debug for myc::MycVerifiedNip46Event
+pub fn myc::MycVerifiedNip46Event::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycVerifiedNip46Request
+impl myc::MycVerifiedNip46Request
+pub fn myc::MycVerifiedNip46Request::method(&self) -> &str
+pub const fn myc::MycVerifiedNip46Request::parameter_bytes(&self) -> usize
+pub const fn myc::MycVerifiedNip46Request::parameter_count(&self) -> usize
+pub const fn myc::MycVerifiedNip46Request::request_id(&self) -> &myc::MycNip46RequestId
+impl core::fmt::Debug for myc::MycVerifiedNip46Request
+pub fn myc::MycVerifiedNip46Request::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycVerifiedProviderResponse
 impl myc::MycVerifiedProviderResponse
 pub const fn myc::MycVerifiedProviderResponse::capabilities(&self) -> core::option::Option<myc::MycProviderCapabilitySet>
@@ -1354,4 +1407,6 @@ pub fn myc::resolve_myc_runtime_context(&radroots_runtime_paths::roots::Radroots
 pub fn myc::resolve_myc_wrapping_credential(&myc::MycRuntimeContext, &myc::MycProviderBinding) -> core::result::Result<myc::MycWrappingCredential, myc::MycCredentialResolutionError>
 pub async fn myc::stage_myc_state_restore(&myc::MycRuntimeContext, &myc::MycStateMetadata, myc::MycVerifiedStateBackup) -> core::result::Result<myc::MycStagedStateRestore, myc::MycStateMaintenanceError>
 pub fn myc::validate_myc_state_catalogs(&radroots_service_sqlite::migration::MigrationCatalog, &radroots_service_sqlite::integrity::catalog::SchemaCatalog) -> core::result::Result<(), myc::MycStateCatalogError>
+pub fn myc::verify_myc_nip46_event(myc::MycBoundedNip46Event, &myc::MycProviderBinding, myc::MycNip46ObservedAtUnixSeconds, myc::MycNip46AuthoredTimePolicy) -> core::result::Result<myc::MycVerifiedNip46Event, myc::MycNip46VerificationError>
+pub fn myc::verify_myc_nip46_request(myc::MycBoundedNip46Request) -> core::result::Result<myc::MycVerifiedNip46Request, myc::MycNip46VerificationError>
 pub fn myc::verify_myc_state_backup(&[u8], radroots_service_sqlite::backup::manifest::BackupManifestSha256, &std::path::Path, &myc::MycStateMetadata, core::num::nonzero::NonZeroU64) -> core::result::Result<myc::MycVerifiedStateBackup, myc::MycStateMaintenanceError>

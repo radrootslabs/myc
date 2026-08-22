@@ -4,6 +4,7 @@
 mod cli_v1;
 mod config_v1;
 mod nip46_admission;
+mod nip46_verification;
 mod provider_contract;
 mod provider_credential;
 mod provider_envelope;
@@ -36,6 +37,11 @@ pub use nip46_admission::{
     MycBoundedNip46Event, MycBoundedNip46Request, MycNip46AdmissionError,
     MycNip46AdmissionErrorKind, MycNip46AdmissionLimits, admit_myc_nip46_event,
     admit_myc_nip46_request,
+};
+pub use nip46_verification::{
+    MycNip46AuthoredTimePolicy, MycNip46EncryptionContext, MycNip46ObservedAtUnixSeconds,
+    MycNip46VerificationError, MycNip46VerificationErrorKind, MycVerifiedNip46Event,
+    MycVerifiedNip46Request, verify_myc_nip46_event, verify_myc_nip46_request,
 };
 pub use provider_contract::{
     MYC_PROVIDER_CONCURRENCY_MAX, MYC_PROVIDER_CONTRACT_VERSION, MYC_PROVIDER_INPUT_MAX_BYTES,
