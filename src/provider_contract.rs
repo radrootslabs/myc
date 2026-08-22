@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use nostr::PublicKey;
 use radroots_runtime_paths::ServiceCredentialArtifactName;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
 /// Exact supported signer-provider contract version.
@@ -923,6 +924,41 @@ impl MycProviderOperation {
     pub const fn input(&self) -> &MycProviderOperationInput {
         &self.input
     }
+
+    pub(crate) fn binding_digest(&self) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(b"radroots.myc.provider.operation_binding.v1\0");
+        hash_framed(&mut hasher, self.role.as_str().as_bytes());
+        hash_framed(&mut hasher, self.instance.as_str().as_bytes());
+        hash_framed(&mut hasher, self.provider.as_str().as_bytes());
+        hasher.update(self.operation_id.as_bytes());
+        hasher.update(self.correlation_id.as_bytes());
+        hasher.update(self.deadline.get().to_be_bytes());
+        hash_framed(&mut hasher, self.expected_identity.as_hex().as_bytes());
+        hash_framed(&mut hasher, self.input.capability().as_str().as_bytes());
+        hash_framed(
+            &mut hasher,
+            self.input
+                .peer()
+                .map(MycProviderPublicIdentity::as_hex)
+                .unwrap_or_default()
+                .as_bytes(),
+        );
+        hasher.update(
+            self.input
+                .nip44_version()
+                .map(MycProviderNip44Version::as_u8)
+                .unwrap_or_default()
+                .to_be_bytes(),
+        );
+        hash_framed(&mut hasher, self.input.bytes().unwrap_or_default());
+        hasher.finalize().into()
+    }
+}
+
+fn hash_framed(hasher: &mut Sha256, value: &[u8]) {
+    hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
+    hasher.update(value);
 }
 
 impl fmt::Debug for MycProviderOperation {
@@ -1057,7 +1093,11 @@ fn json_bool(document: &Value, pointer: &str) -> Result<bool, MycProviderContrac
 
 #[cfg(test)]
 mod tests {
+    use crate::{MycConfigProfile, parse_myc_config_v1};
+
     use super::*;
+
+    const CONFIG: &[u8] = include_bytes!("../contracts/services_hardening/config.v1.example.toml");
 
     #[test]
     fn capability_sets_are_closed_ordered_and_duplicate_free() {
@@ -1180,6 +1220,103 @@ mod tests {
         assert!(
             MycUntrustedProviderOutput::new(&vec![0; MYC_PROVIDER_OUTPUT_MAX_BYTES + 1]).is_err()
         );
+    }
+
+    #[test]
+    fn operation_binding_covers_every_independently_variable_request_field() {
+        let config = parse_myc_config_v1(CONFIG, MycConfigProfile::RepoLocal).expect("config");
+        let user = config
+            .provider_contract()
+            .binding(MycProviderRole::User)
+            .expect("user binding");
+        let transport = config
+            .provider_contract()
+            .binding(MycProviderRole::Transport)
+            .expect("transport binding");
+        let operation_id = MycProviderOperationId::from_bytes([0x11; 32]);
+        let correlation_id = MycProviderCorrelationId::from_bytes([0x22; 32]);
+        let deadline = MycProviderDeadlineUnixMs::new(1_900_000_000_000).expect("deadline");
+        let operation =
+            |binding: &MycProviderBinding, operation_id, correlation_id, deadline, input| {
+                MycProviderOperation::new(binding, operation_id, correlation_id, deadline, input)
+                    .expect("operation")
+            };
+        let base = operation(
+            user,
+            operation_id,
+            correlation_id,
+            deadline,
+            MycProviderOperationInput::public_identity(),
+        );
+        for changed in [
+            operation(
+                user,
+                MycProviderOperationId::from_bytes([0x12; 32]),
+                correlation_id,
+                deadline,
+                MycProviderOperationInput::public_identity(),
+            ),
+            operation(
+                user,
+                operation_id,
+                MycProviderCorrelationId::from_bytes([0x23; 32]),
+                deadline,
+                MycProviderOperationInput::public_identity(),
+            ),
+            operation(
+                user,
+                operation_id,
+                correlation_id,
+                MycProviderDeadlineUnixMs::new(deadline.get() + 1).expect("changed deadline"),
+                MycProviderOperationInput::public_identity(),
+            ),
+            operation(
+                user,
+                operation_id,
+                correlation_id,
+                deadline,
+                MycProviderOperationInput::sign_event(b"{}").expect("sign event"),
+            ),
+            operation(
+                transport,
+                operation_id,
+                correlation_id,
+                deadline,
+                MycProviderOperationInput::public_identity(),
+            ),
+        ] {
+            assert_ne!(base.binding_digest(), changed.binding_digest());
+        }
+
+        let first_peer = MycProviderPublicIdentity::new(&"4".repeat(64)).expect("first peer");
+        let second_peer = MycProviderPublicIdentity::new(
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        )
+        .expect("second peer");
+        let first = operation(
+            user,
+            operation_id,
+            correlation_id,
+            deadline,
+            MycProviderOperationInput::nip04_encrypt(first_peer.clone(), b"first")
+                .expect("first input"),
+        );
+        let changed_bytes = operation(
+            user,
+            operation_id,
+            correlation_id,
+            deadline,
+            MycProviderOperationInput::nip04_encrypt(first_peer, b"second").expect("changed bytes"),
+        );
+        let changed_peer = operation(
+            user,
+            operation_id,
+            correlation_id,
+            deadline,
+            MycProviderOperationInput::nip04_encrypt(second_peer, b"first").expect("changed peer"),
+        );
+        assert_ne!(first.binding_digest(), changed_bytes.binding_digest());
+        assert_ne!(first.binding_digest(), changed_peer.binding_digest());
     }
 
     #[test]

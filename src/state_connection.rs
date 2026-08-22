@@ -337,6 +337,10 @@ impl MycConnectionPermissionSet {
             .iter()
             .all(|permission| other.permissions.binary_search(permission).is_ok())
     }
+
+    pub(crate) fn contains(&self, permission: MycConnectionPermission) -> bool {
+        self.permissions.binary_search(&permission).is_ok()
+    }
 }
 
 impl fmt::Debug for MycConnectionPermissionSet {
@@ -688,6 +692,25 @@ impl MycConnectionRecord {
     #[must_use]
     pub const fn authorized_until(&self) -> Option<MycConnectionTimeUnixMs> {
         self.authorized_until
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_for_test(
+        client_public_key: MycNip46ClientPublicKey,
+        granted_permissions: MycConnectionPermissionSet,
+        authorized_until: Option<MycConnectionTimeUnixMs>,
+    ) -> Self {
+        Self {
+            id: MycConnectionId([0x45; 32]),
+            client_public_key,
+            requested_permissions: granted_permissions.clone(),
+            granted_permissions,
+            policy_generation: MycConnectionPolicyGeneration(1),
+            status: MycConnectionStatus::Active,
+            created_at: MycConnectionTimeUnixMs(1),
+            updated_at: MycConnectionTimeUnixMs(1),
+            authorized_until,
+        }
     }
 }
 

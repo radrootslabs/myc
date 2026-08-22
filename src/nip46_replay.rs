@@ -116,6 +116,14 @@ impl MycReplayBoundNip46Request {
         self.request.request_id()
     }
 
+    pub(crate) fn method(&self) -> &str {
+        self.request.method()
+    }
+
+    pub(crate) fn canonical_request(&self) -> &[u8] {
+        self.request.canonical_request()
+    }
+
     /// Projects the digest-only replay key without retaining protected content.
     #[must_use]
     pub const fn replay_key(&self) -> MycNip46ReplayKey {

@@ -165,6 +165,7 @@ pub struct MycVerifiedProviderResponse {
     instance: MycProviderInstanceId,
     role: MycProviderRole,
     capability: MycProviderCapability,
+    operation_binding: [u8; 32],
     result: VerifiedProviderResult,
 }
 
@@ -197,6 +198,10 @@ impl MycVerifiedProviderResponse {
     #[must_use]
     pub const fn capability(&self) -> MycProviderCapability {
         self.capability
+    }
+
+    pub(crate) fn matches_operation(&self, operation: &MycProviderOperation) -> bool {
+        self.operation_binding == operation.binding_digest()
     }
 
     /// Returns a verified public identity for describe/public-identity results.
@@ -353,6 +358,42 @@ fn verify_response(
         instance: operation.instance(),
         role: operation.role(),
         capability: operation.input().capability(),
+        operation_binding: operation.binding_digest(),
+        result,
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn verify_protected_response_for_test(
+    binding: &MycProviderBinding,
+    operation: &MycProviderOperation,
+    payload: &[u8],
+) -> Result<MycVerifiedProviderResponse, MycProviderVerificationError> {
+    if operation.role() != binding.role()
+        || operation.instance() != binding.instance()
+        || operation.provider() != binding.kind()
+        || operation.expected_identity() != binding.expected_identity()
+    {
+        return Err(verification_error(
+            MycProviderVerificationErrorKind::InvalidBinding,
+        ));
+    }
+    if payload.len() > MYC_PROVIDER_OUTPUT_MAX_BYTES {
+        return Err(verification_error(MycProviderVerificationErrorKind::Size));
+    }
+    let payload = Zeroizing::new(payload.to_vec());
+    let result = match operation.input().capability() {
+        MycProviderCapability::Nip04Decrypt => verify_nip04_decrypt_result(operation, payload)?,
+        MycProviderCapability::Nip44Decrypt => verify_nip44_decrypt_result(operation, payload)?,
+        _ => return Err(result_shape()),
+    };
+    Ok(MycVerifiedProviderResponse {
+        operation_id: operation.operation_id(),
+        correlation_id: operation.correlation_id(),
+        instance: operation.instance(),
+        role: operation.role(),
+        capability: operation.input().capability(),
+        operation_binding: operation.binding_digest(),
         result,
     })
 }
@@ -408,16 +449,7 @@ fn verify_result(
             WireProviderResult::Nip04Decrypt { peer, payload_hex },
         ) => {
             verify_peer(operation, &peer)?;
-            let input = operation.input().bytes().ok_or_else(result_shape)?;
-            let ciphertext_length = verify_nip04_ciphertext(input, None)?;
-            let payload = decode_payload_allow_empty(payload_hex)?;
-            if payload.len() >= ciphertext_length {
-                return Err(verification_error(MycProviderVerificationErrorKind::Nip04));
-            }
-            Ok(VerifiedProviderResult::Protected {
-                payload,
-                nip44_version: None,
-            })
+            verify_nip04_decrypt_result(operation, decode_payload_allow_empty(payload_hex)?)
         }
         (
             MycProviderCapability::Nip44Encrypt,
@@ -453,21 +485,41 @@ fn verify_result(
             if version != requested_version.as_u8() {
                 return Err(verification_error(MycProviderVerificationErrorKind::Nip44));
             }
-            let input = operation.input().bytes().ok_or_else(result_shape)?;
-            let padded_length = verify_nip44_ciphertext(input, None, requested_version)?;
-            let payload = decode_payload(payload_hex)?;
-            if payload.len() > padded_length
-                || payload.len() > MYC_PROVIDER_NIP44_PLAINTEXT_MAX_BYTES
-            {
-                return Err(verification_error(MycProviderVerificationErrorKind::Nip44));
-            }
-            Ok(VerifiedProviderResult::Protected {
-                payload,
-                nip44_version: Some(requested_version),
-            })
+            verify_nip44_decrypt_result(operation, decode_payload(payload_hex)?)
         }
         _ => Err(result_shape()),
     }
+}
+
+fn verify_nip04_decrypt_result(
+    operation: &MycProviderOperation,
+    payload: Zeroizing<Vec<u8>>,
+) -> Result<VerifiedProviderResult, MycProviderVerificationError> {
+    let input = operation.input().bytes().ok_or_else(result_shape)?;
+    let ciphertext_length = verify_nip04_ciphertext(input, None)?;
+    if payload.len() >= ciphertext_length {
+        return Err(verification_error(MycProviderVerificationErrorKind::Nip04));
+    }
+    Ok(VerifiedProviderResult::Protected {
+        payload,
+        nip44_version: None,
+    })
+}
+
+fn verify_nip44_decrypt_result(
+    operation: &MycProviderOperation,
+    payload: Zeroizing<Vec<u8>>,
+) -> Result<VerifiedProviderResult, MycProviderVerificationError> {
+    let requested_version = operation.input().nip44_version().ok_or_else(result_shape)?;
+    let input = operation.input().bytes().ok_or_else(result_shape)?;
+    let padded_length = verify_nip44_ciphertext(input, None, requested_version)?;
+    if payload.len() > padded_length || payload.len() > MYC_PROVIDER_NIP44_PLAINTEXT_MAX_BYTES {
+        return Err(verification_error(MycProviderVerificationErrorKind::Nip44));
+    }
+    Ok(VerifiedProviderResult::Protected {
+        payload,
+        nip44_version: Some(requested_version),
+    })
 }
 
 fn verify_describe(

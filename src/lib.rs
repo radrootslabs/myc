@@ -7,6 +7,7 @@ mod nip46_admission;
 mod nip46_authorization;
 mod nip46_replay;
 mod nip46_verification;
+mod nip46_work;
 mod provider_contract;
 mod provider_credential;
 mod provider_envelope;
@@ -48,6 +49,11 @@ pub use nip46_verification::{
     MycNip46AuthoredTimePolicy, MycNip46EncryptionContext, MycNip46ObservedAtUnixSeconds,
     MycNip46VerificationError, MycNip46VerificationErrorKind, MycVerifiedNip46Event,
     MycVerifiedNip46Request, verify_myc_nip46_event, verify_myc_nip46_request,
+};
+pub use nip46_work::{
+    MycDecryptedNip46Request, MycNip46DecryptWork, MycNip46Work, MycNip46WorkError,
+    MycNip46WorkErrorKind, MycNip46WorkKind, MycPreparedNip46Request,
+    prepare_myc_nip46_decrypt_work, prepare_myc_nip46_request, prepare_myc_nip46_work,
 };
 pub use provider_contract::{
     MYC_PROVIDER_CONCURRENCY_MAX, MYC_PROVIDER_CONTRACT_VERSION, MYC_PROVIDER_INPUT_MAX_BYTES,

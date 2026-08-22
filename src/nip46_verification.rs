@@ -504,10 +504,12 @@ fn is_valid_nip44_padding_length(length: usize) -> bool {
         return false;
     }
     if length <= 256 {
-        return length.is_power_of_two();
+        return length.is_multiple_of(32);
     }
-    let exponent = usize::BITS - 1 - length.leading_zeros();
-    let chunk = 1usize << (exponent - 3);
+    let Some(next_power) = length.checked_next_power_of_two() else {
+        return false;
+    };
+    let chunk = next_power / 8;
     length.is_multiple_of(chunk)
 }
 
@@ -536,10 +538,10 @@ mod tests {
 
     #[test]
     fn every_protocol_padding_boundary_is_closed() {
-        for valid in [32, 64, 128, 256, 288, 320, 65_536] {
+        for valid in [32, 64, 96, 128, 160, 192, 224, 256, 320, 384, 65_536] {
             assert!(is_valid_nip44_padding_length(valid));
         }
-        for invalid in [0, 31, 33, 257, 287, 65_535, 65_537] {
+        for invalid in [0, 31, 33, 257, 287, 288, 65_535, 65_537] {
             assert!(!is_valid_nip44_padding_length(invalid));
         }
     }

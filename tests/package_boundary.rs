@@ -8,12 +8,15 @@ const PUBLIC_API: &str = include_str!("../contracts/api_baselines/myc.txt");
 const NIP46_VERIFICATION: &str = include_str!("../src/nip46_verification.rs");
 const NIP46_AUTHORIZATION: &str = include_str!("../src/nip46_authorization.rs");
 const NIP46_REPLAY: &str = include_str!("../src/nip46_replay.rs");
+const NIP46_WORK: &str = include_str!("../src/nip46_work.rs");
 const NIP46_VERIFICATION_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_verification.v1.json");
 const NIP46_REPLAY_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_replay.v1.json");
 const NIP46_AUTHORIZATION_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_authorization.v1.json");
+const NIP46_WORK_CONTRACT: &str =
+    include_str!("../contracts/services_hardening/nip46_work.v1.json");
 const SOURCES: &[&str] = &[
     include_str!("../src/cli_v1.rs"),
     include_str!("../src/config_v1.rs"),
@@ -21,6 +24,7 @@ const SOURCES: &[&str] = &[
     include_str!("../src/nip46_authorization.rs"),
     include_str!("../src/nip46_replay.rs"),
     include_str!("../src/nip46_verification.rs"),
+    include_str!("../src/nip46_work.rs"),
     include_str!("../src/provider_contract.rs"),
     include_str!("../src/provider_credential.rs"),
     include_str!("../src/provider_envelope.rs"),
@@ -54,6 +58,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "nip46_authorization",
             "nip46_replay",
             "nip46_verification",
+            "nip46_work",
             "provider_contract",
             "provider_credential",
             "provider_envelope",
@@ -107,11 +112,21 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub struct myc::MycReplayBoundNip46Request",
         "pub enum myc::MycNip46ReplayDisposition",
         "pub enum myc::MycNip46VerificationErrorKind",
+        "pub struct myc::MycNip46DecryptWork",
+        "pub struct myc::MycDecryptedNip46Request",
+        "pub struct myc::MycPreparedNip46Request",
+        "pub struct myc::MycNip46Work",
+        "pub enum myc::MycNip46WorkKind",
+        "pub enum myc::MycNip46WorkErrorKind",
+        "pub struct myc::MycNip46WorkError",
         "pub struct myc::MycStateHost",
         "pub struct myc::MycStateRepository",
         "pub fn myc::admit_myc_nip46_event",
         "pub fn myc::admit_myc_nip46_request",
         "pub fn myc::bind_myc_nip46_replay",
+        "pub fn myc::prepare_myc_nip46_decrypt_work",
+        "pub fn myc::prepare_myc_nip46_request",
+        "pub fn myc::prepare_myc_nip46_work",
         "pub fn myc::verify_myc_nip46_event",
         "pub fn myc::verify_myc_nip46_request",
         "pub async fn myc::open_myc_runtime_foundation",
@@ -129,6 +144,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "nip46_authorization",
         "nip46_replay",
         "nip46_verification",
+        "nip46_work",
         "provider_contract",
         "provider_credential",
         "provider_envelope",
@@ -174,6 +190,44 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         assert!(
             !PUBLIC_API.contains(forbidden),
             "implementation-owned public type `{forbidden}` escaped"
+        );
+    }
+}
+
+#[test]
+fn step145_work_is_exactly_bound_and_transaction_free() {
+    for forbidden in [
+        "sqlx::",
+        "ServiceSqlite",
+        "StateRepository",
+        "StateHost",
+        "ServiceSqliteTransaction",
+        "tokio::spawn",
+        "std::time::SystemTime",
+        "rand::",
+        "getrandom",
+        "RelayPool",
+    ] {
+        assert!(
+            !NIP46_WORK.contains(forbidden),
+            "Step 145 gained forbidden authority `{forbidden}`"
+        );
+    }
+    for required in [
+        "radroots.myc.nip46.decrypt.operation.v1\\\\0",
+        "radroots.myc.nip46.decrypt.correlation.v1\\\\0",
+        "radroots.myc.provider.operation_binding.v1\\\\0",
+        "radroots_nostr_connect::server::required_permission",
+        "after_durable_request_admission_returns",
+        "alternate_plaintext_to_work_path",
+        "custom_methods",
+        "provider_execution",
+        "response_commit",
+        "relay_publication",
+    ] {
+        assert!(
+            NIP46_WORK_CONTRACT.contains(required),
+            "Step 145 contract is missing `{required}`"
         );
     }
 }
@@ -265,7 +319,7 @@ fn public_errors_remain_crate_owned_redacted_and_source_free() {
         .lines()
         .filter(|line| line.starts_with("pub struct myc::") && line.ends_with("Error"))
         .count();
-    assert_eq!(public_error_count, 21);
+    assert_eq!(public_error_count, 22);
     assert!(!PUBLIC_API.contains("pub struct myc::MycRuntimeFoundation {"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycStateHost {"));
 }

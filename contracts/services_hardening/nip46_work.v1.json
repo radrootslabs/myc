@@ -1,0 +1,92 @@
+{
+  "schema": "radroots.myc.nip46-work.v1",
+  "contract_version": 1,
+  "prerequisites": ["nip46_verification.v1", "nip46_replay.v1", "nip46_authorization.v1"],
+  "decryption": {
+    "event_binding": "exact_verified_transport_receiver_client_and_encryption_context",
+    "operation_id": "sha256_domain_and_verified_event_id",
+    "operation_id_domain": "radroots.myc.nip46.decrypt.operation.v1\\0",
+    "correlation_id": "sha256_domain_and_verified_event_id",
+    "correlation_id_domain": "radroots.myc.nip46.decrypt.correlation.v1\\0",
+    "provider_role": "transport",
+    "nip04_capability": "nip04_decrypt",
+    "nip44_capability": "nip44_decrypt_v2",
+    "plaintext_authority": "independently_verified_exact_provider_operation_result",
+    "provider_result_binding": {
+      "algorithm": "sha256",
+      "domain": "radroots.myc.provider.operation_binding.v1\\0",
+      "field_order": [
+        "role",
+        "instance",
+        "provider",
+        "operation_id",
+        "correlation_id",
+        "absolute_deadline_unix_ms",
+        "expected_identity",
+        "capability",
+        "peer_or_empty",
+        "nip44_version_or_zero",
+        "input_or_empty"
+      ],
+      "utf8_and_byte_framing": "u64_be_length_then_exact_bytes",
+      "operation_id_encoding": "exact_32_bytes",
+      "correlation_id_encoding": "exact_32_bytes",
+      "deadline_encoding": "u64_be",
+      "nip44_version_encoding": "one_u8_zero_when_absent"
+    },
+    "alternate_plaintext_to_work_path": "forbidden"
+  },
+  "method_inventory": [
+    "connect",
+    "get_public_key",
+    "get_session_capability",
+    "sign_event",
+    "nip04_encrypt",
+    "nip04_decrypt",
+    "nip44_encrypt",
+    "nip44_decrypt",
+    "ping",
+    "switch_relays",
+    "logout"
+  ],
+  "custom_methods": "unsupported_v1",
+  "work_classes": {
+    "connect": "typed_connection_admission_input",
+    "local": ["get_public_key", "get_session_capability", "ping", "switch_relays", "logout"],
+    "provider": {
+      "role": "user",
+      "sign_event_input": [
+        "canonical_unsigned_json",
+        "valid_optional_event_id",
+        "exact_configured_user_author"
+      ],
+      "mappings": {
+        "sign_event": "sign_event",
+        "nip04_encrypt": "nip04_encrypt",
+        "nip04_decrypt": "nip04_decrypt",
+        "nip44_encrypt": "nip44_encrypt_v2",
+        "nip44_decrypt": "nip44_decrypt_v2"
+      }
+    }
+  },
+  "authorization": {
+    "durable_request_record_exactly_bound": true,
+    "non_connect_requires_active_client_bound_connection": true,
+    "expiry_checked_at_injected_observation_time": true,
+    "required_permission_api": "radroots_nostr_connect::server::required_permission",
+    "granted_permission_required": true,
+    "connect_secret_authority": "forbidden",
+    "client_metadata_authority": "none"
+  },
+  "sqlite": {
+    "transaction_parameter": "forbidden",
+    "provider_execution_while_transaction_open": "forbidden",
+    "work_construction_phase": "after_durable_request_admission_returns"
+  },
+  "nonclaims": [
+    "provider_execution",
+    "response_commit",
+    "outbox_creation",
+    "relay_publication"
+  ]
+}

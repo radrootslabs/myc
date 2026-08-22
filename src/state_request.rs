@@ -432,6 +432,61 @@ impl MycSignerRequest {
             received_at: self.received_at,
         }
     }
+
+    pub(crate) const fn client_public_key(&self) -> &MycNip46ClientPublicKey {
+        &self.client_public_key
+    }
+
+    pub(crate) const fn request_id(&self) -> &MycNip46RequestId {
+        &self.request_id
+    }
+
+    pub(crate) const fn event_id(&self) -> MycNip46EventId {
+        self.event_id
+    }
+
+    pub(crate) const fn method(&self) -> MycSignerRequestMethod {
+        self.method
+    }
+
+    pub(crate) const fn request_digest(&self) -> MycSignerRequestDigest {
+        self.request_digest
+    }
+
+    pub(crate) const fn received_at(&self) -> MycRequestReceivedAtUnixMs {
+        self.received_at
+    }
+
+    fn derived_operation_id(&self) -> MycSignerOperationId {
+        MycSignerOperationId(derive_operation_id(
+            &self.request_identity,
+            &self.operation_nonce,
+        ))
+    }
+
+    fn derived_correlation_id(&self) -> MycSignerCorrelationId {
+        MycSignerCorrelationId(derive_digest(
+            CORRELATION_ID_DOMAIN,
+            self.derived_operation_id().as_bytes(),
+        ))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn admitted_record_for_test(&self) -> MycSignerRequestRecord {
+        MycSignerRequestRecord {
+            operation_id: self.derived_operation_id(),
+            correlation_id: self.derived_correlation_id(),
+            client_public_key: self.client_public_key.clone(),
+            request_id: self.request_id.clone(),
+            first_event_id: self.event_id,
+            method: self.method,
+            request_digest: self.request_digest,
+            received_at: self.received_at,
+            replay_count: 0,
+            conflict_count: 0,
+            last_seen_at: self.received_at,
+        }
+    }
 }
 
 impl fmt::Debug for MycSignerRequest {
@@ -485,6 +540,21 @@ impl MycSignerRequestRecord {
     /// Returns the number of rejected conflicting reuses.
     pub const fn conflict_count(&self) -> u64 {
         self.conflict_count
+    }
+
+    pub(crate) fn matches_request(&self, request: &MycSignerRequest) -> bool {
+        self.operation_id == request.derived_operation_id()
+            && self.correlation_id == request.derived_correlation_id()
+            && &self.client_public_key == request.client_public_key()
+            && &self.request_id == request.request_id()
+            && self.first_event_id == request.event_id()
+            && self.method == request.method()
+            && self.request_digest == request.request_digest()
+            && self.received_at == request.received_at()
+    }
+
+    pub(crate) const fn received_at(&self) -> MycRequestReceivedAtUnixMs {
+        self.received_at
     }
 }
 

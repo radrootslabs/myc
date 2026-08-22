@@ -323,6 +323,19 @@ pub myc::MycNip46VerificationErrorKind::InvalidTransportBinding
 pub myc::MycNip46VerificationErrorKind::InvalidTypedRequest
 pub myc::MycNip46VerificationErrorKind::MalformedEvent
 pub myc::MycNip46VerificationErrorKind::NonCanonicalEvent
+pub enum myc::MycNip46WorkErrorKind
+pub myc::MycNip46WorkErrorKind::ConnectionExpired
+pub myc::MycNip46WorkErrorKind::DecryptionRejected
+pub myc::MycNip46WorkErrorKind::InvalidBinding
+pub myc::MycNip46WorkErrorKind::PermissionDenied
+pub myc::MycNip46WorkErrorKind::ProviderWorkRejected
+pub myc::MycNip46WorkErrorKind::UnsupportedMethod
+impl myc::MycNip46WorkErrorKind
+pub const fn myc::MycNip46WorkErrorKind::code(self) -> &'static str
+pub enum myc::MycNip46WorkKind
+pub myc::MycNip46WorkKind::Connect
+pub myc::MycNip46WorkKind::Local
+pub myc::MycNip46WorkKind::Provider
 pub enum myc::MycProviderCapability
 pub myc::MycProviderCapability::Describe
 pub myc::MycProviderCapability::Nip04Decrypt
@@ -692,6 +705,9 @@ impl myc::MycDecryptedIdentity
 pub fn myc::MycDecryptedIdentity::public_identity(&self) -> &myc::MycProviderPublicIdentity
 impl core::fmt::Debug for myc::MycDecryptedIdentity
 pub fn myc::MycDecryptedIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDecryptedNip46Request
+impl core::fmt::Debug for myc::MycDecryptedNip46Request
+pub fn myc::MycDecryptedNip46Request::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycDeliveryArtifactDigest(_)
 impl myc::MycDeliveryArtifactDigest
 pub const fn myc::MycDeliveryArtifactDigest::as_bytes(&self) -> &[u8; 32]
@@ -948,6 +964,12 @@ impl myc::MycNip46ConnectionIdentity
 pub const fn myc::MycNip46ConnectionIdentity::as_bytes(&self) -> &[u8; 32]
 impl core::fmt::Debug for myc::MycNip46ConnectionIdentity
 pub fn myc::MycNip46ConnectionIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46DecryptWork
+impl myc::MycNip46DecryptWork
+pub fn myc::MycNip46DecryptWork::complete(self, myc::MycVerifiedProviderResponse, myc::MycNip46AdmissionLimits) -> core::result::Result<myc::MycDecryptedNip46Request, myc::MycNip46WorkError>
+pub const fn myc::MycNip46DecryptWork::operation(&self) -> &myc::MycProviderOperation
+impl core::fmt::Debug for myc::MycNip46DecryptWork
+pub fn myc::MycNip46DecryptWork::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycNip46EventId(_)
 impl myc::MycNip46EventId
 pub const fn myc::MycNip46EventId::as_bytes(&self) -> &[u8; 32]
@@ -981,11 +1003,36 @@ impl core::fmt::Debug for myc::MycNip46VerificationError
 pub fn myc::MycNip46VerificationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for myc::MycNip46VerificationError
 pub fn myc::MycNip46VerificationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46Work
+impl myc::MycNip46Work
+pub const fn myc::MycNip46Work::connection(&self) -> core::option::Option<&myc::MycConnectionRecord>
+pub fn myc::MycNip46Work::connection_admission_request(&self, myc::MycConnectionPolicyGeneration, myc::MycConnectionNonce, myc::MycConnectionTimeUnixMs, core::option::Option<myc::MycConnectionTimeUnixMs>, myc::MycConnectionAdmissionPolicy, myc::MycRateRelayId) -> core::result::Result<myc::MycConnectionAdmissionRequest, myc::MycNip46WorkError>
+pub const fn myc::MycNip46Work::kind(&self) -> myc::MycNip46WorkKind
+pub const fn myc::MycNip46Work::method(&self) -> myc::MycSignerRequestMethod
+pub const fn myc::MycNip46Work::provider_operation(&self) -> core::option::Option<&myc::MycProviderOperation>
+pub const fn myc::MycNip46Work::request_record(&self) -> &myc::MycSignerRequestRecord
+impl core::fmt::Debug for myc::MycNip46Work
+pub fn myc::MycNip46Work::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip46WorkError
+impl myc::MycNip46WorkError
+pub const fn myc::MycNip46WorkError::code(self) -> &'static str
+pub const fn myc::MycNip46WorkError::kind(self) -> myc::MycNip46WorkErrorKind
+impl core::error::Error for myc::MycNip46WorkError
+impl core::fmt::Debug for myc::MycNip46WorkError
+pub fn myc::MycNip46WorkError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycNip46WorkError
+pub fn myc::MycNip46WorkError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycNormalizedConfigDigest(_)
 impl myc::MycNormalizedConfigDigest
 pub const fn myc::MycNormalizedConfigDigest::as_bytes(&self) -> &[u8; 32]
 impl core::fmt::Debug for myc::MycNormalizedConfigDigest
 pub fn myc::MycNormalizedConfigDigest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycPreparedNip46Request
+impl myc::MycPreparedNip46Request
+pub const fn myc::MycPreparedNip46Request::method(&self) -> myc::MycSignerRequestMethod
+pub const fn myc::MycPreparedNip46Request::signer_request(&self) -> &myc::MycSignerRequest
+impl core::fmt::Debug for myc::MycPreparedNip46Request
+pub fn myc::MycPreparedNip46Request::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycProviderBinding
 impl myc::MycProviderBinding
 pub const fn myc::MycProviderBinding::credential_reference(&self) -> core::option::Option<&myc::MycProviderCredentialReference>
@@ -1434,6 +1481,9 @@ pub async fn myc::open_myc_state_inspection(&myc::MycRuntimeContext, &myc::MycSt
 pub async fn myc::open_myc_state_read_write(&myc::MycRuntimeContext, &myc::MycStateMetadata, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<myc::MycStateHost, myc::MycStateHostError>
 pub fn myc::parse_myc_cli_v1_from<I, T>(I) -> core::result::Result<myc::MycCliInvocationV1, myc::MycCliV1Error> where I: core::iter::traits::collect::IntoIterator<Item = T>, T: core::convert::Into<std::ffi::os_str::OsString> + core::clone::Clone
 pub fn myc::parse_myc_config_v1(&[u8], myc::MycConfigProfile) -> core::result::Result<myc::MycConfigDocumentV1, myc::MycConfigV1Error>
+pub fn myc::prepare_myc_nip46_decrypt_work(myc::MycVerifiedNip46Event, &myc::MycProviderBinding, myc::MycProviderDeadlineUnixMs) -> core::result::Result<myc::MycNip46DecryptWork, myc::MycNip46WorkError>
+pub fn myc::prepare_myc_nip46_request(myc::MycDecryptedNip46Request, myc::MycSignerOperationNonce, myc::MycRequestReceivedAtUnixMs) -> core::result::Result<myc::MycPreparedNip46Request, myc::MycNip46WorkError>
+pub fn myc::prepare_myc_nip46_work(myc::MycPreparedNip46Request, myc::MycSignerRequestRecord, core::option::Option<myc::MycConnectionRecord>, &myc::MycProviderContract, myc::MycConnectionTimeUnixMs, core::option::Option<myc::MycProviderDeadlineUnixMs>) -> core::result::Result<myc::MycNip46Work, myc::MycNip46WorkError>
 pub fn myc::provision_myc_encrypted_identity(&myc::MycProviderBinding, &myc::MycWrappingCredential, myc::MycEncryptedIdentityProvisioningMaterial) -> core::result::Result<myc::MycDecryptedIdentity, myc::MycEncryptedIdentityEnvelopeError>
 pub fn myc::resolve_myc_runtime_context(&radroots_runtime_paths::roots::RadrootsPathResolver, &myc::MycCliInvocationV1) -> core::result::Result<myc::MycRuntimeContext, myc::MycRuntimeContextError>
 pub fn myc::resolve_myc_wrapping_credential(&myc::MycRuntimeContext, &myc::MycProviderBinding) -> core::result::Result<myc::MycWrappingCredential, myc::MycCredentialResolutionError>
