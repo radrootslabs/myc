@@ -1,0 +1,45 @@
+{
+  "schema": "radroots.myc.nip46-authorization.v1",
+  "contract_version": 1,
+  "prerequisites": ["nip46_replay.v1", "myc_state_schema_v5"],
+  "policy_authority": "normalized_configuration_bound_in_myc_state_metadata",
+  "admission_precedence": [
+    "configured_denied_client_is_direct_denial_without_connection_or_rate_window",
+    "configured_trusted_client_is_active_only_with_permissions_within_ceiling_and_bounded_authorization_lifetime",
+    "configured_trusted_and_unknown_client_admissions_consume_global_and_relay_rate_windows",
+    "all_unknown_clients_require_explicit_operator_approval"
+  ],
+  "permissions": {
+    "ceiling": "exact_normalized_configuration_permission_ceiling",
+    "sign_event_kind_width": "u32",
+    "operator_grant": "subset_of_requested_and_configured_ceiling",
+    "client_metadata_authority": "none"
+  },
+  "challenges": {
+    "enabled": "exact_normalized_configuration_switch",
+    "url": "exact_operator_configured_url_only",
+    "pending_lifetime": "positive_and_not_greater_than_configured_pending_lifetime_ms",
+    "authorized_lifetime": "positive_and_not_greater_than_configured_authorized_lifetime_ms",
+    "creation_rate_window": "configuration_bound_connection_scope",
+    "authorization_rate_window": "separate_configuration_bound_connection_scope",
+    "terminal_replay": "exact_and_state_bound"
+  },
+  "rate_windows": {
+    "unknown_connection_admission": "global_and_configured_relay_subjects",
+    "arbitrary_client_subject_rows": "forbidden_before_connection",
+    "retention": "exact_configuration_bound_per_class",
+    "saturated_replay": "stable"
+  },
+  "durable_authority": {
+    "owner": "existing_myc_state_repository_and_service_sqlite_transaction",
+    "new_store_or_limiter": "forbidden",
+    "configuration_bypass": "rejected_before_transaction"
+  },
+  "nonclaims": [
+    "ciphertext_decryption",
+    "supported_method_admission",
+    "provider_execution",
+    "response_commit",
+    "relay_publication"
+  ]
+}

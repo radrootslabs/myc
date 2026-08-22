@@ -6,15 +6,19 @@ const ROOT: &str = include_str!("../src/lib.rs");
 const README: &str = include_str!("../README");
 const PUBLIC_API: &str = include_str!("../contracts/api_baselines/myc.txt");
 const NIP46_VERIFICATION: &str = include_str!("../src/nip46_verification.rs");
+const NIP46_AUTHORIZATION: &str = include_str!("../src/nip46_authorization.rs");
 const NIP46_REPLAY: &str = include_str!("../src/nip46_replay.rs");
 const NIP46_VERIFICATION_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_verification.v1.json");
 const NIP46_REPLAY_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_replay.v1.json");
+const NIP46_AUTHORIZATION_CONTRACT: &str =
+    include_str!("../contracts/services_hardening/nip46_authorization.v1.json");
 const SOURCES: &[&str] = &[
     include_str!("../src/cli_v1.rs"),
     include_str!("../src/config_v1.rs"),
     include_str!("../src/nip46_admission.rs"),
+    include_str!("../src/nip46_authorization.rs"),
     include_str!("../src/nip46_replay.rs"),
     include_str!("../src/nip46_verification.rs"),
     include_str!("../src/provider_contract.rs"),
@@ -47,6 +51,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "cli_v1",
             "config_v1",
             "nip46_admission",
+            "nip46_authorization",
             "nip46_replay",
             "nip46_verification",
             "provider_contract",
@@ -121,6 +126,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "cli_v1",
         "config_v1",
         "nip46_admission",
+        "nip46_authorization",
         "nip46_replay",
         "nip46_verification",
         "provider_contract",
@@ -168,6 +174,39 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         assert!(
             !PUBLIC_API.contains(forbidden),
             "implementation-owned public type `{forbidden}` escaped"
+        );
+    }
+}
+
+#[test]
+fn step144_authorization_is_configuration_bound_and_reuses_durable_state() {
+    for forbidden in [
+        "sqlx::",
+        "ServiceSqlite",
+        "tokio::spawn",
+        "std::time::SystemTime",
+        "rand::",
+        "getrandom",
+        "RelayPool",
+    ] {
+        assert!(
+            !NIP46_AUTHORIZATION.contains(forbidden),
+            "Step 144 policy projection gained forbidden authority `{forbidden}`"
+        );
+    }
+    for required in [
+        "normalized_configuration_bound_in_myc_state_metadata",
+        "configured_denied_client_is_direct_denial_without_connection_or_rate_window",
+        "configured_trusted_and_unknown_client_admissions_consume_global_and_relay_rate_windows",
+        "all_unknown_clients_require_explicit_operator_approval",
+        "exact_operator_configured_url_only",
+        "separate_configuration_bound_connection_scope",
+        "existing_myc_state_repository_and_service_sqlite_transaction",
+        "\"new_store_or_limiter\": \"forbidden\"",
+    ] {
+        assert!(
+            NIP46_AUTHORIZATION_CONTRACT.contains(required),
+            "Step 144 contract is missing `{required}`"
         );
     }
 }

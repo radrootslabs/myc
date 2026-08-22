@@ -33,6 +33,10 @@ const CONFIG_EXAMPLE: &[u8] =
 const CONNECTION_SOURCE: &str = include_str!("../src/state_connection.rs");
 const GOVERNANCE_SOURCE: &str = include_str!("../src/state_governance.rs");
 const CLIENT_PUBLIC_KEY: &str = "2222222222222222222222222222222222222222222222222222222222222222";
+const TRUSTED_CLIENT_PUBLIC_KEY: &str =
+    "7777777777777777777777777777777777777777777777777777777777777777";
+const DENIED_CLIENT_PUBLIC_KEY: &str =
+    "8888888888888888888888888888888888888888888888888888888888888888";
 
 fn runtime(root: &Path) -> myc::MycRuntimeContext {
     let root = root.to_str().expect("UTF-8 temporary root");
@@ -99,6 +103,22 @@ fn client() -> MycNip46ClientPublicKey {
     MycNip46ClientPublicKey::new(CLIENT_PUBLIC_KEY).expect("client identity")
 }
 
+fn trusted_client() -> MycNip46ClientPublicKey {
+    MycNip46ClientPublicKey::new(TRUSTED_CLIENT_PUBLIC_KEY).expect("trusted client identity")
+}
+
+fn denied_client() -> MycNip46ClientPublicKey {
+    MycNip46ClientPublicKey::new(DENIED_CLIENT_PUBLIC_KEY).expect("denied client identity")
+}
+
+fn client_for_policy(policy: MycConnectionAdmissionPolicy) -> MycNip46ClientPublicKey {
+    match policy {
+        MycConnectionAdmissionPolicy::Trusted => trusted_client(),
+        MycConnectionAdmissionPolicy::ExplicitApproval => client(),
+        MycConnectionAdmissionPolicy::Denied => denied_client(),
+    }
+}
+
 fn permission_set(permissions: &[MycConnectionPermission]) -> MycConnectionPermissionSet {
     MycConnectionPermissionSet::new(permissions).expect("permission set")
 }
@@ -117,6 +137,7 @@ fn audit_correlation(byte: u8) -> MycAuditCorrelationId {
 
 async fn admit_request(
     repository: &MycStateRepository<'_>,
+    client_public_key: MycNip46ClientPublicKey,
     request_id: &str,
     event_byte: u8,
     method: MycSignerRequestMethod,
@@ -128,7 +149,7 @@ async fn admit_request(
         method.as_str()
     );
     let request = MycSignerRequest::new(
-        client(),
+        client_public_key,
         MycNip46RequestId::new(request_id).expect("request ID"),
         MycNip46EventId::from_bytes([event_byte; 32]),
         method,
@@ -156,7 +177,7 @@ fn connection_request(
 ) -> MycConnectionAdmissionRequest {
     MycConnectionAdmissionRequest::new(
         operation_id,
-        client(),
+        client_for_policy(policy),
         permissions,
         policy_generation(generation),
         MycConnectionNonce::from_injected_entropy([nonce_byte; 32]),
@@ -175,7 +196,7 @@ fn hex(bytes: &[u8]) -> String {
 #[test]
 fn connection_inputs_are_closed_bounded_canonical_and_redacted() {
     let maximum = (0..MYC_CONNECTION_PERMISSION_MAX_COUNT)
-        .map(|kind| MycConnectionPermission::SignEvent(u16::try_from(kind).expect("kind")))
+        .map(|kind| MycConnectionPermission::SignEvent(u32::try_from(kind).expect("kind")))
         .collect::<Vec<_>>();
     let permissions = MycConnectionPermissionSet::new(&maximum).expect("maximum permissions");
     assert_eq!(
@@ -192,7 +213,7 @@ fn connection_inputs_are_closed_bounded_canonical_and_redacted() {
         MycConnectionStateErrorKind::InvalidPermissionSet
     );
     let excessive = (0..=MYC_CONNECTION_PERMISSION_MAX_COUNT)
-        .map(|kind| MycConnectionPermission::SignEvent(u16::try_from(kind).expect("kind")))
+        .map(|kind| MycConnectionPermission::SignEvent(u32::try_from(kind).expect("kind")))
         .collect::<Vec<_>>();
     assert_eq!(
         MycConnectionPermissionSet::new(&excessive)
@@ -201,6 +222,9 @@ fn connection_inputs_are_closed_bounded_canonical_and_redacted() {
         MycConnectionStateErrorKind::InvalidPermissionSet
     );
     assert!(MycConnectionPermissionSet::new(&[]).is_ok());
+    assert!(
+        MycConnectionPermissionSet::new(&[MycConnectionPermission::SignEvent(u32::MAX)]).is_ok()
+    );
 
     assert!(MycConnectionPolicyGeneration::new(i64::MAX.unsigned_abs()).is_ok());
     assert!(MycConnectionTimeUnixMs::new(i64::MAX.unsigned_abs()).is_ok());
@@ -400,6 +424,7 @@ async fn rate_windows_audit_pagination_retention_and_compaction_are_durable_and_
 
     let first_operation = admit_request(
         &repository,
+        client(),
         "rate-first",
         0x80,
         MycSignerRequestMethod::Connect,
@@ -409,6 +434,7 @@ async fn rate_windows_audit_pagination_retention_and_compaction_are_durable_and_
     .await;
     let second_operation = admit_request(
         &repository,
+        client(),
         "rate-second",
         0x82,
         MycSignerRequestMethod::Connect,
@@ -418,22 +444,22 @@ async fn rate_windows_audit_pagination_retention_and_compaction_are_durable_and_
     .await;
     let first_request = connection_request(
         first_operation,
-        permission_set(&[MycConnectionPermission::Ping]),
+        permission_set(&[MycConnectionPermission::Nip44Encrypt]),
         11,
         0x84,
         100,
-        Some(1_000),
-        MycConnectionAdmissionPolicy::Trusted,
+        None,
+        MycConnectionAdmissionPolicy::ExplicitApproval,
     );
     let unconfigured_relay_request = MycConnectionAdmissionRequest::new(
         first_operation,
         client(),
-        permission_set(&[MycConnectionPermission::Ping]),
+        permission_set(&[MycConnectionPermission::Nip44Encrypt]),
         policy_generation(11),
         MycConnectionNonce::from_injected_entropy([0x84; 32]),
         time(100),
-        Some(time(1_000)),
-        MycConnectionAdmissionPolicy::Trusted,
+        None,
+        MycConnectionAdmissionPolicy::ExplicitApproval,
         MycRateRelayId::new("unconfigured").expect("relay ID"),
     )
     .expect("unconfigured relay request");
@@ -447,12 +473,12 @@ async fn rate_windows_audit_pagination_retention_and_compaction_are_durable_and_
     );
     let second_request = connection_request(
         second_operation,
-        permission_set(&[MycConnectionPermission::Ping]),
+        permission_set(&[MycConnectionPermission::Nip44Encrypt]),
         11,
         0x85,
         100,
-        Some(1_000),
-        MycConnectionAdmissionPolicy::Trusted,
+        None,
+        MycConnectionAdmissionPolicy::ExplicitApproval,
     );
     let (first, second) = tokio::join!(
         repository.admit_connection(&first_request),
@@ -486,6 +512,7 @@ async fn rate_windows_audit_pagination_retention_and_compaction_are_durable_and_
 
     let boundary_operation = admit_request(
         &repository,
+        client(),
         "rate-boundary",
         0x86,
         MycSignerRequestMethod::Connect,
@@ -495,12 +522,12 @@ async fn rate_windows_audit_pagination_retention_and_compaction_are_durable_and_
     .await;
     let boundary_request = connection_request(
         boundary_operation,
-        permission_set(&[MycConnectionPermission::Ping]),
+        permission_set(&[MycConnectionPermission::Nip44Encrypt]),
         11,
         0x88,
         200,
-        Some(1_000),
-        MycConnectionAdmissionPolicy::Trusted,
+        None,
+        MycConnectionAdmissionPolicy::ExplicitApproval,
     );
     assert!(matches!(
         repository
@@ -512,6 +539,7 @@ async fn rate_windows_audit_pagination_retention_and_compaction_are_durable_and_
 
     let reset_operation = admit_request(
         &repository,
+        client(),
         "rate-reset",
         0x89,
         MycSignerRequestMethod::Connect,
@@ -521,12 +549,12 @@ async fn rate_windows_audit_pagination_retention_and_compaction_are_durable_and_
     .await;
     let reset_request = connection_request(
         reset_operation,
-        permission_set(&[MycConnectionPermission::Ping]),
+        permission_set(&[MycConnectionPermission::Nip44Encrypt]),
         11,
         0x8b,
         201,
-        Some(1_000),
-        MycConnectionAdmissionPolicy::Trusted,
+        None,
+        MycConnectionAdmissionPolicy::ExplicitApproval,
     );
     assert!(matches!(
         repository
@@ -736,6 +764,7 @@ async fn challenge_creation_and_authorization_use_distinct_durable_rate_budgets(
     let repository = host.repository();
     let connect = admit_request(
         &repository,
+        trusted_client(),
         "distinct-rates-connect",
         0xa0,
         MycSignerRequestMethod::Connect,
@@ -746,7 +775,7 @@ async fn challenge_creation_and_authorization_use_distinct_durable_rate_budgets(
     let connection = repository
         .admit_connection(&connection_request(
             connect,
-            permission_set(&[MycConnectionPermission::Ping]),
+            permission_set(&[MycConnectionPermission::Nip44Encrypt]),
             17,
             0xa2,
             11,
@@ -762,6 +791,7 @@ async fn challenge_creation_and_authorization_use_distinct_durable_rate_budgets(
         .clone();
     let first_operation = admit_request(
         &repository,
+        trusted_client(),
         "distinct-rates-first",
         0xa3,
         MycSignerRequestMethod::Ping,
@@ -771,6 +801,7 @@ async fn challenge_creation_and_authorization_use_distinct_durable_rate_budgets(
     .await;
     let second_operation = admit_request(
         &repository,
+        trusted_client(),
         "distinct-rates-second",
         0xa5,
         MycSignerRequestMethod::Ping,
@@ -782,7 +813,7 @@ async fn challenge_creation_and_authorization_use_distinct_durable_rate_budgets(
         first_operation,
         connection.id(),
         policy_generation(17),
-        MycAuthorizationChallengeUrl::new("https://operator.example/first").expect("URL"),
+        MycAuthorizationChallengeUrl::new("https://myc.example.test/auth/challenge").expect("URL"),
         MycAuthorizationChallengeNonce::from_injected_entropy([0xa7; 32]),
         time(22),
         time(200),
@@ -792,7 +823,7 @@ async fn challenge_creation_and_authorization_use_distinct_durable_rate_budgets(
         second_operation,
         connection.id(),
         policy_generation(17),
-        MycAuthorizationChallengeUrl::new("https://operator.example/second").expect("URL"),
+        MycAuthorizationChallengeUrl::new("https://myc.example.test/auth/challenge").expect("URL"),
         MycAuthorizationChallengeNonce::from_injected_entropy([0xa8; 32]),
         time(23),
         time(200),
@@ -894,6 +925,7 @@ async fn connection_admission_and_operator_decisions_are_atomic_replay_safe_and_
 
     let trusted_operation = admit_request(
         &repository,
+        trusted_client(),
         "connect-trusted",
         0x10,
         MycSignerRequestMethod::Connect,
@@ -902,9 +934,49 @@ async fn connection_admission_and_operator_decisions_are_atomic_replay_safe_and_
     )
     .await;
     let requested = permission_set(&[
-        MycConnectionPermission::Ping,
+        MycConnectionPermission::Nip44Encrypt,
         MycConnectionPermission::SignEvent(1),
     ]);
+    let forged_unknown_policy = MycConnectionAdmissionRequest::new(
+        trusted_operation,
+        trusted_client(),
+        requested.clone(),
+        policy_generation(1),
+        MycConnectionNonce::from_injected_entropy([0x1e; 32]),
+        time(110),
+        None,
+        MycConnectionAdmissionPolicy::ExplicitApproval,
+        MycRateRelayId::new("primary").expect("relay ID"),
+    )
+    .expect("structurally valid forged policy");
+    assert_eq!(
+        repository
+            .admit_connection(&forged_unknown_policy)
+            .await
+            .expect_err("configuration decides trusted admission")
+            .kind(),
+        MycStateRepositoryErrorKind::Binding
+    );
+    let above_ceiling = MycConnectionAdmissionRequest::new(
+        trusted_operation,
+        trusted_client(),
+        permission_set(&[MycConnectionPermission::Ping]),
+        policy_generation(1),
+        MycConnectionNonce::from_injected_entropy([0x1d; 32]),
+        time(110),
+        Some(time(1_000)),
+        MycConnectionAdmissionPolicy::Trusted,
+        MycRateRelayId::new("primary").expect("relay ID"),
+    )
+    .expect("structurally valid permission expansion");
+    assert_eq!(
+        repository
+            .admit_connection(&above_ceiling)
+            .await
+            .expect_err("configuration permission ceiling")
+            .kind(),
+        MycStateRepositoryErrorKind::Binding
+    );
     assert_eq!(
         repository
             .admit_connection(&connection_request(
@@ -948,7 +1020,7 @@ async fn connection_admission_and_operator_decisions_are_atomic_replay_safe_and_
     let trusted_id = trusted_connection.id();
     assert_eq!(
         hex(trusted_id.as_bytes()),
-        "8819838c497a75152f7c1cd80b8e3bd7836fb84e002e62280f657a5f74903c5c"
+        "08a11316dac6cf56849f1b7e6e9a50ea4b3e577ee39ea18440c33a1c2ec22671"
     );
     let trusted_replay = repository
         .admit_connection(&connection_request(
@@ -978,6 +1050,7 @@ async fn connection_admission_and_operator_decisions_are_atomic_replay_safe_and_
 
     let pending_operation = admit_request(
         &repository,
+        client(),
         "connect-pending",
         0x12,
         MycSignerRequestMethod::Connect,
@@ -1007,7 +1080,25 @@ async fn connection_admission_and_operator_decisions_are_atomic_replay_safe_and_
         .connection()
         .expect("pending connection")
         .id();
-    let granted = permission_set(&[MycConnectionPermission::Ping]);
+    let granted = permission_set(&[MycConnectionPermission::Nip44Encrypt]);
+    assert_eq!(
+        repository
+            .decide_pending_connection(
+                pending_operation,
+                pending_id,
+                policy_generation(2),
+                time(130),
+                audit_correlation(0x6f),
+                MycConnectionOperatorDecision::Approve {
+                    granted_permissions: permission_set(&[MycConnectionPermission::Ping]),
+                    authorized_until: Some(time(900)),
+                },
+            )
+            .await
+            .expect_err("operator cannot expand the configured ceiling")
+            .kind(),
+        MycStateRepositoryErrorKind::Binding
+    );
     assert_eq!(
         repository
             .decide_pending_connection(
@@ -1083,6 +1174,7 @@ async fn connection_admission_and_operator_decisions_are_atomic_replay_safe_and_
 
     let operator_denied_operation = admit_request(
         &repository,
+        client(),
         "connect-operator-denied",
         0x16,
         MycSignerRequestMethod::Connect,
@@ -1137,6 +1229,7 @@ async fn connection_admission_and_operator_decisions_are_atomic_replay_safe_and_
 
     let denied_operation = admit_request(
         &repository,
+        denied_client(),
         "connect-denied",
         0x14,
         MycSignerRequestMethod::Connect,
@@ -1147,7 +1240,7 @@ async fn connection_admission_and_operator_decisions_are_atomic_replay_safe_and_
     let denied = repository
         .admit_connection(&connection_request(
             denied_operation,
-            requested.clone(),
+            permission_set(&[MycConnectionPermission::Ping]),
             3,
             0x24,
             141,
@@ -1170,7 +1263,7 @@ async fn connection_admission_and_operator_decisions_are_atomic_replay_safe_and_
     let denied_replay = repository
         .admit_connection(&connection_request(
             denied_operation,
-            requested,
+            permission_set(&[MycConnectionPermission::Ping]),
             3,
             0x25,
             142,
@@ -1194,7 +1287,7 @@ async fn connection_admission_and_operator_decisions_are_atomic_replay_safe_and_
     let mismatch = repository
         .admit_connection(&connection_request(
             denied_operation,
-            permission_set(&[MycConnectionPermission::Ping]),
+            permission_set(&[MycConnectionPermission::Nip44Encrypt]),
             3,
             0x26,
             143,
@@ -1234,6 +1327,165 @@ async fn connection_admission_and_operator_decisions_are_atomic_replay_safe_and_
 }
 
 #[tokio::test]
+async fn configured_denial_precedes_saturated_unknown_client_rate_windows() {
+    let directory = tempfile::tempdir().expect("temporary root");
+    let runtime = runtime(directory.path());
+    prepare_state_directory(&runtime);
+    let configuration = std::str::from_utf8(CONFIG_EXAMPLE)
+        .expect("UTF-8 configuration")
+        .replacen(
+            "[rate_limits.connection_admission]\nscope = \"global_and_relay\"\nwindow_ms = 60000\nmax_attempts = 10\nretention_ms = 3600000\nmaximum_tracked_subjects = 4096",
+            "[rate_limits.connection_admission]\nscope = \"global_and_relay\"\nwindow_ms = 100\nmax_attempts = 1\nretention_ms = 200\nmaximum_tracked_subjects = 8",
+            1,
+        );
+    let metadata = metadata_from_bytes(&runtime, configuration.as_bytes());
+    let (applied_at, build) = migration_evidence();
+    initialize_myc_state(&runtime, &metadata, applied_at, &build)
+        .await
+        .expect("state initialization");
+    let host = open_myc_state_read_write(&runtime, &metadata, applied_at, &build)
+        .await
+        .expect("writable host");
+    let repository = host.repository();
+
+    let first = admit_request(
+        &repository,
+        client(),
+        "unknown-first",
+        0xb0,
+        MycSignerRequestMethod::Connect,
+        0xb1,
+        100,
+    )
+    .await;
+    let second = admit_request(
+        &repository,
+        client(),
+        "unknown-second",
+        0xb2,
+        MycSignerRequestMethod::Connect,
+        0xb3,
+        100,
+    )
+    .await;
+    let denied = admit_request(
+        &repository,
+        denied_client(),
+        "configured-denial",
+        0xb4,
+        MycSignerRequestMethod::Connect,
+        0xb5,
+        100,
+    )
+    .await;
+    let trusted_first = admit_request(
+        &repository,
+        trusted_client(),
+        "trusted-first",
+        0xb9,
+        MycSignerRequestMethod::Connect,
+        0xba,
+        202,
+    )
+    .await;
+    let trusted_second = admit_request(
+        &repository,
+        trusted_client(),
+        "trusted-second",
+        0xbb,
+        MycSignerRequestMethod::Connect,
+        0xbc,
+        202,
+    )
+    .await;
+    let permissions = permission_set(&[MycConnectionPermission::Nip44Encrypt]);
+    assert!(matches!(
+        repository
+            .admit_connection(&connection_request(
+                first,
+                permissions.clone(),
+                1,
+                0xb6,
+                101,
+                None,
+                MycConnectionAdmissionPolicy::ExplicitApproval,
+            ))
+            .await
+            .expect("first unknown admission"),
+        MycConnectionAdmission::Admitted(_)
+    ));
+    assert!(matches!(
+        repository
+            .admit_connection(&connection_request(
+                second,
+                permissions,
+                1,
+                0xb7,
+                101,
+                None,
+                MycConnectionAdmissionPolicy::ExplicitApproval,
+            ))
+            .await
+            .expect("saturated unknown admission"),
+        MycConnectionAdmission::RateLimited
+    ));
+    assert!(matches!(
+        repository
+            .admit_connection(&connection_request(
+                trusted_first,
+                permission_set(&[MycConnectionPermission::Nip44Encrypt]),
+                1,
+                0xbd,
+                202,
+                Some(1_000),
+                MycConnectionAdmissionPolicy::Trusted,
+            ))
+            .await
+            .expect("first trusted admission in the next window"),
+        MycConnectionAdmission::Admitted(_)
+    ));
+    assert!(matches!(
+        repository
+            .admit_connection(&connection_request(
+                trusted_second,
+                permission_set(&[MycConnectionPermission::Nip44Encrypt]),
+                1,
+                0xbe,
+                202,
+                Some(1_000),
+                MycConnectionAdmissionPolicy::Trusted,
+            ))
+            .await
+            .expect("saturated trusted admission"),
+        MycConnectionAdmission::RateLimited
+    ));
+    let direct = repository
+        .admit_connection(&connection_request(
+            denied,
+            permission_set(&[MycConnectionPermission::Ping]),
+            1,
+            0xb8,
+            101,
+            None,
+            MycConnectionAdmissionPolicy::Denied,
+        ))
+        .await
+        .expect("configured denial bypasses unknown-client rate admission");
+    assert_eq!(
+        direct.record().expect("denial record").decision(),
+        myc::MycConnectionDecision::Denied
+    );
+    assert!(
+        direct
+            .record()
+            .expect("denial record")
+            .connection()
+            .is_none()
+    );
+    host.close().await.expect("host close");
+}
+
+#[tokio::test]
 async fn challenge_authorization_expiry_and_terminal_replay_remain_exactly_bound() {
     let directory = tempfile::tempdir().expect("temporary root");
     let runtime = runtime(directory.path());
@@ -1250,6 +1502,7 @@ async fn challenge_authorization_expiry_and_terminal_replay_remain_exactly_bound
 
     let connect_operation = admit_request(
         &repository,
+        trusted_client(),
         "connect-challenge",
         0x30,
         MycSignerRequestMethod::Connect,
@@ -1260,7 +1513,7 @@ async fn challenge_authorization_expiry_and_terminal_replay_remain_exactly_bound
     let connection = repository
         .admit_connection(&connection_request(
             connect_operation,
-            permission_set(&[MycConnectionPermission::Ping]),
+            permission_set(&[MycConnectionPermission::Nip44Encrypt]),
             7,
             0x32,
             201,
@@ -1277,6 +1530,7 @@ async fn challenge_authorization_expiry_and_terminal_replay_remain_exactly_bound
 
     let ping_operation = admit_request(
         &repository,
+        trusted_client(),
         "ping-challenge",
         0x33,
         MycSignerRequestMethod::Ping,
@@ -1288,7 +1542,7 @@ async fn challenge_authorization_expiry_and_terminal_replay_remain_exactly_bound
         ping_operation,
         connection.id(),
         policy_generation(7),
-        MycAuthorizationChallengeUrl::new("https://operator.example/").expect("URL"),
+        MycAuthorizationChallengeUrl::new("https://myc.example.test/auth/challenge").expect("URL"),
         MycAuthorizationChallengeNonce::from_injected_entropy([0x34; 32]),
         time(211),
         time(211),
@@ -1298,11 +1552,47 @@ async fn challenge_authorization_expiry_and_terminal_replay_remain_exactly_bound
         invalid_lifetime.kind(),
         MycConnectionStateErrorKind::InvalidChallengeLifetime
     );
+    let client_selected_url = MycAuthorizationChallengeRequest::new(
+        ping_operation,
+        connection.id(),
+        policy_generation(7),
+        MycAuthorizationChallengeUrl::new("https://attacker.example/redirect").expect("URL"),
+        MycAuthorizationChallengeNonce::from_injected_entropy([0x34; 32]),
+        time(211),
+        time(300),
+    )
+    .expect("structurally valid client-selected URL");
+    assert_eq!(
+        repository
+            .issue_authorization_challenge(&client_selected_url)
+            .await
+            .expect_err("only configured operator URL is authoritative")
+            .kind(),
+        MycStateRepositoryErrorKind::Binding
+    );
+    let excessive_pending_lifetime = MycAuthorizationChallengeRequest::new(
+        ping_operation,
+        connection.id(),
+        policy_generation(7),
+        MycAuthorizationChallengeUrl::new("https://myc.example.test/auth/challenge").expect("URL"),
+        MycAuthorizationChallengeNonce::from_injected_entropy([0x34; 32]),
+        time(211),
+        time(900_212),
+    )
+    .expect("structurally valid excessive pending lifetime");
+    assert_eq!(
+        repository
+            .issue_authorization_challenge(&excessive_pending_lifetime)
+            .await
+            .expect_err("configured pending lifetime is authoritative")
+            .kind(),
+        MycStateRepositoryErrorKind::Binding
+    );
     let challenge_request = MycAuthorizationChallengeRequest::new(
         ping_operation,
         connection.id(),
         policy_generation(7),
-        MycAuthorizationChallengeUrl::new("https://operator.example/authorize").expect("URL"),
+        MycAuthorizationChallengeUrl::new("https://myc.example.test/auth/challenge").expect("URL"),
         MycAuthorizationChallengeNonce::from_injected_entropy([0x35; 32]),
         time(211),
         time(300),
@@ -1312,7 +1602,7 @@ async fn challenge_authorization_expiry_and_terminal_replay_remain_exactly_bound
         ping_operation,
         connection.id(),
         policy_generation(7),
-        MycAuthorizationChallengeUrl::new("https://operator.example/authorize").expect("URL"),
+        MycAuthorizationChallengeUrl::new("https://myc.example.test/auth/challenge").expect("URL"),
         MycAuthorizationChallengeNonce::from_injected_entropy([0x34; 32]),
         time(209),
         time(300),
@@ -1341,14 +1631,14 @@ async fn challenge_authorization_expiry_and_terminal_replay_remain_exactly_bound
     let challenge_id = challenge.record().expect("challenge record").id();
     assert_eq!(
         hex(challenge_id.as_bytes()),
-        "b0f43d00c70db2bf058d461a2c1ac940ef52cfc76a4d271b7bbc89464fb25abb"
+        "9a85ce42301af50287626ddcf209a145a2742cf0ef178e44acf06108d1b86b29"
     );
 
     let replay_request = MycAuthorizationChallengeRequest::new(
         ping_operation,
         connection.id(),
         policy_generation(7),
-        MycAuthorizationChallengeUrl::new("https://operator.example/authorize").expect("URL"),
+        MycAuthorizationChallengeUrl::new("https://myc.example.test/auth/challenge").expect("URL"),
         MycAuthorizationChallengeNonce::from_injected_entropy([0x36; 32]),
         time(211),
         time(300),
@@ -1417,9 +1707,24 @@ async fn challenge_authorization_expiry_and_terminal_replay_remain_exactly_bound
         terminal_replay.record().expect("authorization record"),
         authorized.record().expect("authorization record")
     );
+    assert_eq!(
+        repository
+            .authorize_challenge(
+                challenge_id,
+                connection.id(),
+                ping_operation,
+                policy_generation(7),
+                time(3_600_301),
+            )
+            .await
+            .expect_err("authorized challenge lifetime is bounded by configuration")
+            .kind(),
+        MycStateRepositoryErrorKind::Binding
+    );
 
     let deadline_operation = admit_request(
         &repository,
+        trusted_client(),
         "ping-deadline",
         0x3a,
         MycSignerRequestMethod::Ping,
@@ -1431,7 +1736,7 @@ async fn challenge_authorization_expiry_and_terminal_replay_remain_exactly_bound
         deadline_operation,
         connection.id(),
         policy_generation(7),
-        MycAuthorizationChallengeUrl::new("https://operator.example/deadline").expect("URL"),
+        MycAuthorizationChallengeUrl::new("https://myc.example.test/auth/challenge").expect("URL"),
         MycAuthorizationChallengeNonce::from_injected_entropy([0x3c; 32]),
         time(416),
         time(440),
@@ -1461,6 +1766,7 @@ async fn challenge_authorization_expiry_and_terminal_replay_remain_exactly_bound
 
     let expiring_operation = admit_request(
         &repository,
+        trusted_client(),
         "ping-expiring",
         0x37,
         MycSignerRequestMethod::Ping,
@@ -1472,7 +1778,7 @@ async fn challenge_authorization_expiry_and_terminal_replay_remain_exactly_bound
         expiring_operation,
         connection.id(),
         policy_generation(7),
-        MycAuthorizationChallengeUrl::new("https://operator.example/expiry").expect("URL"),
+        MycAuthorizationChallengeUrl::new("https://myc.example.test/auth/challenge").expect("URL"),
         MycAuthorizationChallengeNonce::from_injected_entropy([0x39; 32]),
         time(451),
         time(600),

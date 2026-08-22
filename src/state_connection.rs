@@ -247,7 +247,7 @@ impl Error for MycConnectionStateError {}
 pub enum MycConnectionPermission {
     GetPublicKey,
     GetSessionCapability,
-    SignEvent(u16),
+    SignEvent(u32),
     Nip04Encrypt,
     Nip04Decrypt,
     Nip44Encrypt,
@@ -273,7 +273,7 @@ impl MycConnectionPermission {
         }
     }
 
-    fn parse(value: &str) -> Option<Self> {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         match value {
             "get_public_key" => Some(Self::GetPublicKey),
             "get_session_capability" => Some(Self::GetSessionCapability),
@@ -286,7 +286,7 @@ impl MycConnectionPermission {
             "logout" => Some(Self::Logout),
             _ => value
                 .strip_prefix("sign_event:kind:")
-                .and_then(|kind| kind.parse::<u16>().ok().map(|parsed| (kind, parsed)))
+                .and_then(|kind| kind.parse::<u32>().ok().map(|parsed| (kind, parsed)))
                 .filter(|(kind, parsed)| *kind == parsed.to_string())
                 .map(|(_, parsed)| Self::SignEvent(parsed)),
         }
@@ -332,7 +332,7 @@ impl MycConnectionPermissionSet {
         &self.digest
     }
 
-    fn is_subset_of(&self, other: &Self) -> bool {
+    pub(crate) fn is_subset_of(&self, other: &Self) -> bool {
         self.permissions
             .iter()
             .all(|permission| other.permissions.binary_search(permission).is_ok())
@@ -579,6 +579,26 @@ impl MycConnectionAdmissionRequest {
             policy: self.policy,
             relay_id: self.relay_id.clone(),
         }
+    }
+
+    pub(crate) const fn client_public_key(&self) -> &MycNip46ClientPublicKey {
+        &self.client_public_key
+    }
+
+    pub(crate) const fn requested_permissions(&self) -> &MycConnectionPermissionSet {
+        &self.requested_permissions
+    }
+
+    pub(crate) const fn observed_at(&self) -> MycConnectionTimeUnixMs {
+        self.observed_at
+    }
+
+    pub(crate) const fn authorized_until(&self) -> Option<MycConnectionTimeUnixMs> {
+        self.authorized_until
+    }
+
+    pub(crate) const fn policy(&self) -> MycConnectionAdmissionPolicy {
+        self.policy
     }
 }
 
@@ -868,6 +888,18 @@ impl MycAuthorizationChallengeRequest {
             expires_at: self.expires_at,
         }
     }
+
+    pub(crate) const fn url(&self) -> &MycAuthorizationChallengeUrl {
+        &self.url
+    }
+
+    pub(crate) const fn issued_at(&self) -> MycConnectionTimeUnixMs {
+        self.issued_at
+    }
+
+    pub(crate) const fn expires_at(&self) -> MycConnectionTimeUnixMs {
+        self.expires_at
+    }
 }
 
 impl fmt::Debug for MycAuthorizationChallengeRequest {
@@ -1029,15 +1061,18 @@ impl MycStateRepository<'_> {
         &self,
         request: &MycConnectionAdmissionRequest,
     ) -> Result<MycConnectionAdmission, MycStateRepositoryError> {
-        if !self.expected().admits_rate_relay(&request.relay_id) {
+        if !self.expected().admits_rate_relay(&request.relay_id)
+            || !self.expected().admits_connection_request(request)
+        {
             return Err(MycStateRepositoryError::new(
                 MycStateRepositoryErrorKind::Binding,
             ));
         }
         let request = request.owned();
-        let rate_policy = self
-            .expected()
-            .governance_rate_policy(MycRateLimitClass::ConnectionAdmission);
+        let rate_policy = (request.policy != MycConnectionAdmissionPolicy::Denied).then(|| {
+            self.expected()
+                .governance_rate_policy(MycRateLimitClass::ConnectionAdmission)
+        });
         let expected = PersistedMetadata::from(self.expected());
         self.host()
             .transaction(move |transaction| {
@@ -1060,6 +1095,14 @@ impl MycStateRepository<'_> {
         audit_correlation: MycAuditCorrelationId,
         decision: MycConnectionOperatorDecision,
     ) -> Result<MycConnectionRecord, MycStateRepositoryError> {
+        if !self
+            .expected()
+            .admits_connection_operator_decision(observed_at, &decision)
+        {
+            return Err(MycStateRepositoryError::new(
+                MycStateRepositoryErrorKind::Binding,
+            ));
+        }
         let expected = PersistedMetadata::from(self.expected());
         self.host()
             .transaction(move |transaction| {
@@ -1138,6 +1181,14 @@ impl MycStateRepository<'_> {
         &self,
         request: &MycAuthorizationChallengeRequest,
     ) -> Result<MycAuthorizationChallengeAdmission, MycStateRepositoryError> {
+        if !self
+            .expected()
+            .admits_authorization_challenge_request(request)
+        {
+            return Err(MycStateRepositoryError::new(
+                MycStateRepositoryErrorKind::Binding,
+            ));
+        }
         let request = request.owned();
         let rate_policy = self
             .expected()
@@ -1167,7 +1218,8 @@ impl MycStateRepository<'_> {
             .expected()
             .governance_rate_policy(MycRateLimitClass::ChallengeAuthorization);
         let expected = PersistedMetadata::from(self.expected());
-        self.host()
+        let result = self
+            .host()
             .transaction(move |transaction| {
                 Box::pin(async move {
                     verify_metadata(transaction, &expected).await?;
@@ -1184,7 +1236,18 @@ impl MycStateRepository<'_> {
                 })
             })
             .await
-            .map_err(map_transaction_error)
+            .map_err(map_transaction_error)?;
+        if result.record().is_some_and(|record| {
+            record.state() == MycAuthorizationChallengeState::Authorized
+                && !self
+                    .expected()
+                    .authorization_challenge_is_current(record, observed_at)
+        }) {
+            return Err(MycStateRepositoryError::new(
+                MycStateRepositoryErrorKind::Binding,
+            ));
+        }
+        Ok(result)
     }
 }
 
@@ -1237,7 +1300,7 @@ async fn verify_metadata(
 async fn admit_connection(
     transaction: &mut ServiceSqliteTransaction<'_>,
     request: &MycConnectionAdmissionRequest,
-    rate_policy: MycRateLimitPolicy,
+    rate_policy: Option<MycRateLimitPolicy>,
 ) -> Result<MycConnectionAdmission, ConnectionOperationError> {
     let binding = read_request_binding(transaction, request.operation_id).await?;
     if binding.client_public_key != request.client_public_key
@@ -1268,16 +1331,17 @@ async fn admit_connection(
         occurred_at: request.observed_at,
         operation_id: Some(request.operation_id),
     };
-    if !govern_rate_attempt(
-        transaction,
-        rate_policy,
-        MycRateLimitClass::ConnectionAdmission,
-        &[global_subject(), relay_subject(&request.relay_id)],
-        evidence,
-        MycAuditKind::ConnectionAdmission,
-    )
-    .await
-    .map_err(map_governance_error)?
+    if let Some(rate_policy) = rate_policy
+        && !govern_rate_attempt(
+            transaction,
+            rate_policy,
+            MycRateLimitClass::ConnectionAdmission,
+            &[global_subject(), relay_subject(&request.relay_id)],
+            evidence,
+            MycAuditKind::ConnectionAdmission,
+        )
+        .await
+        .map_err(map_governance_error)?
     {
         return Ok(MycConnectionAdmission::RateLimited);
     }
@@ -1729,7 +1793,8 @@ async fn authorize_challenge(
         || connection
             .authorized_until
             .is_some_and(|until| until < observed_at);
-    let (state, decision, reason) = if observed_at > before.expires_at || connection_expired {
+    let expired = observed_at > before.expires_at || connection_expired;
+    let (state, decision, reason) = if expired {
         (
             MycAuthorizationChallengeState::Expired,
             MycConnectionDecision::Denied,

@@ -11,6 +11,11 @@ use radroots_service_sqlite::{
 use radroots_storage::event::SourceGeneration;
 use sha2::{Digest, Sha256};
 
+use crate::nip46_authorization::MycConnectionPolicies;
+use crate::state_connection::{
+    MycAuthorizationChallengeRecord, MycAuthorizationChallengeRequest,
+    MycConnectionAdmissionRequest, MycConnectionOperatorDecision, MycConnectionTimeUnixMs,
+};
 use crate::state_delivery::{MycDeliveryPolicies, MycDeliveryPolicyMode, MycDeliveryRelayId};
 use crate::state_discovery::MycDiscoveryPolicies;
 use crate::state_governance::{
@@ -174,6 +179,7 @@ pub struct MycStateMetadata {
     configuration: MycNormalizedConfigDigest,
     identities: MycExpectedIdentities,
     governance: MycGovernancePolicies,
+    authorization: MycConnectionPolicies,
     delivery: MycDeliveryPolicies,
     discovery: Option<MycDiscoveryPolicies>,
     policy_versions: MycStatePolicyVersions,
@@ -214,6 +220,13 @@ impl MycStateMetadata {
         );
         let normalized = configuration.normalized();
         let governance = governance_policies(normalized)?;
+        let authorization = MycConnectionPolicies::from_normalized(normalized)
+            .map_err(|_| MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant))?;
+        if !authorization.retention_is_bounded() {
+            return Err(MycStateMetadataError::new(
+                MycStateMetadataErrorKind::Invariant,
+            ));
+        }
         let identities = expected_identities(normalized)?;
         let delivery = delivery_policies(normalized)?;
         let discovery = MycDiscoveryPolicies::from_normalized(normalized, &identities)
@@ -239,6 +252,7 @@ impl MycStateMetadata {
             configuration,
             identities,
             governance,
+            authorization,
             delivery,
             discovery,
             policy_versions,
@@ -288,6 +302,37 @@ impl MycStateMetadata {
 
     pub(crate) const fn governance_audit_retention_ms(&self) -> u64 {
         self.governance.audit_retention_ms()
+    }
+
+    pub(crate) fn admits_connection_request(
+        &self,
+        request: &MycConnectionAdmissionRequest,
+    ) -> bool {
+        self.authorization.admits_connection_request(request)
+    }
+
+    pub(crate) fn admits_connection_operator_decision(
+        &self,
+        observed_at: MycConnectionTimeUnixMs,
+        decision: &MycConnectionOperatorDecision,
+    ) -> bool {
+        self.authorization
+            .admits_operator_decision(observed_at, decision)
+    }
+
+    pub(crate) fn admits_authorization_challenge_request(
+        &self,
+        request: &MycAuthorizationChallengeRequest,
+    ) -> bool {
+        self.authorization.admits_challenge_request(request)
+    }
+
+    pub(crate) fn authorization_challenge_is_current(
+        &self,
+        record: &MycAuthorizationChallengeRecord,
+        observed_at: MycConnectionTimeUnixMs,
+    ) -> bool {
+        self.authorization.challenge_is_current(record, observed_at)
     }
 
     pub(crate) const fn delivery_policies(&self) -> &MycDeliveryPolicies {

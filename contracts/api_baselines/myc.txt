@@ -131,7 +131,7 @@ pub myc::MycConnectionPermission::Nip04Encrypt
 pub myc::MycConnectionPermission::Nip44Decrypt
 pub myc::MycConnectionPermission::Nip44Encrypt
 pub myc::MycConnectionPermission::Ping
-pub myc::MycConnectionPermission::SignEvent(u16)
+pub myc::MycConnectionPermission::SignEvent(u32)
 pub myc::MycConnectionPermission::SwitchRelays
 pub enum myc::MycConnectionStateErrorKind
 pub myc::MycConnectionStateErrorKind::InvalidChallengeLifetime

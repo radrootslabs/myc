@@ -4,6 +4,7 @@
 mod cli_v1;
 mod config_v1;
 mod nip46_admission;
+mod nip46_authorization;
 mod nip46_replay;
 mod nip46_verification;
 mod provider_contract;
