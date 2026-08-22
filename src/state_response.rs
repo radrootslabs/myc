@@ -236,14 +236,14 @@ impl MycNip46ResponseCommitRequest {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) fn fail_after_completion_for_test(&self) -> Self {
         let mut request = self.owned();
         request.fail_after_completion = true;
         request
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) fn fail_after_response_for_test(&self) -> Self {
         let mut request = self.owned();
         request.fail_after_response = true;

@@ -4,12 +4,12 @@ use core::fmt;
 use std::error::Error;
 
 use radroots_service_sqlite::ServiceSqliteTransaction;
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 use radroots_service_sqlite::{ServiceSqliteTransactionError, ServiceSqliteTransactionErrorKind};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 use crate::state_repository::{
     MycStateRepository, MycStateRepositoryError, MycStateRepositoryErrorKind, PersistedMetadata,
     RepositoryOperationError, require_expected_metadata,
@@ -311,7 +311,7 @@ impl MycNip46CommitRequest {
         })
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) fn fail_after_session_effect_for_test(mut self) -> Self {
         self.fail_after_session_effect = true;
         self
@@ -410,7 +410,7 @@ impl fmt::Debug for MycNip46CommitAdmission {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 impl MycStateRepository<'_> {
     /// Atomically records the Step 147 completion component.
     ///
@@ -814,7 +814,7 @@ fn require_one(rows: u64) -> Result<(), CommitOperationError> {
         .ok_or(CommitOperationError::Storage)
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 const fn map_repository_error(error: RepositoryOperationError) -> CommitOperationError {
     match error {
         RepositoryOperationError::Binding => CommitOperationError::Binding,
@@ -822,7 +822,7 @@ const fn map_repository_error(error: RepositoryOperationError) -> CommitOperatio
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 fn map_transaction_error(
     error: ServiceSqliteTransactionError<CommitOperationError>,
 ) -> MycStateRepositoryError {

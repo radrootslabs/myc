@@ -454,6 +454,12 @@ fn step146_first_wave_gate_is_machine_bound_and_test_only() {
 
 #[test]
 fn step150_admin_adapter_is_closed_typed_and_transport_bounded() {
+    assert!(
+        ROOT.contains("#[cfg(any(target_os = \"linux\", target_os = \"macos\"))]\nmod admin_v1;")
+    );
+    assert!(ROOT.contains(
+        "#[cfg(any(target_os = \"linux\", target_os = \"macos\"))]\npub use admin_v1::{"
+    ));
     for required in [
         "pub const ALL: [Self; 21]",
         "models.len() == 35",

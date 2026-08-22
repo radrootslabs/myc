@@ -302,7 +302,7 @@ pub struct MycNip46Work {
 }
 
 impl MycNip46Work {
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) fn local_for_test(
         request: MycSignerRequestRecord,
         connection: MycConnectionRecord,

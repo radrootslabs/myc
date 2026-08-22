@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 #![doc = include_str!("../README")]
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod admin_v1;
 mod cli_v1;
 mod config_v1;
@@ -34,6 +35,7 @@ mod state_repository;
 mod state_request;
 mod state_response;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub use admin_v1::{
     MycAdminDocumentError, MycAdminDocumentErrorKind, MycAdminFuture, MycAdminHandler,
     MycAdminHandlerError, MycAdminHandlerErrorKind, MycAdminMethod, MycAdminRequestDocument,
