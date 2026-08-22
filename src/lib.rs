@@ -7,6 +7,8 @@ mod nip46_admission;
 mod nip46_authorization;
 mod nip46_replay;
 mod nip46_verification;
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod nip46_wave_080_a;
 mod nip46_work;
 mod provider_contract;
 mod provider_credential;

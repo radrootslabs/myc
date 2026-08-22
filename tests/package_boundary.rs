@@ -9,6 +9,7 @@ const NIP46_VERIFICATION: &str = include_str!("../src/nip46_verification.rs");
 const NIP46_AUTHORIZATION: &str = include_str!("../src/nip46_authorization.rs");
 const NIP46_REPLAY: &str = include_str!("../src/nip46_replay.rs");
 const NIP46_WORK: &str = include_str!("../src/nip46_work.rs");
+const NIP46_WAVE_080_A: &str = include_str!("../src/nip46_wave_080_a.rs");
 const NIP46_VERIFICATION_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_verification.v1.json");
 const NIP46_REPLAY_CONTRACT: &str =
@@ -17,6 +18,8 @@ const NIP46_AUTHORIZATION_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_authorization.v1.json");
 const NIP46_WORK_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_work.v1.json");
+const NIP46_WAVE_080_A_CONTRACT: &str =
+    include_str!("../contracts/services_hardening/nip46_wave_080_a.v1.json");
 const SOURCES: &[&str] = &[
     include_str!("../src/cli_v1.rs"),
     include_str!("../src/config_v1.rs"),
@@ -59,6 +62,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "nip46_replay",
             "nip46_verification",
             "nip46_work",
+            "nip46_wave_080_a",
             "provider_contract",
             "provider_credential",
             "provider_envelope",
@@ -145,6 +149,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "nip46_replay",
         "nip46_verification",
         "nip46_work",
+        "nip46_wave_080_a",
         "provider_contract",
         "provider_credential",
         "provider_envelope",
@@ -228,6 +233,51 @@ fn step145_work_is_exactly_bound_and_transaction_free() {
         assert!(
             NIP46_WORK_CONTRACT.contains(required),
             "Step 145 contract is missing `{required}`"
+        );
+    }
+}
+
+#[test]
+fn step146_first_wave_gate_is_machine_bound_and_test_only() {
+    for required in [
+        "radroots.myc.nip46-wave-080-a.v1",
+        "nip04_ping_full_pipeline",
+        "nip44_ping_full_pipeline",
+        "nip44_connect_durable_approval",
+        "nip44_sign_event_provider_work",
+        "wrong_event_provider_response",
+        "wrong_outer_provider_correlation",
+        "late_provider_response",
+        "wrong_provider_result_shape",
+        "conflicting_request_id_reuse",
+        "configured_connection_admission_rate_window",
+        "existing_myc_state_repository",
+        "existing_service_sqlite_transaction_runner",
+        "\"complete_after_step\": 146",
+        "\"rcld_promotion_owner\": 151",
+    ] {
+        assert!(
+            NIP46_WAVE_080_A_CONTRACT.contains(required),
+            "Step 146 corpus is missing `{required}`"
+        );
+    }
+    assert!(ROOT.contains(
+        "#[cfg(all(test, any(target_os = \"linux\", target_os = \"macos\")))]\nmod nip46_wave_080_a;"
+    ));
+    for forbidden in [
+        "RelayPool",
+        ".publish(",
+        "tokio::spawn",
+        "std::time::SystemTime",
+        "Timestamp::now",
+        "rand::",
+        "getrandom",
+        "SqlitePool",
+        "SqliteConnection",
+    ] {
+        assert!(
+            !NIP46_WAVE_080_A.contains(forbidden),
+            "Step 146 gate gained forbidden authority `{forbidden}`"
         );
     }
 }

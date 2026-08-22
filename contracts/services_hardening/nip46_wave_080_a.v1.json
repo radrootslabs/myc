@@ -1,0 +1,61 @@
+{
+  "schema": "radroots.myc.nip46-wave-080-a.v1",
+  "contract_version": 1,
+  "steps": [141, 142, 143, 144, 145, 146],
+  "positive_corpus": [
+    "nip04_ping_full_pipeline",
+    "nip44_ping_full_pipeline",
+    "nip44_connect_durable_approval",
+    "nip44_sign_event_provider_work"
+  ],
+  "negative_corpus": [
+    "wrong_event_provider_response",
+    "wrong_outer_provider_correlation",
+    "late_provider_response",
+    "wrong_provider_result_shape",
+    "conflicting_request_id_reuse"
+  ],
+  "replay": {
+    "exact_request": "idempotent_durable_record",
+    "conflicting_request_id": "durable_conflicting_reuse",
+    "cross_event_provider_response": "rejected_before_plaintext_admission"
+  },
+  "saturation": {
+    "authority": "configured_connection_admission_rate_window",
+    "configured_max_attempts": 2,
+    "exact_boundary": "admitted",
+    "just_over_boundary": "rate_limited_without_connection"
+  },
+  "integration_order": [
+    "bounded_event",
+    "cryptographic_event_verification",
+    "provider_decrypt_work",
+    "independent_provider_result_verification",
+    "bounded_plaintext_request",
+    "replay_binding",
+    "durable_request_admission",
+    "connection_authorization",
+    "provider_work_construction"
+  ],
+  "authority": {
+    "state": "existing_myc_state_repository",
+    "sqlite": "existing_service_sqlite_transaction_runner",
+    "time": "injected",
+    "entropy": "injected",
+    "provider_execution": "not_performed",
+    "relay_io": "not_performed"
+  },
+  "gate": {
+    "wave": "080-a",
+    "complete_after_step": 146,
+    "rcld_promotion_owner": 151
+  },
+  "nonclaims": [
+    "response_commit",
+    "outbox_creation",
+    "relay_publication",
+    "rcld_promotion",
+    "nix",
+    "oci"
+  ]
+}
