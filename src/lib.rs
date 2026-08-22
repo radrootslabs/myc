@@ -5,6 +5,7 @@
 mod admin_v1;
 mod cli_v1;
 mod config_v1;
+mod diagnostics_v1;
 mod doctor_v1;
 mod nip46_admission;
 mod nip46_authorization;
@@ -55,6 +56,10 @@ pub use config_v1::{
     MYC_CONFIG_DOCUMENT_MAX_UTF8_BYTES, MYC_CONFIG_SCHEMA, MYC_CONFIG_SCHEMA_VERSION,
     MycConfigDocumentV1, MycConfigProfile, MycConfigV1Error, MycConfigV1ErrorKind,
     MycConfigValueSource, MycEffectiveConfigV1, parse_myc_config_v1,
+};
+pub use diagnostics_v1::{
+    MYC_DIAGNOSTICS_CONTRACT_VERSION, MYC_LOG_RECORD_MAX_UTF8_BYTES, MycLogEvent, MycLogLevel,
+    MycLogRecord, MycProcessResult,
 };
 pub use doctor_v1::{
     MYC_DOCTOR_CHECK_COUNT, MYC_DOCTOR_CONTRACT_VERSION, MYC_DOCTOR_REPORT_MAX_UTF8_BYTES,

@@ -248,6 +248,11 @@
 - Keep logs as safe structured stderr output. Keep result data on stdout and
   diagnostics on stderr. Use stable bounded public codes and messages, bounded
   metric labels, and explicit redaction.
+- Emit only the sealed `MycLogRecord` vocabulary. Do not log caller text, raw
+  errors or sources, paths, SQL, relay URLs, identifiers, credentials,
+  protected content, or decrypted payloads. Keep the exact 0-6 process result
+  mapping synchronized with the operator contract; do not call process exit
+  from library code or add file logging.
 - Backup and restore must preserve lock, manifest, integrity, schema, service,
   instance, identity, permission, fsync, atomic-rename, and protected-material
   exclusion invariants.

@@ -15,6 +15,10 @@ const NIP46_COMPLETION: &str = include_str!("../src/state_completion.rs");
 const NIP46_RESPONSE: &str = include_str!("../src/state_response.rs");
 const DELIVERY_RECOVERY: &str = include_str!("../src/state_recovery.rs");
 const DOCTOR_V1: &str = include_str!("../src/doctor_v1.rs");
+const DIAGNOSTICS_V1: &str = include_str!("../src/diagnostics_v1.rs");
+const DIAGNOSTICS_CONTRACT: &str =
+    include_str!("../contracts/services_hardening/diagnostics.v1.json");
+const MAIN: &str = include_str!("../src/main.rs");
 const STATUS_V1: &str = include_str!("../src/status_v1.rs");
 const STATUS_CONTRACT: &str = include_str!("../contracts/services_hardening/status_cache.v1.json");
 const OPERATIONS_V1: &str = include_str!("../src/operations_v1.rs");
@@ -42,6 +46,7 @@ const SOURCES: &[&str] = &[
     include_str!("../src/cli_v1.rs"),
     include_str!("../src/config_v1.rs"),
     include_str!("../src/doctor_v1.rs"),
+    include_str!("../src/diagnostics_v1.rs"),
     include_str!("../src/nip46_admission.rs"),
     include_str!("../src/nip46_authorization.rs"),
     include_str!("../src/nip46_replay.rs"),
@@ -83,6 +88,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "cli_v1",
             "config_v1",
             "doctor_v1",
+            "diagnostics_v1",
             "nip46_admission",
             "nip46_authorization",
             "nip46_replay",
@@ -138,6 +144,10 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub enum myc::MycCliAdminOperationV1",
         "pub const fn myc::plan_myc_cli_v1",
         "pub struct myc::MycDoctorReport",
+        "pub struct myc::MycLogRecord",
+        "pub enum myc::MycLogEvent",
+        "pub enum myc::MycLogLevel",
+        "pub enum myc::MycProcessResult",
         "pub struct myc::MycDoctorCheckDefinition",
         "pub struct myc::MycDoctorCheckResult",
         "pub enum myc::MycDoctorCheckId",
@@ -231,6 +241,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "cli_v1",
         "config_v1",
         "doctor_v1",
+        "diagnostics_v1",
         "nip46_admission",
         "nip46_authorization",
         "nip46_replay",
@@ -418,6 +429,52 @@ fn doctor_boundary_is_closed_bounded_and_dependency_neutral() {
     ] {
         assert!(!DOCTOR_V1.contains(forbidden), "found `{forbidden}`");
     }
+}
+
+#[test]
+fn step156_diagnostics_are_closed_stderr_only_and_whole_chain_redacted() {
+    let contract: serde_json::Value =
+        serde_json::from_str(DIAGNOSTICS_CONTRACT).expect("Step 156 diagnostics contract");
+    assert_eq!(contract["schema"], "radroots.myc.diagnostics.v1");
+    assert_eq!(contract["contract_version"], 1);
+    assert_eq!(contract["step"], 156);
+    assert_eq!(contract["stream_policy"]["result_data"], "stdout");
+    assert_eq!(contract["stream_policy"]["logs_and_diagnostics"], "stderr");
+    assert_eq!(contract["public_error_policy"]["error_source"], "none");
+    for required in [
+        "MYC_LOG_RECORD_MAX_UTF8_BYTES: usize = 512",
+        "Self::Success => 0",
+        "Self::DoctorRequiredCheckFailed => 6",
+        "formatter.write_str(\"}\")",
+        "MycLogRecord::process_result(result)",
+    ] {
+        assert!(
+            DIAGNOSTICS_V1.contains(required) || MAIN.contains(required),
+            "Step 156 implementation is missing `{required}`"
+        );
+    }
+    assert!(MAIN.contains("eprintln!(\"{}\", MycLogRecord::process_result(result))"));
+    for forbidden in [
+        "process::exit",
+        "{error}",
+        "source()",
+        "raw_error",
+        "std::fs::",
+        "sqlx::",
+        "SystemTime",
+    ] {
+        assert!(
+            !DIAGNOSTICS_V1.contains(forbidden) && !MAIN.contains(forbidden),
+            "Step 156 diagnostic boundary gained `{forbidden}`"
+        );
+    }
+    assert!(
+        !MAIN
+            .lines()
+            .any(|line| line.trim_start().starts_with("println!("))
+    );
+    assert!(!SOURCES.join("\n").contains("fn source("));
+    assert!(!PUBLIC_API.contains("std::io::Error"));
 }
 
 #[test]

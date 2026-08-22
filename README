@@ -108,6 +108,17 @@ disabled unless the validated configuration explicitly enables and binds it,
 and its parser floor, headers, response, concurrency, deadline, and idle bounds
 remain enforced by the shared server.
 
+Process outcomes use one exact seven-value vocabulary with exit codes 0
+through 6. Diagnostics are compact single-line JSON on stderr; result data is
+reserved for stdout, and Myc never writes log files. The structured record
+admits only the closed level, event, result, lifecycle, task-failure, and signal
+codes. It accepts no caller text, path, SQL, raw cause, identity, relay URL,
+credential, secret, or decrypted content. Every public Myc error remains a
+crate-owned source-free classification, so ordinary `Display`, `Debug`, and
+whole-chain traversal cannot bypass redaction. Current binary dispatch reports
+invalid input as exit 2 and the intentionally unavailable later executor as
+exit 3; Steps 158 and 159 own real daemon/task/signal execution.
+
 `parse_myc_config_v1` caps original bytes before decoding, checks the schema
 header before closed contract admission, rejects duplicate, null, unknown, and
 semantically inconsistent input, and returns an immutable document plus a

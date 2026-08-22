@@ -395,6 +395,22 @@ pub myc::MycLocalSignerTransportErrorKind::Transport
 pub myc::MycLocalSignerTransportErrorKind::UnsupportedPlatform
 impl myc::MycLocalSignerTransportErrorKind
 pub const fn myc::MycLocalSignerTransportErrorKind::code(self) -> &'static str
+pub enum myc::MycLogEvent
+pub myc::MycLogEvent::CriticalTaskFailed
+pub myc::MycLogEvent::Lifecycle
+pub myc::MycLogEvent::ProcessResult
+pub myc::MycLogEvent::ShutdownForced
+pub myc::MycLogEvent::ShutdownRequested
+impl myc::MycLogEvent
+pub const fn myc::MycLogEvent::as_str(self) -> &'static str
+pub enum myc::MycLogLevel
+pub myc::MycLogLevel::Debug
+pub myc::MycLogLevel::Error
+pub myc::MycLogLevel::Info
+pub myc::MycLogLevel::Trace
+pub myc::MycLogLevel::Warn
+impl myc::MycLogLevel
+pub const fn myc::MycLogLevel::as_str(self) -> &'static str
 pub enum myc::MycNip05ExportSelection
 pub myc::MycNip05ExportSelection::Current
 pub myc::MycNip05ExportSelection::Desired
@@ -499,6 +515,18 @@ pub myc::MycPersistenceHealthV1::ReadOnly
 pub myc::MycPersistenceHealthV1::Ready
 pub myc::MycPersistenceHealthV1::RepairRequired
 pub myc::MycPersistenceHealthV1::Unavailable
+pub enum myc::MycProcessResult
+pub myc::MycProcessResult::DoctorRequiredCheckFailed
+pub myc::MycProcessResult::InputOrConfiguration
+pub myc::MycProcessResult::OperationRejectedOrConflict
+pub myc::MycProcessResult::ServiceOrDependencyUnavailable
+pub myc::MycProcessResult::StateOrIdentityUnavailable
+pub myc::MycProcessResult::Success
+pub myc::MycProcessResult::UnexpectedInternal
+impl myc::MycProcessResult
+pub const fn myc::MycProcessResult::code(self) -> &'static str
+pub fn myc::MycProcessResult::exit_code(self) -> std::process::ExitCode
+pub const fn myc::MycProcessResult::exit_code_u8(self) -> u8
 pub enum myc::MycProviderCapability
 pub myc::MycProviderCapability::Describe
 pub myc::MycProviderCapability::Nip04Decrypt
@@ -1249,6 +1277,21 @@ impl myc::MycLocalSignerUntrustedResponse
 pub fn myc::MycLocalSignerUntrustedResponse::verify(self, &myc::MycProviderBinding, &myc::MycProviderOperation, myc::MycProviderResponseObservedAtUnixMs) -> core::result::Result<myc::MycVerifiedProviderResponse, myc::MycProviderVerificationError>
 impl core::fmt::Debug for myc::MycLocalSignerUntrustedResponse
 pub fn myc::MycLocalSignerUntrustedResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycLogRecord
+impl myc::MycLogRecord
+pub const fn myc::MycLogRecord::code(&self) -> &'static str
+pub const fn myc::MycLogRecord::critical_task_failed() -> Self
+pub const fn myc::MycLogRecord::event(&self) -> myc::MycLogEvent
+pub const fn myc::MycLogRecord::level(&self) -> myc::MycLogLevel
+pub const fn myc::MycLogRecord::lifecycle(myc::MycServicePhase) -> Self
+pub const fn myc::MycLogRecord::process_exit(&self) -> core::option::Option<myc::MycProcessResult>
+pub const fn myc::MycLogRecord::process_result(myc::MycProcessResult) -> Self
+pub const fn myc::MycLogRecord::shutdown_forced() -> Self
+pub const fn myc::MycLogRecord::shutdown_requested() -> Self
+impl core::fmt::Debug for myc::MycLogRecord
+pub fn myc::MycLogRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycLogRecord
+pub fn myc::MycLogRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycNip05Document
 impl myc::MycNip05Document
 pub fn myc::MycNip05Document::bytes(&self) -> &[u8]
@@ -1926,6 +1969,7 @@ pub const myc::MYC_DELIVERY_RELAY_ID_MAX_BYTES: usize
 pub const myc::MYC_DELIVERY_RETRY_JITTER_MAX_MS: u64
 pub const myc::MYC_DELIVERY_TARGET_MAX_COUNT: usize
 pub const myc::MYC_DETAILED_STATUS_MAX_UTF8_BYTES: usize
+pub const myc::MYC_DIAGNOSTICS_CONTRACT_VERSION: u32
 pub const myc::MYC_DISCOVERY_DOCUMENT_MAX_BYTES: usize
 pub const myc::MYC_DOCTOR_CHECK_COUNT: usize
 pub const myc::MYC_DOCTOR_CONTRACT_VERSION: u32
@@ -1937,6 +1981,7 @@ pub const myc::MYC_ENCRYPTED_IDENTITY_ENVELOPE_MAX_BYTES: usize
 pub const myc::MYC_LIVEZ_PATH: &str
 pub const myc::MYC_LOCAL_SIGNER_ENDPOINT: &str
 pub const myc::MYC_LOCAL_SIGNER_TRANSPORT_CONTRACT_VERSION: u32
+pub const myc::MYC_LOG_RECORD_MAX_UTF8_BYTES: usize
 pub const myc::MYC_METRICS_PATH: &str
 pub const myc::MYC_MIGRATION_CATALOG_SHA256: [u8; 32]
 pub const myc::MYC_NIP05_DOCUMENT_MAX_BYTES: usize

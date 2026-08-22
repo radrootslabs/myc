@@ -1,0 +1,61 @@
+{
+  "schema": "radroots.myc.diagnostics.v1",
+  "contract_version": 1,
+  "step": 156,
+  "stream_policy": {
+    "result_data": "stdout",
+    "logs_and_diagnostics": "stderr",
+    "file_logging": false
+  },
+  "log_record": {
+    "schema": "radroots.myc.log.v1",
+    "maximum_utf8_bytes_excluding_newline": 512,
+    "field_order": ["schema", "contract_version", "service", "level", "event", "code", "exit_code"],
+    "service": "myc",
+    "levels": ["trace", "debug", "info", "warn", "error"],
+    "events": ["process_result", "lifecycle", "critical_task_failed", "shutdown_requested", "shutdown_forced"],
+    "caller_controlled_text": false,
+    "timestamp": "not_owned_by_this_record",
+    "newline": "stderr_writer_owned"
+  },
+  "exit_codes": [
+    { "code": 0, "name": "success" },
+    { "code": 1, "name": "unexpected_internal" },
+    { "code": 2, "name": "input_or_configuration" },
+    { "code": 3, "name": "service_or_dependency_unavailable" },
+    { "code": 4, "name": "state_or_identity_unavailable" },
+    { "code": 5, "name": "operation_rejected_or_conflict" },
+    { "code": 6, "name": "doctor_required_check_failed" }
+  ],
+  "public_error_policy": {
+    "crate_owned_classification": true,
+    "error_source": "none",
+    "display_and_debug": "path_secret_content_and_raw_cause_free"
+  },
+  "forbidden_fields": [
+    "path",
+    "sql",
+    "raw_error",
+    "source",
+    "credential",
+    "secret",
+    "private_key",
+    "decrypted_payload",
+    "relay_url",
+    "public_key",
+    "event_id",
+    "request_id",
+    "connection_id"
+  ],
+  "deferrals": [
+    "command_execution",
+    "task_graph",
+    "signal_installation",
+    "shutdown_execution",
+    "integration_wave",
+    "rcld_promotion",
+    "nix",
+    "oci",
+    "terminal_consumer_convergence"
+  ]
+}
