@@ -379,6 +379,10 @@ fn schema_identity_structure_and_machine_policy_are_exact() {
 #[test]
 fn lib_derived_limits_and_defaults_are_literal_frozen() {
     let schema = schema();
+    assert_eq!(
+        schema["$defs"]["operations_limits"]["properties"]["header_bytes"]["minimum"],
+        8_192
+    );
     let exact = [
         ("/$defs/operations_limits/properties/header_count", 64, 32),
         (

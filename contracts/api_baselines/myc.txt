@@ -485,6 +485,15 @@ pub enum myc::MycNip46WorkKind
 pub myc::MycNip46WorkKind::Connect
 pub myc::MycNip46WorkKind::Local
 pub myc::MycNip46WorkKind::Provider
+pub enum myc::MycOperationsErrorKind
+pub myc::MycOperationsErrorKind::Accept
+pub myc::MycOperationsErrorKind::Bind
+pub myc::MycOperationsErrorKind::ConnectionTaskPanicked
+pub myc::MycOperationsErrorKind::Disabled
+pub myc::MycOperationsErrorKind::InvalidConfiguration
+pub myc::MycOperationsErrorKind::LocalAddress
+impl myc::MycOperationsErrorKind
+pub const fn myc::MycOperationsErrorKind::code(self) -> &'static str
 pub enum myc::MycPersistenceHealthV1
 pub myc::MycPersistenceHealthV1::ReadOnly
 pub myc::MycPersistenceHealthV1::Ready
@@ -823,6 +832,12 @@ pub fn myc::MycAuthorizationChallengeUrl::as_str(&self) -> &str
 pub fn myc::MycAuthorizationChallengeUrl::new(&str) -> core::result::Result<Self, myc::MycConnectionStateError>
 impl core::fmt::Debug for myc::MycAuthorizationChallengeUrl
 pub fn myc::MycAuthorizationChallengeUrl::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycBoundOperationsServer
+impl myc::MycBoundOperationsServer
+pub fn myc::MycBoundOperationsServer::local_address(&self) -> core::net::socket_addr::SocketAddr
+pub async fn myc::MycBoundOperationsServer::serve(self, myc::MycOperationsCancellationToken) -> core::result::Result<(), myc::MycOperationsError>
+impl core::fmt::Debug for myc::MycBoundOperationsServer
+pub fn myc::MycBoundOperationsServer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycBoundedNip46Event
 impl myc::MycBoundedNip46Event
 pub fn myc::MycBoundedNip46Event::encrypted_content(&self) -> &str
@@ -1408,6 +1423,28 @@ impl myc::MycNormalizedConfigDigest
 pub const fn myc::MycNormalizedConfigDigest::as_bytes(&self) -> &[u8; 32]
 impl core::fmt::Debug for myc::MycNormalizedConfigDigest
 pub fn myc::MycNormalizedConfigDigest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycOperationsCancellationToken
+impl myc::MycOperationsCancellationToken
+pub fn myc::MycOperationsCancellationToken::cancel(&self)
+pub fn myc::MycOperationsCancellationToken::is_cancelled(&self) -> bool
+pub fn myc::MycOperationsCancellationToken::new() -> Self
+impl core::fmt::Debug for myc::MycOperationsCancellationToken
+pub fn myc::MycOperationsCancellationToken::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycOperationsError
+impl myc::MycOperationsError
+pub const fn myc::MycOperationsError::code(self) -> &'static str
+pub const fn myc::MycOperationsError::kind(self) -> myc::MycOperationsErrorKind
+impl core::error::Error for myc::MycOperationsError
+impl core::fmt::Debug for myc::MycOperationsError
+pub fn myc::MycOperationsError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycOperationsError
+pub fn myc::MycOperationsError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycOperationsServer
+impl myc::MycOperationsServer
+pub async fn myc::MycOperationsServer::bind(self) -> core::result::Result<myc::MycBoundOperationsServer, myc::MycOperationsError>
+pub fn myc::MycOperationsServer::new(&myc::MycConfigDocumentV1, &myc::MycStatusReader) -> core::result::Result<Self, myc::MycOperationsError>
+impl core::fmt::Debug for myc::MycOperationsServer
+pub fn myc::MycOperationsServer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycOutboxStatusV1
 impl myc::MycOutboxStatusV1
 pub const fn myc::MycOutboxStatusV1::new(u64, u64, core::option::Option<myc::MycStatusUnixSeconds>) -> Self
@@ -1897,8 +1934,10 @@ pub const myc::MYC_DOCTOR_SUMMARY_MAX_UTF8_BYTES: usize
 pub const myc::MYC_ENCRYPTED_IDENTITY_BACKUP_INCLUDED: bool
 pub const myc::MYC_ENCRYPTED_IDENTITY_ENVELOPE_CONTRACT_VERSION: u32
 pub const myc::MYC_ENCRYPTED_IDENTITY_ENVELOPE_MAX_BYTES: usize
+pub const myc::MYC_LIVEZ_PATH: &str
 pub const myc::MYC_LOCAL_SIGNER_ENDPOINT: &str
 pub const myc::MYC_LOCAL_SIGNER_TRANSPORT_CONTRACT_VERSION: u32
+pub const myc::MYC_METRICS_PATH: &str
 pub const myc::MYC_MIGRATION_CATALOG_SHA256: [u8; 32]
 pub const myc::MYC_NIP05_DOCUMENT_MAX_BYTES: usize
 pub const myc::MYC_NIP05_PROJECTION_MAX_BYTES: usize
@@ -1907,6 +1946,7 @@ pub const myc::MYC_NIP46_EVENT_ID_MAX_BYTES: usize
 pub const myc::MYC_NIP46_PUBLIC_KEY_MAX_BYTES: usize
 pub const myc::MYC_NIP46_REQUEST_ID_MAX_UTF8_BYTES: usize
 pub const myc::MYC_NIP46_SIGNATURE_MAX_BYTES: usize
+pub const myc::MYC_OPERATIONS_CONTRACT_VERSION: u32
 pub const myc::MYC_OPERATOR_CONTRACT_VERSION: u32
 pub const myc::MYC_PROVIDER_CONCURRENCY_MAX: u32
 pub const myc::MYC_PROVIDER_CONTRACT_VERSION: u32
@@ -1920,6 +1960,7 @@ pub const myc::MYC_RATE_MAX_TRACKED_SUBJECTS: u32
 pub const myc::MYC_RATE_RELAY_ID_MAX_BYTES: usize
 pub const myc::MYC_RATE_RETENTION_MAX_MS: u64
 pub const myc::MYC_RATE_WINDOW_MAX_MS: u64
+pub const myc::MYC_READYZ_PATH: &str
 pub const myc::MYC_RUNTIME_FOUNDATION_CONTRACT_VERSION: u32
 pub const myc::MYC_SIGNER_STATUS_CONTRACT_VERSION: u32
 pub const myc::MYC_STATE_APPLICATION_ID: u32

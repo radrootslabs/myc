@@ -17,6 +17,9 @@ const DELIVERY_RECOVERY: &str = include_str!("../src/state_recovery.rs");
 const DOCTOR_V1: &str = include_str!("../src/doctor_v1.rs");
 const STATUS_V1: &str = include_str!("../src/status_v1.rs");
 const STATUS_CONTRACT: &str = include_str!("../contracts/services_hardening/status_cache.v1.json");
+const OPERATIONS_V1: &str = include_str!("../src/operations_v1.rs");
+const OPERATIONS_CONTRACT: &str =
+    include_str!("../contracts/services_hardening/tcp_operations.v1.json");
 const DISCOVERY_STATE: &str = include_str!("../src/state_discovery.rs");
 const NIP46_VERIFICATION_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_verification.v1.json");
@@ -44,6 +47,7 @@ const SOURCES: &[&str] = &[
     include_str!("../src/nip46_replay.rs"),
     include_str!("../src/nip46_verification.rs"),
     include_str!("../src/nip46_work.rs"),
+    include_str!("../src/operations_v1.rs"),
     include_str!("../src/provider_contract.rs"),
     include_str!("../src/provider_credential.rs"),
     include_str!("../src/provider_envelope.rs"),
@@ -86,6 +90,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "nip46_work",
             "nip46_wave_080_a",
             "nip46_wave_080_b",
+            "operations_v1",
             "provider_contract",
             "provider_credential",
             "provider_envelope",
@@ -148,6 +153,11 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub struct myc::MycStatusCommonV1",
         "pub struct myc::MycStatusObservationV1",
         "pub fn myc::myc_status_cache",
+        "pub struct myc::MycOperationsServer",
+        "pub struct myc::MycBoundOperationsServer",
+        "pub struct myc::MycOperationsCancellationToken",
+        "pub struct myc::MycOperationsError",
+        "pub enum myc::MycOperationsErrorKind",
         "pub struct myc::MycAdminRequestDocument",
         "pub struct myc::MycAdminResponseDocument",
         "pub enum myc::MycAdminMethod",
@@ -228,6 +238,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "nip46_work",
         "nip46_wave_080_a",
         "nip46_wave_080_b",
+        "operations_v1",
         "provider_contract",
         "provider_credential",
         "provider_envelope",
@@ -291,7 +302,8 @@ fn status_cache_is_passive_latest_value_and_dependency_neutral() {
         "pub struct MycStatusSnapshot",
         "pub fn myc_status_cache(",
         "status.to_bounded_json()",
-        "self.inner.publish(next)",
+        ".publish(next.operations)",
+        ".publish(next.detail)",
         "self.inner.snapshot()",
         "connection_counts: MycConnectionCountsV1",
         "oldest_pending_at_utc: Option<MycStatusUnixSeconds>",
@@ -336,6 +348,50 @@ fn status_cache_is_passive_latest_value_and_dependency_neutral() {
             "status contract is missing `{required}`"
         );
     }
+}
+
+#[test]
+fn step155_tcp_operations_are_exact_passive_and_dependency_neutral() {
+    let contract: serde_json::Value =
+        serde_json::from_str(OPERATIONS_CONTRACT).expect("Step 155 operations contract");
+    assert_eq!(contract["schema"], "radroots.myc.tcp-operations.v1");
+    assert_eq!(contract["contract_version"], 1);
+    assert_eq!(contract["step"], 155);
+    assert_eq!(contract["route_registration_extension"], false);
+    for required in [
+        "HostOperationsServer::new(listener, status.operations_cache())",
+        "MycOperationsCancellationToken",
+        "radroots_myc_service_phase",
+        "radroots_myc_service_ready",
+        "HostOperationsTransportLimits::new(values)",
+        "HeaderLimitBelowParserFloor",
+    ] {
+        assert!(
+            OPERATIONS_V1.contains(required) || STATUS_V1.contains(required),
+            "Step 155 implementation is missing `{required}`"
+        );
+    }
+    for forbidden in [
+        "sqlx::",
+        "std::fs::",
+        "tokio::spawn",
+        "spawn_blocking",
+        "SystemTime",
+        "provider.execute",
+        "relay.connect",
+        "credential",
+        "dns",
+        "route(",
+        "Router",
+    ] {
+        assert!(
+            !OPERATIONS_V1.contains(forbidden),
+            "Step 155 adapter gained forbidden authority `{forbidden}`"
+        );
+    }
+    assert!(README.contains("exactly HTTP/1.1 `GET /livez`"));
+    assert!(README.contains("Requests perform no SQLite"));
+    assert!(!PUBLIC_API.contains("radroots_service_host::"));
 }
 
 #[test]
@@ -710,7 +766,7 @@ fn public_errors_remain_crate_owned_redacted_and_source_free() {
         .lines()
         .filter(|line| line.starts_with("pub struct myc::") && line.ends_with("Error"))
         .count();
-    assert_eq!(public_error_count, 29);
+    assert_eq!(public_error_count, 30);
     assert!(PUBLIC_API.contains("pub struct myc::MycDoctorError"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycRuntimeFoundation {"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycStateHost {"));

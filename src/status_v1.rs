@@ -4,16 +4,19 @@ use core::fmt;
 use std::{error::Error, sync::Arc, time::Duration};
 
 use radroots_service_host::{
-    BuildInfo as HostBuildInfo, BuildInfoEnvironment as HostBuildInfoEnvironment,
-    BuildMode as HostBuildMode, CachedServiceState, CachedServiceStatePublisher,
-    CachedServiceStateReader, ConfigurationIdentity as HostConfigurationIdentity,
+    BoundedMetricsSnapshot, BuildInfo as HostBuildInfo,
+    BuildInfoEnvironment as HostBuildInfoEnvironment, BuildMode as HostBuildMode,
+    CachedServiceState, CachedServiceStatePublisher, CachedServiceStateReader, CommonMetricGroup,
+    ConfigurationIdentity as HostConfigurationIdentity,
     ConfigurationSource as HostConfigurationSource, ContractVersions as HostContractVersions,
-    InstanceId, IntegrityState as HostIntegrityState, PersistenceHealth as HostPersistenceHealth,
-    PersistenceSummary as HostPersistenceSummary, Readiness as HostReadiness,
-    ReasonCode as HostReasonCode, ReasonCodes as HostReasonCodes, ServiceId,
-    ServiceOperationalState as HostServiceOperationalState, ServicePhase as HostServicePhase,
-    ServiceStatus, ServiceStatusDetail, Sha256Digest as HostSha256Digest, StatusContractError,
-    StatusEncodingError, StatusModelError, UptimeMillis as HostUptimeMillis, cached_service_state,
+    InstanceId, IntegrityState as HostIntegrityState, MetricDescriptor, MetricKind, MetricLabel,
+    MetricLabelKey, MetricName, MetricSample, MetricValue,
+    PersistenceHealth as HostPersistenceHealth, PersistenceSummary as HostPersistenceSummary,
+    Readiness as HostReadiness, ReasonCode as HostReasonCode, ReasonCodes as HostReasonCodes,
+    ServiceId, ServiceOperationalState as HostServiceOperationalState,
+    ServicePhase as HostServicePhase, ServiceStatus, ServiceStatusDetail,
+    Sha256Digest as HostSha256Digest, StatusContractError, StatusEncodingError, StatusModelError,
+    UptimeMillis as HostUptimeMillis, cached_service_state,
 };
 use serde::Serialize;
 
@@ -683,11 +686,9 @@ impl MycStatusObservationV1 {
         }
     }
 
-    fn into_cached(
-        self,
-        instance: &InstanceId,
-    ) -> Result<CachedServiceState<MycCachedStatus>, MycStatusError> {
+    fn into_cached(self, instance: &InstanceId) -> Result<PreparedMycStatus, MycStatusError> {
         let operational = self.common.operational.clone();
+        let operations_metrics = bounded_operations_metrics(&operational)?;
         let detail = MycStatusDetailV1 {
             transport: self.provider.transport.clone(),
             user: self.provider.user.clone(),
@@ -711,12 +712,15 @@ impl MycStatusObservationV1 {
         )
         .map_err(map_model_error)?;
         let json = status.to_bounded_json().map_err(map_encoding_error)?;
-        Ok(CachedServiceState::new(
-            operational,
-            MycCachedStatus {
-                json: json.into_boxed_slice(),
-            },
-        ))
+        Ok(PreparedMycStatus {
+            detail: CachedServiceState::new(
+                operational.clone(),
+                MycCachedStatus {
+                    json: json.into_boxed_slice(),
+                },
+            ),
+            operations: CachedServiceState::new(operational, operations_metrics),
+        })
     }
 }
 
@@ -728,6 +732,55 @@ impl fmt::Debug for MycStatusObservationV1 {
 
 struct MycCachedStatus {
     json: Box<[u8]>,
+}
+
+struct PreparedMycStatus {
+    detail: CachedServiceState<MycCachedStatus>,
+    operations: CachedServiceState<BoundedMetricsSnapshot>,
+}
+
+fn bounded_operations_metrics(
+    operational: &HostServiceOperationalState,
+) -> Result<BoundedMetricsSnapshot, MycStatusError> {
+    let phase_name = MetricName::new("radroots_myc_service_phase").map_err(map_metrics_error)?;
+    let ready_name = MetricName::new("radroots_myc_service_ready").map_err(map_metrics_error)?;
+    let descriptors = [
+        MetricDescriptor::new(
+            CommonMetricGroup::Phase,
+            phase_name.clone(),
+            "Current cached Myc service phase.",
+            MetricKind::Gauge,
+            [MetricLabelKey::Phase],
+        )
+        .map_err(map_metrics_error)?,
+        MetricDescriptor::new(
+            CommonMetricGroup::Phase,
+            ready_name.clone(),
+            "Current cached Myc readiness bit.",
+            MetricKind::Gauge,
+            [],
+        )
+        .map_err(map_metrics_error)?,
+    ];
+    let samples = [
+        MetricSample::new(
+            phase_name,
+            MetricValue::Gauge(1),
+            [MetricLabel::phase(operational.phase())],
+        )
+        .map_err(map_metrics_error)?,
+        MetricSample::new(
+            ready_name,
+            MetricValue::Gauge(i64::from(operational.readiness().is_ready())),
+            [],
+        )
+        .map_err(map_metrics_error)?,
+    ];
+    BoundedMetricsSnapshot::new(descriptors, samples).map_err(map_metrics_error)
+}
+
+fn map_metrics_error(_: radroots_service_host::MetricsContractError) -> MycStatusError {
+    MycStatusError::new(MycStatusErrorKind::InvalidModel)
 }
 
 impl fmt::Debug for MycCachedStatus {
@@ -747,13 +800,18 @@ impl fmt::Debug for MycCachedStatus {
 pub struct MycStatusPublisher {
     instance: InstanceId,
     inner: CachedServiceStatePublisher<MycCachedStatus>,
+    operations: CachedServiceStatePublisher<BoundedMetricsSnapshot>,
 }
 
 impl MycStatusPublisher {
-    /// Encodes and atomically publishes one already-observed status value.
+    /// Encodes one observation, publishes its passive operations projection,
+    /// and then atomically replaces the detailed-status snapshot.
     pub fn publish(&mut self, next: MycStatusObservationV1) -> Result<(), MycStatusError> {
         let next = next.into_cached(&self.instance)?;
-        self.inner.publish(next).map_err(map_contract_error)
+        self.operations
+            .publish(next.operations)
+            .map_err(map_contract_error)?;
+        self.inner.publish(next.detail).map_err(map_contract_error)
     }
 
     /// Creates another passive reader without sharing publication authority.
@@ -761,6 +819,7 @@ impl MycStatusPublisher {
     pub fn subscribe(&self) -> MycStatusReader {
         MycStatusReader {
             inner: self.inner.subscribe(),
+            operations: self.operations.subscribe(),
         }
     }
 }
@@ -774,12 +833,14 @@ impl fmt::Debug for MycStatusPublisher {
 /// Cloneable passive reader of the latest Myc lifecycle and detailed status.
 pub struct MycStatusReader {
     inner: CachedServiceStateReader<MycCachedStatus>,
+    operations: CachedServiceStateReader<BoundedMetricsSnapshot>,
 }
 
 impl Clone for MycStatusReader {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
+            operations: self.operations.clone(),
         }
     }
 }
@@ -800,6 +861,10 @@ impl MycStatusReader {
             .await
             .map(|inner| MycStatusSnapshot { inner })
             .map_err(|_| MycStatusError::new(MycStatusErrorKind::PublisherDropped))
+    }
+
+    pub(crate) fn operations_cache(&self) -> CachedServiceStateReader<BoundedMetricsSnapshot> {
+        self.operations.clone()
     }
 }
 
@@ -849,10 +914,18 @@ pub fn myc_status_cache(
     initial: MycStatusObservationV1,
 ) -> Result<(MycStatusPublisher, MycStatusReader), MycStatusError> {
     let initial = initial.into_cached(&instance)?;
-    let (inner, reader) = cached_service_state(initial);
+    let (inner, reader) = cached_service_state(initial.detail);
+    let (operations, operations_reader) = cached_service_state(initial.operations);
     Ok((
-        MycStatusPublisher { instance, inner },
-        MycStatusReader { inner: reader },
+        MycStatusPublisher {
+            instance,
+            inner,
+            operations,
+        },
+        MycStatusReader {
+            inner: reader,
+            operations: operations_reader,
+        },
     ))
 }
 

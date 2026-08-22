@@ -241,6 +241,10 @@
 - Optional TCP operations expose only cached `/livez`, `/readyz`, and
   `/metrics`. They must not perform SQLite, provider, relay, credential, DNS,
   or other active probes.
+- Keep the Myc TCP adapter sealed around the source-locked service-host server.
+  Do not add route registration, raw listener/server access, dependency-owned
+  public types, or a second independently observed lifecycle cache. Publish
+  only the fixed cached phase/readiness metric families and closed phase label.
 - Keep logs as safe structured stderr output. Keep result data on stdout and
   diagnostics on stderr. Use stable bounded public codes and messages, bounded
   metric labels, and explicit redaction.

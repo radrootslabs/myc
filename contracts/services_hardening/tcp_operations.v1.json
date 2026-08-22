@@ -1,0 +1,50 @@
+{
+  "schema": "radroots.myc.tcp-operations.v1",
+  "contract_version": 1,
+  "step": 155,
+  "transport": "http_1_1_over_optional_tcp",
+  "configuration": "validated_myc_config_v1_operations_block",
+  "route_registration_extension": false,
+  "routes": [
+    { "method": "GET", "path": "/livez", "source": "cached_supervisor_state" },
+    { "method": "GET", "path": "/readyz", "source": "cached_readiness_state" },
+    { "method": "GET", "path": "/metrics", "source": "cached_bounded_metrics_snapshot" }
+  ],
+  "metrics": {
+    "format": "prometheus_text_0_0_4",
+    "families": [
+      { "name": "radroots_myc_service_phase", "kind": "gauge", "labels": ["phase"] },
+      { "name": "radroots_myc_service_ready", "kind": "gauge", "labels": [] }
+    ],
+    "high_cardinality_labels": false,
+    "arbitrary_labels": false
+  },
+  "passive_read_forbidden_authority": [
+    "sqlite",
+    "filesystem",
+    "provider",
+    "relay",
+    "credential",
+    "dns",
+    "clock",
+    "fresh_probe"
+  ],
+  "local_only": [
+    "detailed_status",
+    "configuration",
+    "paths",
+    "identities",
+    "connections",
+    "audit",
+    "mutations"
+  ],
+  "deferrals": [
+    "daemon_composition",
+    "structured_logging_and_exit",
+    "integration_wave",
+    "rcld_promotion",
+    "nix",
+    "oci",
+    "terminal_consumer_convergence"
+  ]
+}

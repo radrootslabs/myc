@@ -15,6 +15,7 @@ mod nip46_wave_080_a;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod nip46_wave_080_b;
 mod nip46_work;
+mod operations_v1;
 mod provider_contract;
 mod provider_credential;
 mod provider_envelope;
@@ -81,6 +82,11 @@ pub use nip46_work::{
     MycDecryptedNip46Request, MycNip46DecryptWork, MycNip46Work, MycNip46WorkError,
     MycNip46WorkErrorKind, MycNip46WorkKind, MycPreparedNip46Request,
     prepare_myc_nip46_decrypt_work, prepare_myc_nip46_request, prepare_myc_nip46_work,
+};
+pub use operations_v1::{
+    MYC_LIVEZ_PATH, MYC_METRICS_PATH, MYC_OPERATIONS_CONTRACT_VERSION, MYC_READYZ_PATH,
+    MycBoundOperationsServer, MycOperationsCancellationToken, MycOperationsError,
+    MycOperationsErrorKind, MycOperationsServer,
 };
 pub use provider_contract::{
     MYC_PROVIDER_CONCURRENCY_MAX, MYC_PROVIDER_CONTRACT_VERSION, MYC_PROVIDER_INPUT_MAX_BYTES,

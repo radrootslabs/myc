@@ -94,6 +94,19 @@ status remains local to the permissioned Unix-admin surface. Status reason
 codes use a closed twelve-value vocabulary; arbitrary strings cannot enter the
 cached response.
 
+The optional TCP operations adapter consumes that same supervisor publication
+through a second passive bounded projection and delegates the transport to the
+source-locked service-host server. It exposes exactly HTTP/1.1 `GET /livez`,
+`GET /readyz`, and `GET /metrics`; every other method, path, or query is
+unrouteable. The two Prometheus families are the cached phase and cached
+readiness bit with only the closed phase label. Requests perform no SQLite,
+filesystem, provider, relay, credential, DNS, clock, or fresh-probe work.
+Detailed status, configuration, paths, identities, connection/audit data, and
+all mutations remain on the permissioned Unix-admin surface. The listener is
+disabled unless the validated configuration explicitly enables and binds it,
+and its parser floor, headers, response, concurrency, deadline, and idle bounds
+remain enforced by the shared server.
+
 `parse_myc_config_v1` caps original bytes before decoding, checks the schema
 header before closed contract admission, rejects duplicate, null, unknown, and
 semantically inconsistent input, and returns an immutable document plus a
