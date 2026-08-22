@@ -26,7 +26,6 @@
     "relay",
     "credential",
     "dns",
-    "clock",
     "fresh_probe"
   ],
   "local_only": [

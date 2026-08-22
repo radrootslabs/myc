@@ -100,7 +100,8 @@ source-locked service-host server. It exposes exactly HTTP/1.1 `GET /livez`,
 `GET /readyz`, and `GET /metrics`; every other method, path, or query is
 unrouteable. The two Prometheus families are the cached phase and cached
 readiness bit with only the closed phase label. Requests perform no SQLite,
-filesystem, provider, relay, credential, DNS, clock, or fresh-probe work.
+filesystem, provider, relay, credential, DNS, or fresh-probe work; the shared
+transport still reads its monotonic deadline clock.
 Detailed status, configuration, paths, identities, connection/audit data, and
 all mutations remain on the permissioned Unix-admin surface. The listener is
 disabled unless the validated configuration explicitly enables and binds it,
