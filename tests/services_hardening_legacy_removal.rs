@@ -16,6 +16,7 @@ const ACTIVE_STATE_SOURCES: &[&str] = &[
     include_str!("../src/state_host.rs"),
     include_str!("../src/state_maintenance.rs"),
     include_str!("../src/state_metadata.rs"),
+    include_str!("../src/state_recovery.rs"),
     include_str!("../src/state_repository.rs"),
     include_str!("../src/state_request.rs"),
     include_str!("../src/state_response.rs"),
@@ -113,7 +114,7 @@ fn prototype_environment_and_cli_sources_are_absent() {
 
 #[test]
 fn active_state_tree_has_one_shared_database_and_no_legacy_backend() {
-    assert_eq!(LIB_SOURCE.matches("mod state_").count(), 12);
+    assert_eq!(LIB_SOURCE.matches("mod state_").count(), 13);
     assert!(!LIB_SOURCE.contains("pub mod state_"));
     let active_state = ACTIVE_STATE_SOURCES.join("\n");
     for forbidden in [

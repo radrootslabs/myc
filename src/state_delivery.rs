@@ -21,13 +21,14 @@ pub const MYC_DELIVERY_TARGET_MAX_COUNT: usize = 32;
 pub const MYC_DELIVERY_ATTEMPT_MAX_COUNT: u32 = 32;
 /// Maximum UTF-8 byte length of a canonical delivery relay identifier.
 pub const MYC_DELIVERY_RELAY_ID_MAX_BYTES: usize = 64;
+/// Maximum caller-injected full-jitter delay for one retry.
+pub const MYC_DELIVERY_RETRY_JITTER_MAX_MS: u64 = 300_000;
 
 const JOB_ID_DOMAIN: &[u8] = b"radroots.myc.delivery_job.v1\0";
 const ATTEMPT_ID_DOMAIN: &[u8] = b"radroots.myc.delivery_attempt.v1\0";
 
-const READ_SIGNER_OPERATION_SQL: &str = r#"SELECT COUNT(*) AS row_count
-FROM nip46_requests
-WHERE operation_id = ?"#;
+const READ_ACTIVE_JOB_COUNT_SQL: &str =
+    "SELECT COUNT(*) AS row_count FROM delivery_jobs WHERE status IN ('pending', 'active')";
 
 const READ_JOB_SQL: &str = r#"SELECT
     CASE WHEN typeof(job_id) = 'blob' AND length(job_id) = 32
@@ -202,6 +203,7 @@ pub enum MycDeliveryStateErrorKind {
     InvalidTime,
     InvalidRelayId,
     InvalidPolicy,
+    InvalidRetryJitter,
 }
 
 impl MycDeliveryStateErrorKind {
@@ -212,6 +214,7 @@ impl MycDeliveryStateErrorKind {
             Self::InvalidTime => "delivery_time_invalid",
             Self::InvalidRelayId => "delivery_relay_id_invalid",
             Self::InvalidPolicy => "delivery_policy_invalid",
+            Self::InvalidRetryJitter => "delivery_retry_jitter_invalid",
         }
     }
 }
@@ -246,6 +249,7 @@ impl fmt::Display for MycDeliveryStateError {
             MycDeliveryStateErrorKind::InvalidTime => "delivery time is invalid",
             MycDeliveryStateErrorKind::InvalidRelayId => "delivery relay identity is invalid",
             MycDeliveryStateErrorKind::InvalidPolicy => "delivery policy is invalid",
+            MycDeliveryStateErrorKind::InvalidRetryJitter => "delivery retry jitter is invalid",
         })
     }
 }
@@ -260,6 +264,31 @@ impl fmt::Debug for MycDeliveryStateError {
 }
 
 impl Error for MycDeliveryStateError {}
+
+/// Caller-injected full-jitter delay, later relationship-checked against a job.
+///
+/// The runtime entropy adapter owns generation. State code accepts only this
+/// bounded value and persists the exact resulting retry schedule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MycDeliveryRetryJitter(u64);
+
+impl MycDeliveryRetryJitter {
+    /// Validates one injected full-jitter delay.
+    pub fn new(value_ms: u64) -> Result<Self, MycDeliveryStateError> {
+        if value_ms > MYC_DELIVERY_RETRY_JITTER_MAX_MS {
+            return Err(MycDeliveryStateError::new(
+                MycDeliveryStateErrorKind::InvalidRetryJitter,
+            ));
+        }
+        Ok(Self(value_ms))
+    }
+
+    /// Returns the exact injected delay in milliseconds.
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
 
 macro_rules! redacted_id {
     ($name:ident, $debug:literal) => {
@@ -428,6 +457,7 @@ pub(crate) struct MycDeliveryPolicies {
     initial_backoff_ms: u64,
     maximum_backoff_ms: u64,
     attempt_deadline_ms: u64,
+    outbox_maximum: usize,
     targets: Box<[MycDeliveryTargetPolicy]>,
 }
 
@@ -440,6 +470,7 @@ impl MycDeliveryPolicies {
         initial_backoff_ms: u64,
         maximum_backoff_ms: u64,
         attempt_deadline_ms: u64,
+        outbox_maximum: usize,
         mut targets: Vec<(MycDeliveryRelayId, bool)>,
     ) -> Result<Self, MycDeliveryStateError> {
         targets.sort_by(|left, right| left.0.cmp(&right.0));
@@ -462,7 +493,8 @@ impl MycDeliveryPolicies {
             && initial_backoff_ms <= maximum_backoff_ms
             && maximum_backoff_ms <= 300_000
             && attempt_deadline_ms != 0
-            && attempt_deadline_ms <= 30_000;
+            && attempt_deadline_ms <= 30_000
+            && (1..=65_536).contains(&outbox_maximum);
         if !valid {
             return Err(MycDeliveryStateError::new(
                 MycDeliveryStateErrorKind::InvalidPolicy,
@@ -475,11 +507,16 @@ impl MycDeliveryPolicies {
             initial_backoff_ms,
             maximum_backoff_ms,
             attempt_deadline_ms,
+            outbox_maximum,
             targets: targets
                 .into_iter()
                 .map(|(relay_id, required)| MycDeliveryTargetPolicy { relay_id, required })
                 .collect(),
         })
+    }
+
+    pub(crate) const fn outbox_maximum(&self) -> usize {
+        self.outbox_maximum
     }
 }
 
@@ -556,43 +593,6 @@ impl fmt::Debug for MycDeliverySource {
             .field("kind", &self.kind)
             .field("id", &"[redacted]")
             .finish()
-    }
-}
-
-/// Immutable signer-response delivery job input.
-pub struct MycDeliveryJobRequest {
-    operation_id: MycSignerOperationId,
-    artifact_digest: MycDeliveryArtifactDigest,
-    created_at: MycDeliveryTimeUnixMs,
-}
-
-impl MycDeliveryJobRequest {
-    /// Binds one admitted signer operation to one already-verified artifact digest.
-    #[must_use]
-    pub const fn signer_response(
-        operation_id: MycSignerOperationId,
-        artifact_digest: MycDeliveryArtifactDigest,
-        created_at: MycDeliveryTimeUnixMs,
-    ) -> Self {
-        Self {
-            operation_id,
-            artifact_digest,
-            created_at,
-        }
-    }
-
-    fn owned(&self) -> Self {
-        Self {
-            operation_id: self.operation_id,
-            artifact_digest: self.artifact_digest,
-            created_at: self.created_at,
-        }
-    }
-}
-
-impl fmt::Debug for MycDeliveryJobRequest {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("MycDeliveryJobRequest([redacted])")
     }
 }
 
@@ -755,6 +755,10 @@ pub struct MycDeliveryJobRecord {
 }
 
 impl MycDeliveryJobRecord {
+    pub(crate) const fn source_id(&self) -> &[u8; 32] {
+        &self.source.id
+    }
+
     #[must_use]
     pub const fn id(&self) -> MycDeliveryJobId {
         self.id
@@ -996,34 +1000,6 @@ impl fmt::Debug for MycDeliveryClaim {
 }
 
 impl MycStateRepository<'_> {
-    /// Atomically creates or exactly replays one config-bound immutable job and target set.
-    pub async fn create_delivery_job(
-        &self,
-        request: &MycDeliveryJobRequest,
-    ) -> Result<MycDeliveryJobAdmission, MycStateRepositoryError> {
-        let request = request.owned();
-        let source = MycDeliverySource::signer_response(request.operation_id);
-        let policy = self.expected().delivery_policies().clone();
-        let expected = PersistedMetadata::from(self.expected());
-        self.host()
-            .transaction(move |transaction| {
-                Box::pin(async move {
-                    verify_metadata(transaction, &expected).await?;
-                    require_signer_operation(transaction, request.operation_id).await?;
-                    create_job(
-                        transaction,
-                        source,
-                        request.artifact_digest,
-                        request.created_at,
-                        &policy,
-                    )
-                    .await
-                })
-            })
-            .await
-            .map_err(map_transaction_error)
-    }
-
     /// Claims one eligible target under a bounded expiring attempt lease.
     pub async fn claim_delivery_target(
         &self,
@@ -1073,6 +1049,7 @@ impl MycStateRepository<'_> {
         relay_id: &MycDeliveryRelayId,
         attempt_id: MycDeliveryAttemptId,
         outcome: MycDeliveryAttemptOutcome,
+        retry_jitter: MycDeliveryRetryJitter,
         observed_at: MycDeliveryTimeUnixMs,
     ) -> Result<MycDeliveryJobRecord, MycStateRepositoryError> {
         let relay_id = relay_id.clone();
@@ -1087,6 +1064,7 @@ impl MycStateRepository<'_> {
                         &relay_id,
                         attempt_id,
                         outcome,
+                        retry_jitter,
                         observed_at,
                     )
                     .await
@@ -1102,6 +1080,7 @@ impl MycStateRepository<'_> {
         job_id: MycDeliveryJobId,
         relay_id: &MycDeliveryRelayId,
         attempt_id: MycDeliveryAttemptId,
+        retry_jitter: MycDeliveryRetryJitter,
         observed_at: MycDeliveryTimeUnixMs,
     ) -> Result<MycDeliveryJobRecord, MycStateRepositoryError> {
         let relay_id = relay_id.clone();
@@ -1110,7 +1089,15 @@ impl MycStateRepository<'_> {
             .transaction(move |transaction| {
                 Box::pin(async move {
                     verify_metadata(transaction, &expected).await?;
-                    recover_expired(transaction, job_id, &relay_id, attempt_id, observed_at).await
+                    recover_expired(
+                        transaction,
+                        job_id,
+                        &relay_id,
+                        attempt_id,
+                        retry_jitter,
+                        observed_at,
+                    )
+                    .await
                 })
             })
             .await
@@ -1187,6 +1174,18 @@ pub(crate) async fn create_job(
         return exact_job(&existing, source, artifact_digest, created_at, policy)
             .then_some(MycDeliveryJobAdmission::ExactReplay(existing))
             .ok_or(DeliveryOperationError::Binding);
+    }
+    let active_jobs = sqlx::query(READ_ACTIVE_JOB_COUNT_SQL)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| DeliveryOperationError::Storage)?
+        .try_get::<i64, _>("row_count")
+        .map_err(|_| DeliveryOperationError::Binding)?;
+    if usize::try_from(active_jobs)
+        .ok()
+        .is_none_or(|count| count >= policy.outbox_maximum)
+    {
+        return Err(DeliveryOperationError::Binding);
     }
     let job_id = derive_job_id(source, artifact_digest);
     let result = sqlx::query(INSERT_JOB_SQL)
@@ -1371,6 +1370,7 @@ async fn record_outcome(
     relay_id: &MycDeliveryRelayId,
     attempt_id: MycDeliveryAttemptId,
     outcome: MycDeliveryAttemptOutcome,
+    retry_jitter: MycDeliveryRetryJitter,
     observed_at: MycDeliveryTimeUnixMs,
 ) -> Result<MycDeliveryJobRecord, DeliveryOperationError> {
     let job = read_job(transaction, job_id)
@@ -1420,17 +1420,19 @@ async fn record_outcome(
         required_prior,
         outcome.status(),
         outcome.reason(),
+        retry_jitter,
         observed_at,
     )
     .await?;
     finalize_job_if_terminal(transaction, job_id, observed_at).await
 }
 
-async fn recover_expired(
+pub(crate) async fn recover_expired(
     transaction: &mut ServiceSqliteTransaction<'_>,
     job_id: MycDeliveryJobId,
     relay_id: &MycDeliveryRelayId,
     attempt_id: MycDeliveryAttemptId,
+    retry_jitter: MycDeliveryRetryJitter,
     observed_at: MycDeliveryTimeUnixMs,
 ) -> Result<MycDeliveryJobRecord, DeliveryOperationError> {
     let job = read_job(transaction, job_id)
@@ -1471,6 +1473,7 @@ async fn recover_expired(
         attempt.status,
         terminal,
         reason,
+        retry_jitter,
         observed_at,
     )
     .await?;
@@ -1486,6 +1489,7 @@ async fn resolve_attempt_and_target(
     prior: MycDeliveryAttemptStatus,
     terminal: MycDeliveryAttemptStatus,
     reason: &'static str,
+    retry_jitter: MycDeliveryRetryJitter,
     observed_at: MycDeliveryTimeUnixMs,
 ) -> Result<(), DeliveryOperationError> {
     let result = sqlx::query(RESOLVE_ATTEMPT_SQL)
@@ -1501,16 +1505,29 @@ async fn resolve_attempt_and_target(
         .map_err(|_| DeliveryOperationError::Storage)?;
     require_one(result.rows_affected())?;
     let attempts_remaining = target.attempt_count < job.max_attempts;
+    let schedules_retry = attempts_remaining
+        && matches!(
+            terminal,
+            MycDeliveryAttemptStatus::Failed | MycDeliveryAttemptStatus::Unknown
+        );
+    if !schedules_retry && retry_jitter.get() != 0 {
+        return Err(DeliveryOperationError::Binding);
+    }
     let (target_status, next_attempt) = match terminal {
         MycDeliveryAttemptStatus::Delivered => (MycDeliveryTargetStatus::Delivered, None),
         MycDeliveryAttemptStatus::Failed if attempts_remaining => (
             MycDeliveryTargetStatus::Retryable,
-            Some(next_attempt_time(job, attempt.number, observed_at)?),
+            Some(next_attempt_time(
+                job,
+                attempt.number,
+                retry_jitter,
+                observed_at,
+            )?),
         ),
         MycDeliveryAttemptStatus::Unknown => (
             MycDeliveryTargetStatus::Unknown,
             attempts_remaining
-                .then(|| next_attempt_time(job, attempt.number, observed_at))
+                .then(|| next_attempt_time(job, attempt.number, retry_jitter, observed_at))
                 .transpose()?,
         ),
         MycDeliveryAttemptStatus::Failed => (MycDeliveryTargetStatus::Exhausted, None),
@@ -1536,7 +1553,7 @@ async fn resolve_attempt_and_target(
     require_one(result.rows_affected())
 }
 
-async fn finalize_job_if_terminal(
+pub(crate) async fn finalize_job_if_terminal(
     transaction: &mut ServiceSqliteTransaction<'_>,
     job_id: MycDeliveryJobId,
     observed_at: MycDeliveryTimeUnixMs,
@@ -1605,36 +1622,23 @@ async fn finalize_job_if_terminal(
 fn next_attempt_time(
     job: &MycDeliveryJobRecord,
     attempt_number: u32,
+    jitter: MycDeliveryRetryJitter,
     observed_at: MycDeliveryTimeUnixMs,
 ) -> Result<MycDeliveryTimeUnixMs, DeliveryOperationError> {
     let exponent = attempt_number.saturating_sub(1).min(31);
     let factor = 1_u64.checked_shl(exponent).unwrap_or(u64::MAX);
-    let delay = job
+    let maximum_delay = job
         .initial_backoff_ms
         .saturating_mul(factor)
         .min(job.maximum_backoff_ms);
+    if jitter.get() > maximum_delay {
+        return Err(DeliveryOperationError::Binding);
+    }
     let value = observed_at
         .get()
-        .checked_add(delay)
+        .checked_add(jitter.get())
         .ok_or(DeliveryOperationError::Binding)?;
     MycDeliveryTimeUnixMs::new(value).map_err(|_| DeliveryOperationError::Binding)
-}
-
-async fn require_signer_operation(
-    transaction: &mut ServiceSqliteTransaction<'_>,
-    operation_id: MycSignerOperationId,
-) -> Result<(), DeliveryOperationError> {
-    let row = sqlx::query(READ_SIGNER_OPERATION_SQL)
-        .bind(operation_id.as_bytes().as_slice())
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(|_| DeliveryOperationError::Storage)?;
-    let count = row
-        .try_get::<i64, _>("row_count")
-        .map_err(|_| DeliveryOperationError::Binding)?;
-    (count == 1)
-        .then_some(())
-        .ok_or(DeliveryOperationError::Binding)
 }
 
 async fn read_job_by_source(
@@ -1803,7 +1807,7 @@ fn parse_target(
     })
 }
 
-async fn read_attempts(
+pub(crate) async fn read_attempts(
     transaction: &mut ServiceSqliteTransaction<'_>,
     job_id: MycDeliveryJobId,
     target_index: u32,

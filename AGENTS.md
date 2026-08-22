@@ -190,6 +190,13 @@
 - Treat stored signed bytes as the sole publication authority. Retry, crash
   recovery, and reopen must submit the identical bytes and digest without
   deserializing, rebuilding, re-signing, or changing targets.
+- Create delivery jobs only inside the atomic signed-response or discovery
+  transaction. Recovery is a bounded, cursor-driven repository operation with
+  injected time/jitter evidence; final supervised startup looping remains a
+  later runtime owner.
+- Render NIP-05 only from verified committed discovery state through an
+  explicit desired/current offline operation. The service library must not
+  silently host the document or acquire network authority while rendering it.
 - Distinguish submitted, delivered, failed, and unknown outcomes. Lost
   acknowledgement never becomes proof of failure or delivery.
 - Bound every queue, pool, request, response, event, tag set, retry schedule,

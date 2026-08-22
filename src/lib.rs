@@ -28,6 +28,7 @@ mod state_governance;
 mod state_host;
 mod state_maintenance;
 mod state_metadata;
+mod state_recovery;
 mod state_repository;
 mod state_request;
 mod state_response;
@@ -141,19 +142,21 @@ pub use state_connection::{
     MycConnectionStateErrorKind, MycConnectionStatus, MycConnectionTimeUnixMs,
 };
 pub use state_delivery::{
-    MYC_DELIVERY_ATTEMPT_MAX_COUNT, MYC_DELIVERY_RELAY_ID_MAX_BYTES, MYC_DELIVERY_TARGET_MAX_COUNT,
-    MycDeliveryArtifactDigest, MycDeliveryAttemptId, MycDeliveryAttemptNonce,
-    MycDeliveryAttemptOutcome, MycDeliveryAttemptRecord, MycDeliveryAttemptStatus,
-    MycDeliveryClaim, MycDeliveryJobAdmission, MycDeliveryJobId, MycDeliveryJobRecord,
-    MycDeliveryJobRequest, MycDeliveryJobStatus, MycDeliveryPolicyMode, MycDeliveryRelayId,
-    MycDeliverySourceKind, MycDeliveryStateError, MycDeliveryStateErrorKind,
-    MycDeliveryTargetRecord, MycDeliveryTargetStatus, MycDeliveryTimeUnixMs,
+    MYC_DELIVERY_ATTEMPT_MAX_COUNT, MYC_DELIVERY_RELAY_ID_MAX_BYTES,
+    MYC_DELIVERY_RETRY_JITTER_MAX_MS, MYC_DELIVERY_TARGET_MAX_COUNT, MycDeliveryArtifactDigest,
+    MycDeliveryAttemptId, MycDeliveryAttemptNonce, MycDeliveryAttemptOutcome,
+    MycDeliveryAttemptRecord, MycDeliveryAttemptStatus, MycDeliveryClaim, MycDeliveryJobAdmission,
+    MycDeliveryJobId, MycDeliveryJobRecord, MycDeliveryJobStatus, MycDeliveryPolicyMode,
+    MycDeliveryRelayId, MycDeliveryRetryJitter, MycDeliverySourceKind, MycDeliveryStateError,
+    MycDeliveryStateErrorKind, MycDeliveryTargetRecord, MycDeliveryTargetStatus,
+    MycDeliveryTimeUnixMs,
 };
 pub use state_discovery::{
-    MYC_DISCOVERY_DOCUMENT_MAX_BYTES, MYC_NIP05_PROJECTION_MAX_BYTES, MycDiscoveryCommitAdmission,
-    MycDiscoveryCommitRecord, MycDiscoveryCommitRequest, MycDiscoveryDocumentDigest,
-    MycDiscoveryDocumentRecord, MycDiscoveryGenerationId, MycDiscoveryPublicationState,
-    MycDiscoveryStateError, MycDiscoveryStateErrorKind, MycNip05ProjectionDigest,
+    MYC_DISCOVERY_DOCUMENT_MAX_BYTES, MYC_NIP05_DOCUMENT_MAX_BYTES, MYC_NIP05_PROJECTION_MAX_BYTES,
+    MycDiscoveryCommitAdmission, MycDiscoveryCommitRecord, MycDiscoveryCommitRequest,
+    MycDiscoveryDocumentDigest, MycDiscoveryDocumentRecord, MycDiscoveryGenerationId,
+    MycDiscoveryPublicationState, MycDiscoveryStateError, MycDiscoveryStateErrorKind,
+    MycNip05Document, MycNip05DocumentDigest, MycNip05ExportSelection, MycNip05ProjectionDigest,
 };
 pub use state_governance::{
     MYC_AUDIT_PAGE_MAX_ITEMS, MYC_AUDIT_RETENTION_MAX_MS, MYC_COMPACTION_MAX_ROWS,
@@ -176,6 +179,9 @@ pub use state_metadata::{
     MYC_OPERATOR_CONTRACT_VERSION, MYC_SIGNER_STATUS_CONTRACT_VERSION, MYC_STATE_APPLICATION_ID,
     MycExpectedIdentities, MycExpectedPublicIdentity, MycNormalizedConfigDigest, MycStateMetadata,
     MycStateMetadataError, MycStateMetadataErrorKind, MycStatePolicyVersions,
+};
+pub use state_recovery::{
+    MYC_DELIVERY_RECOVERY_BATCH_MAX_COUNT, MycDeliveryRecoveryEntropy, MycDeliveryRecoveryReport,
 };
 pub use state_repository::{
     MycStateRepository, MycStateRepositoryError, MycStateRepositoryErrorKind,

@@ -1,12 +1,15 @@
 //! Durable discovery desired/current state and exact committed publication bytes.
 
 use core::fmt;
-use std::{collections::BTreeMap, error::Error};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+};
 
 use radroots_service_sqlite::{
     ServiceSqliteTransaction, ServiceSqliteTransactionError, ServiceSqliteTransactionErrorKind,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 
@@ -28,6 +31,8 @@ use radroots_nostr::event::{
 pub const MYC_DISCOVERY_DOCUMENT_MAX_BYTES: usize = 524_288;
 /// Maximum deterministic NIP-05 projection input bytes.
 pub const MYC_NIP05_PROJECTION_MAX_BYTES: usize = 524_288;
+/// Maximum deterministic offline NIP-05 document bytes.
+pub const MYC_NIP05_DOCUMENT_MAX_BYTES: usize = 524_288;
 
 const NIP46_RPC_KIND: u32 = 24_133;
 const NIP89_HANDLER_KIND: u16 = 31_990;
@@ -223,6 +228,60 @@ redacted_id!(
     MycNip05ProjectionDigest,
     "MycNip05ProjectionDigest([redacted])"
 );
+redacted_id!(MycNip05DocumentDigest, "MycNip05DocumentDigest([redacted])");
+
+/// Explicit discovery generation selected for an offline NIP-05 export.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MycNip05ExportSelection {
+    Desired,
+    Current,
+}
+
+/// Canonical offline NIP-05/NIP-46 document derived from verified state.
+#[derive(Clone, PartialEq, Eq)]
+pub struct MycNip05Document {
+    selection: MycNip05ExportSelection,
+    domain: Box<str>,
+    digest: MycNip05DocumentDigest,
+    bytes: Box<[u8]>,
+}
+
+impl MycNip05Document {
+    #[must_use]
+    pub const fn selection(&self) -> MycNip05ExportSelection {
+        self.selection
+    }
+
+    /// Returns the configured domain associated with this explicit export.
+    #[must_use]
+    pub fn domain(&self) -> &str {
+        &self.domain
+    }
+
+    /// Returns the exact compact UTF-8 JSON bytes to export.
+    #[must_use]
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Returns the SHA-256 identity of the exact export bytes.
+    #[must_use]
+    pub const fn digest(&self) -> MycNip05DocumentDigest {
+        self.digest
+    }
+}
+
+impl fmt::Debug for MycNip05Document {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MycNip05Document")
+            .field("selection", &self.selection)
+            .field("domain", &"[redacted]")
+            .field("bytes", &"[redacted]")
+            .field("digest", &"[redacted]")
+            .finish()
+    }
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct MycDiscoveryPolicies {
@@ -713,6 +772,40 @@ impl MycStateRepository<'_> {
             .await
             .map_err(map_transaction_error)
     }
+
+    /// Renders an explicit desired or proven-current NIP-05 document offline.
+    ///
+    /// This performs only verified state reads. It does not host, write, or
+    /// publish the returned bytes and is valid through an inspection host.
+    pub async fn render_offline_nip05(
+        &self,
+        selection: MycNip05ExportSelection,
+    ) -> Result<MycNip05Document, MycStateRepositoryError> {
+        let expected = PersistedMetadata::from(self.expected());
+        let policy = self.expected().discovery_policies().cloned();
+        self.host()
+            .transaction(move |transaction| {
+                Box::pin(async move {
+                    verify_metadata(transaction, &expected).await?;
+                    let policy = policy.as_ref().ok_or(DiscoveryOperationError::Binding)?;
+                    let state = read_state(transaction)
+                        .await?
+                        .ok_or(DiscoveryOperationError::Binding)?;
+                    let generation = match selection {
+                        MycNip05ExportSelection::Desired => state.desired_generation_id,
+                        MycNip05ExportSelection::Current => state
+                            .current_generation_id
+                            .ok_or(DiscoveryOperationError::Binding)?,
+                    };
+                    let document = read_document(transaction, generation, policy)
+                        .await?
+                        .ok_or(DiscoveryOperationError::Binding)?;
+                    render_nip05(selection, &document)
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -926,6 +1019,40 @@ async fn read_document(
         .transpose()
 }
 
+pub(crate) async fn verify_document_for_delivery_job(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    job: &MycDeliveryJobRecord,
+    policy: Option<&MycDiscoveryPolicies>,
+) -> Result<(), DeliveryOperationError> {
+    if job.source_kind() != crate::state_delivery::MycDeliverySourceKind::DiscoveryHandler {
+        return Err(DeliveryOperationError::Binding);
+    }
+    let generation = discovery_generation_for_job(transaction, job.id())
+        .await
+        .map_err(|error| match error {
+            DiscoveryOperationError::Binding => DeliveryOperationError::Binding,
+            DiscoveryOperationError::Storage => DeliveryOperationError::Storage,
+        })?
+        .ok_or(DeliveryOperationError::Binding)?;
+    if generation.as_bytes() != job.source_id() {
+        return Err(DeliveryOperationError::Binding);
+    }
+    let document = read_document(
+        transaction,
+        generation,
+        policy.ok_or(DeliveryOperationError::Binding)?,
+    )
+    .await
+    .map_err(|error| match error {
+        DiscoveryOperationError::Binding => DeliveryOperationError::Binding,
+        DiscoveryOperationError::Storage => DeliveryOperationError::Storage,
+    })?
+    .ok_or(DeliveryOperationError::Binding)?;
+    (document.event_digest() == job.artifact_digest())
+        .then_some(())
+        .ok_or(DeliveryOperationError::Binding)
+}
+
 fn parse_document(
     row: &sqlx::sqlite::SqliteRow,
     policy: &MycDiscoveryPolicies,
@@ -1065,6 +1192,30 @@ async fn promote_current(
         .ok_or(DiscoveryOperationError::Binding)
 }
 
+pub(crate) async fn promote_current_if_desired(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    job_id: MycDeliveryJobId,
+    observed_at: MycDeliveryTimeUnixMs,
+) -> Result<bool, DeliveryOperationError> {
+    let Some(state) = read_state(transaction).await.map_err(|error| match error {
+        DiscoveryOperationError::Binding => DeliveryOperationError::Binding,
+        DiscoveryOperationError::Storage => DeliveryOperationError::Storage,
+    })?
+    else {
+        return Err(DeliveryOperationError::Binding);
+    };
+    if state.desired_job_id != job_id {
+        return Ok(false);
+    }
+    promote_current(transaction, job_id, observed_at)
+        .await
+        .map_err(|error| match error {
+            DiscoveryOperationError::Binding => DeliveryOperationError::Binding,
+            DiscoveryOperationError::Storage => DeliveryOperationError::Storage,
+        })?;
+    Ok(true)
+}
+
 fn exact_document(
     record: &MycDiscoveryDocumentRecord,
     request: &MycDiscoveryCommitRequest,
@@ -1127,6 +1278,104 @@ struct Nip05Projection<'a> {
     relays: Vec<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     nostrconnect_url: Option<&'a str>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Nip05ProjectionInput {
+    schema: Box<str>,
+    schema_version: u32,
+    domain: Box<str>,
+    name: Box<str>,
+    public_key: Box<str>,
+    relays: Box<[Box<str>]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nostrconnect_url: Option<Box<str>>,
+}
+
+#[derive(Serialize)]
+struct Nip05Names<'a> {
+    #[serde(rename = "_")]
+    root: &'a str,
+}
+
+#[derive(Serialize)]
+struct Nip46Discovery<'a> {
+    relays: &'a [Box<str>],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nostrconnect_url: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct Nip05Output<'a> {
+    names: Nip05Names<'a>,
+    nip46: Nip46Discovery<'a>,
+}
+
+fn render_nip05(
+    selection: MycNip05ExportSelection,
+    document: &MycDiscoveryDocumentRecord,
+) -> Result<MycNip05Document, DiscoveryOperationError> {
+    let input: Nip05ProjectionInput = serde_json::from_slice(document.nip05_projection_bytes())
+        .map_err(|_| DiscoveryOperationError::Binding)?;
+    let canonical = serde_json::to_vec(&input).map_err(|_| DiscoveryOperationError::Binding)?;
+    let valid_public_key = input.public_key.len() == 64
+        && input
+            .public_key
+            .as_bytes()
+            .iter()
+            .all(u8::is_ascii_hexdigit)
+        && !input
+            .public_key
+            .as_bytes()
+            .iter()
+            .any(u8::is_ascii_uppercase);
+    let unique_relays = input
+        .relays
+        .iter()
+        .map(Box::as_ref)
+        .collect::<BTreeSet<_>>();
+    let valid_relays = (1..=32).contains(&input.relays.len())
+        && input
+            .relays
+            .iter()
+            .all(|relay| RadrootsNostrRelayUrl::parse(relay).is_ok())
+        && unique_relays.len() == input.relays.len();
+    let valid_url = input
+        .nostrconnect_url
+        .as_deref()
+        .is_none_or(|url| nostr::Url::parse(url).is_ok());
+    if canonical.as_slice() != document.nip05_projection_bytes()
+        || input.schema.as_ref() != "radroots.myc.nip05-projection-input.v1"
+        || input.schema_version != 1
+        || input.domain.is_empty()
+        || input.domain.len() > 253
+        || input.name.as_ref() != "_"
+        || !valid_public_key
+        || !valid_relays
+        || !valid_url
+    {
+        return Err(DiscoveryOperationError::Binding);
+    }
+    let bytes = serde_json::to_vec(&Nip05Output {
+        names: Nip05Names {
+            root: &input.public_key,
+        },
+        nip46: Nip46Discovery {
+            relays: &input.relays,
+            nostrconnect_url: input.nostrconnect_url.as_deref(),
+        },
+    })
+    .map_err(|_| DiscoveryOperationError::Binding)?;
+    if bytes.is_empty() || bytes.len() > MYC_NIP05_DOCUMENT_MAX_BYTES {
+        return Err(DiscoveryOperationError::Binding);
+    }
+    Ok(MycNip05Document {
+        selection,
+        domain: input.domain,
+        digest: MycNip05DocumentDigest(Sha256::digest(&bytes).into()),
+        bytes: bytes.into_boxed_slice(),
+    })
 }
 
 fn projection_bytes(policy: &MycDiscoveryPolicies) -> Result<Vec<u8>, MycDiscoveryStateError> {

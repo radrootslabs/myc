@@ -339,6 +339,10 @@ impl MycStateMetadata {
         &self.delivery
     }
 
+    pub(crate) const fn outbox_maximum(&self) -> usize {
+        self.delivery.outbox_maximum()
+    }
+
     pub(crate) const fn discovery_policies(&self) -> Option<&MycDiscoveryPolicies> {
         self.discovery.as_ref()
     }
@@ -370,6 +374,7 @@ impl fmt::Debug for MycStateMetadata {
             .field("identities", &self.identities)
             .field("governance", &"[redacted]")
             .field("delivery", &"[redacted]")
+            .field("outbox_maximum", &self.delivery.outbox_maximum())
             .field("discovery", &self.discovery.as_ref().map(|_| "[redacted]"))
             .field("policy_versions", &self.policy_versions)
             .field("paths", &"[redacted]")
@@ -571,6 +576,7 @@ fn delivery_policies(
         integer("/transport/publish_retry/initial_backoff_ms")?,
         integer("/transport/publish_retry/maximum_backoff_ms")?,
         integer("/transport/publish_retry/attempt_deadline_ms")?,
+        usize::try_from(integer("/resource_limits/queues/outbox")?).map_err(|_| invalid())?,
         targets,
     )
     .map_err(|_| invalid())

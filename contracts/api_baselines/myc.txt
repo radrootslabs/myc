@@ -207,6 +207,7 @@ pub const fn myc::MycDeliverySourceKind::as_str(self) -> &'static str
 pub enum myc::MycDeliveryStateErrorKind
 pub myc::MycDeliveryStateErrorKind::InvalidPolicy
 pub myc::MycDeliveryStateErrorKind::InvalidRelayId
+pub myc::MycDeliveryStateErrorKind::InvalidRetryJitter
 pub myc::MycDeliveryStateErrorKind::InvalidTime
 impl myc::MycDeliveryStateErrorKind
 pub const fn myc::MycDeliveryStateErrorKind::code(self) -> &'static str
@@ -278,6 +279,9 @@ pub myc::MycLocalSignerTransportErrorKind::Transport
 pub myc::MycLocalSignerTransportErrorKind::UnsupportedPlatform
 impl myc::MycLocalSignerTransportErrorKind
 pub const fn myc::MycLocalSignerTransportErrorKind::code(self) -> &'static str
+pub enum myc::MycNip05ExportSelection
+pub myc::MycNip05ExportSelection::Current
+pub myc::MycNip05ExportSelection::Desired
 pub enum myc::MycNip46AdmissionErrorKind
 pub myc::MycNip46AdmissionErrorKind::EmptyEvent
 pub myc::MycNip46AdmissionErrorKind::EmptyPlaintext
@@ -790,17 +794,32 @@ pub const fn myc::MycDeliveryJobRecord::targets(&self) -> &[myc::MycDeliveryTarg
 pub const fn myc::MycDeliveryJobRecord::updated_at(&self) -> myc::MycDeliveryTimeUnixMs
 impl core::fmt::Debug for myc::MycDeliveryJobRecord
 pub fn myc::MycDeliveryJobRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct myc::MycDeliveryJobRequest
-impl myc::MycDeliveryJobRequest
-pub const fn myc::MycDeliveryJobRequest::signer_response(myc::MycSignerOperationId, myc::MycDeliveryArtifactDigest, myc::MycDeliveryTimeUnixMs) -> Self
-impl core::fmt::Debug for myc::MycDeliveryJobRequest
-pub fn myc::MycDeliveryJobRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDeliveryRecoveryEntropy(_)
+impl myc::MycDeliveryRecoveryEntropy
+pub const fn myc::MycDeliveryRecoveryEntropy::from_injected_entropy([u8; 32]) -> Self
+impl core::fmt::Debug for myc::MycDeliveryRecoveryEntropy
+pub fn myc::MycDeliveryRecoveryEntropy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDeliveryRecoveryReport
+impl myc::MycDeliveryRecoveryReport
+pub const fn myc::MycDeliveryRecoveryReport::active_targets(self) -> u32
+pub const fn myc::MycDeliveryRecoveryReport::examined_jobs(self) -> u32
+pub const fn myc::MycDeliveryRecoveryReport::finalized_jobs(self) -> u32
+pub const fn myc::MycDeliveryRecoveryReport::promoted_discovery_generations(self) -> u32
+pub const fn myc::MycDeliveryRecoveryReport::ready_targets(self) -> u32
+pub const fn myc::MycDeliveryRecoveryReport::recovered_expired_attempts(self) -> u32
+pub const fn myc::MycDeliveryRecoveryReport::scheduled_targets(self) -> u32
+impl core::fmt::Debug for myc::MycDeliveryRecoveryReport
+pub fn myc::MycDeliveryRecoveryReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycDeliveryRelayId(_)
 impl myc::MycDeliveryRelayId
 pub fn myc::MycDeliveryRelayId::as_str(&self) -> &str
 pub fn myc::MycDeliveryRelayId::new(&str) -> core::result::Result<Self, myc::MycDeliveryStateError>
 impl core::fmt::Debug for myc::MycDeliveryRelayId
 pub fn myc::MycDeliveryRelayId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycDeliveryRetryJitter(_)
+impl myc::MycDeliveryRetryJitter
+pub const fn myc::MycDeliveryRetryJitter::get(self) -> u64
+pub fn myc::MycDeliveryRetryJitter::new(u64) -> core::result::Result<Self, myc::MycDeliveryStateError>
 pub struct myc::MycDeliveryStateError
 impl myc::MycDeliveryStateError
 pub const fn myc::MycDeliveryStateError::code(self) -> &'static str
@@ -952,6 +971,19 @@ impl myc::MycLocalSignerUntrustedResponse
 pub fn myc::MycLocalSignerUntrustedResponse::verify(self, &myc::MycProviderBinding, &myc::MycProviderOperation, myc::MycProviderResponseObservedAtUnixMs) -> core::result::Result<myc::MycVerifiedProviderResponse, myc::MycProviderVerificationError>
 impl core::fmt::Debug for myc::MycLocalSignerUntrustedResponse
 pub fn myc::MycLocalSignerUntrustedResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip05Document
+impl myc::MycNip05Document
+pub fn myc::MycNip05Document::bytes(&self) -> &[u8]
+pub const fn myc::MycNip05Document::digest(&self) -> myc::MycNip05DocumentDigest
+pub fn myc::MycNip05Document::domain(&self) -> &str
+pub const fn myc::MycNip05Document::selection(&self) -> myc::MycNip05ExportSelection
+impl core::fmt::Debug for myc::MycNip05Document
+pub fn myc::MycNip05Document::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycNip05DocumentDigest(_)
+impl myc::MycNip05DocumentDigest
+pub const fn myc::MycNip05DocumentDigest::as_bytes(&self) -> &[u8; 32]
+impl core::fmt::Debug for myc::MycNip05DocumentDigest
+pub fn myc::MycNip05DocumentDigest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycNip05ProjectionDigest(_)
 impl myc::MycNip05ProjectionDigest
 pub const fn myc::MycNip05ProjectionDigest::as_bytes(&self) -> &[u8; 32]
@@ -1414,23 +1446,25 @@ impl myc::MycStateRepository<'_>
 pub async fn myc::MycStateRepository<'_>::admit_signer_request(&self, &myc::MycSignerRequest) -> core::result::Result<myc::MycSignerRequestAdmission, myc::MycStateRepositoryError>
 impl myc::MycStateRepository<'_>
 pub async fn myc::MycStateRepository<'_>::claim_delivery_target(&self, myc::MycDeliveryJobId, &myc::MycDeliveryRelayId, myc::MycDeliveryAttemptNonce, myc::MycDeliveryTimeUnixMs) -> core::result::Result<myc::MycDeliveryClaim, myc::MycStateRepositoryError>
-pub async fn myc::MycStateRepository<'_>::create_delivery_job(&self, &myc::MycDeliveryJobRequest) -> core::result::Result<myc::MycDeliveryJobAdmission, myc::MycStateRepositoryError>
 pub async fn myc::MycStateRepository<'_>::mark_delivery_attempt_submitted(&self, myc::MycDeliveryJobId, &myc::MycDeliveryRelayId, myc::MycDeliveryAttemptId, myc::MycDeliveryTimeUnixMs) -> core::result::Result<myc::MycDeliveryAttemptRecord, myc::MycStateRepositoryError>
 pub async fn myc::MycStateRepository<'_>::read_delivery_attempts(&self, myc::MycDeliveryJobId, &myc::MycDeliveryRelayId) -> core::result::Result<alloc::boxed::Box<[myc::MycDeliveryAttemptRecord]>, myc::MycStateRepositoryError>
 pub async fn myc::MycStateRepository<'_>::read_delivery_job(&self, myc::MycDeliveryJobId) -> core::result::Result<core::option::Option<myc::MycDeliveryJobRecord>, myc::MycStateRepositoryError>
-pub async fn myc::MycStateRepository<'_>::record_delivery_attempt_outcome(&self, myc::MycDeliveryJobId, &myc::MycDeliveryRelayId, myc::MycDeliveryAttemptId, myc::MycDeliveryAttemptOutcome, myc::MycDeliveryTimeUnixMs) -> core::result::Result<myc::MycDeliveryJobRecord, myc::MycStateRepositoryError>
-pub async fn myc::MycStateRepository<'_>::recover_expired_delivery_lease(&self, myc::MycDeliveryJobId, &myc::MycDeliveryRelayId, myc::MycDeliveryAttemptId, myc::MycDeliveryTimeUnixMs) -> core::result::Result<myc::MycDeliveryJobRecord, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::record_delivery_attempt_outcome(&self, myc::MycDeliveryJobId, &myc::MycDeliveryRelayId, myc::MycDeliveryAttemptId, myc::MycDeliveryAttemptOutcome, myc::MycDeliveryRetryJitter, myc::MycDeliveryTimeUnixMs) -> core::result::Result<myc::MycDeliveryJobRecord, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::recover_expired_delivery_lease(&self, myc::MycDeliveryJobId, &myc::MycDeliveryRelayId, myc::MycDeliveryAttemptId, myc::MycDeliveryRetryJitter, myc::MycDeliveryTimeUnixMs) -> core::result::Result<myc::MycDeliveryJobRecord, myc::MycStateRepositoryError>
 impl myc::MycStateRepository<'_>
 pub async fn myc::MycStateRepository<'_>::commit_discovery_desired_state(&self, &myc::MycDiscoveryCommitRequest) -> core::result::Result<myc::MycDiscoveryCommitAdmission, myc::MycStateRepositoryError>
 pub async fn myc::MycStateRepository<'_>::promote_delivered_discovery_state(&self, myc::MycDeliveryJobId, myc::MycDeliveryTimeUnixMs) -> core::result::Result<myc::MycDiscoveryPublicationState, myc::MycStateRepositoryError>
 pub async fn myc::MycStateRepository<'_>::read_discovery_document_for_job(&self, myc::MycDeliveryJobId) -> core::result::Result<core::option::Option<myc::MycDiscoveryDocumentRecord>, myc::MycStateRepositoryError>
 pub async fn myc::MycStateRepository<'_>::read_discovery_publication_state(&self) -> core::result::Result<core::option::Option<myc::MycDiscoveryPublicationState>, myc::MycStateRepositoryError>
+pub async fn myc::MycStateRepository<'_>::render_offline_nip05(&self, myc::MycNip05ExportSelection) -> core::result::Result<myc::MycNip05Document, myc::MycStateRepositoryError>
 impl myc::MycStateRepository<'_>
 pub async fn myc::MycStateRepository<'_>::commit_nip46_response(&self, &myc::MycNip46ResponseCommitRequest) -> core::result::Result<myc::MycNip46ResponseCommitAdmission, myc::MycStateRepositoryError>
 pub async fn myc::MycStateRepository<'_>::read_nip46_response(&self, myc::MycDeliveryJobId) -> core::result::Result<core::option::Option<myc::MycNip46ResponseRecord>, myc::MycStateRepositoryError>
 impl myc::MycStateRepository<'_>
 pub async fn myc::MycStateRepository<'_>::compact_governance_evidence(&self, myc::MycConnectionTimeUnixMs, myc::MycGovernanceCompactionPolicy, myc::MycAuditCorrelationId) -> core::result::Result<myc::MycGovernanceCompactionOutcome, myc::MycStateRepositoryError>
 pub async fn myc::MycStateRepository<'_>::read_audit_page(&self, myc::MycAuditPageLimit, core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<myc::MycAuditPage, myc::MycStateRepositoryError>
+impl myc::MycStateRepository<'_>
+pub async fn myc::MycStateRepository<'_>::recover_delivery_state(&self, myc::MycDeliveryTimeUnixMs, myc::MycDeliveryRecoveryEntropy) -> core::result::Result<myc::MycDeliveryRecoveryReport, myc::MycStateRepositoryError>
 impl<'host> myc::MycStateRepository<'host>
 pub async fn myc::MycStateRepository<'host>::verify_binding(&self) -> core::result::Result<(), myc::MycStateRepositoryError>
 impl core::fmt::Debug for myc::MycStateRepository<'_>
@@ -1502,7 +1536,9 @@ pub const myc::MYC_CONFIG_SCHEMA: &str
 pub const myc::MYC_CONFIG_SCHEMA_VERSION: u32
 pub const myc::MYC_CONNECTION_PERMISSION_MAX_COUNT: usize
 pub const myc::MYC_DELIVERY_ATTEMPT_MAX_COUNT: u32
+pub const myc::MYC_DELIVERY_RECOVERY_BATCH_MAX_COUNT: usize
 pub const myc::MYC_DELIVERY_RELAY_ID_MAX_BYTES: usize
+pub const myc::MYC_DELIVERY_RETRY_JITTER_MAX_MS: u64
 pub const myc::MYC_DELIVERY_TARGET_MAX_COUNT: usize
 pub const myc::MYC_DISCOVERY_DOCUMENT_MAX_BYTES: usize
 pub const myc::MYC_ENCRYPTED_IDENTITY_BACKUP_INCLUDED: bool
@@ -1511,6 +1547,7 @@ pub const myc::MYC_ENCRYPTED_IDENTITY_ENVELOPE_MAX_BYTES: usize
 pub const myc::MYC_LOCAL_SIGNER_ENDPOINT: &str
 pub const myc::MYC_LOCAL_SIGNER_TRANSPORT_CONTRACT_VERSION: u32
 pub const myc::MYC_MIGRATION_CATALOG_SHA256: [u8; 32]
+pub const myc::MYC_NIP05_DOCUMENT_MAX_BYTES: usize
 pub const myc::MYC_NIP05_PROJECTION_MAX_BYTES: usize
 pub const myc::MYC_NIP46_CANONICAL_REQUEST_MAX_BYTES: usize
 pub const myc::MYC_NIP46_EVENT_ID_MAX_BYTES: usize

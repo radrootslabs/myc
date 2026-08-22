@@ -102,6 +102,18 @@ target state. Exact replay returns only the retained response bytes; partial
 legacy completion state and mismatched replay fail closed. Provider execution
 and relay I/O remain outside the transaction.
 
+Step 149 closes the repository-owned delivery recovery boundary without
+claiming the final daemon task graph. New jobs can be created only by the
+atomic signed-response or discovery commit and are rejected at the configured
+active-outbox ceiling. Attempt resolution persists caller-injected,
+attempt-cap-bounded full jitter; restart recovery scans fixed 128-job cursor
+batches, revalidates exact signed source bytes and bounded attempt histories,
+recovers only expired leases, and idempotently promotes proven desired
+discovery. It performs no relay I/O and creates no task, clock, or entropy
+authority. Explicit desired/current offline NIP-05 export re-reads verified
+state, works through read-only inspection, and returns canonical compact
+`names` plus NIP-46 discovery JSON without hosting it.
+
 The public Myc repository exposes no raw pool, connection, transaction-control
 handle, path, or SQL. Binding and request-admission mutations execute only
 inside the shared `ServiceSqliteTransaction` runner. Provider and relay work

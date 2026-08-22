@@ -1,0 +1,93 @@
+{
+  "schema": "radroots.myc.delivery-recovery-export.v1",
+  "contract_version": 1,
+  "step": 149,
+  "schema_version": 9,
+  "delivery_admission": {
+    "production_authority": "atomic_response_or_discovery_commit_only",
+    "configured_active_job_ceiling": "/resource_limits/queues/outbox",
+    "exact_replay_at_ceiling": "admitted",
+    "new_job_at_ceiling": "fail_closed",
+    "partial_delivery_job_constructor": "absent"
+  },
+  "attempt_resolution": {
+    "outcomes": ["delivered", "relay_rejected", "transport_failed", "unknown_acknowledgement"],
+    "unknown_is_failure": false,
+    "retry_jitter": "caller_injected_full_jitter_milliseconds",
+    "jitter_minimum_ms": 0,
+    "jitter_maximum_ms": 300000,
+    "relationship_check": "not_greater_than_exponential_attempt_cap",
+    "persisted_result": "exact_next_attempt_at_unix_ms",
+    "payload_or_target_mutation": false
+  },
+  "restart_recovery": {
+    "batch_maximum_jobs": 128,
+    "continuation": "internal_opaque_job_identity_cursor",
+    "caller_contract": "pause_admission_while_one_public_call_completes_all_internal_batches",
+    "wall_time": "caller_injected_positive_unix_milliseconds",
+    "entropy": "caller_injected_one_use_seed",
+    "transaction": "one_bounded_service_sqlite_transaction_per_batch",
+    "expired_pre_submit": "retryable_failure",
+    "expired_submitted": "unknown_acknowledgement",
+    "already_proven_terminal": "idempotent_finalization",
+    "delivered_desired_discovery": "idempotent_current_promotion",
+    "relay_io": false,
+    "task_spawn": false
+  },
+  "startup_invariants": [
+    "configured_active_job_ceiling",
+    "no_orphan_signed_response",
+    "no_orphan_discovery_document",
+    "no_orphan_target",
+    "no_orphan_attempt",
+    "exact_source_digest_binding",
+    "signature_verified_canonical_active_response_bytes",
+    "signature_verified_canonical_active_discovery_bytes",
+    "consecutive_bounded_attempt_history",
+    "active_target_matches_latest_attempt",
+    "immutable_target_membership"
+  ],
+  "offline_nip05": {
+    "selection": ["desired", "current"],
+    "current_requires_proven_delivery": true,
+    "state_authority": "verified_committed_projection",
+    "read_only_inspection_supported": true,
+    "hosted_by_daemon": false,
+    "wire_order": ["names", "nip46"],
+    "root_name": "_",
+    "nip46_fields": ["relays", "nostrconnect_url"],
+    "encoding": "compact_canonical_utf8_json",
+    "maximum_bytes": 524288,
+    "digest": "sha256_exact_bytes",
+    "debug": "redacted"
+  },
+  "qualification": [
+    "queue_ceiling_and_exact_replay",
+    "jitter_zero_exact_and_just_over_relationship",
+    "submitted_lease_becomes_unknown_after_restart",
+    "recovery_reopen_and_idempotent_replay",
+    "delivered_desired_restart_promotion",
+    "desired_and_current_export_selection",
+    "exact_nip05_nip46_wire_bytes_and_digest",
+    "read_only_offline_export",
+    "source_free_redacted_debug_and_errors"
+  ],
+  "deferrals": {
+    "admin_routes": 150,
+    "rcld_promotion": 151,
+    "final_supervised_startup_loop": 158,
+    "nix": "deferred_and_unclaimed",
+    "oci": "deferred_and_unclaimed"
+  },
+  "forbidden": [
+    "standalone_signer_delivery_job_creation",
+    "response_reconstruction",
+    "target_set_mutation",
+    "ambient_clock",
+    "ambient_entropy",
+    "relay_io",
+    "network_hosting",
+    "task_spawn",
+    "alternate_sqlite_authority"
+  ]
+}

@@ -6,11 +6,12 @@ use std::{error::Error, fs, os::unix::fs::PermissionsExt, path::Path};
 use myc::{
     MYC_DISCOVERY_DOCUMENT_MAX_BYTES, MYC_STATE_SCHEMA_VERSION, MycConfigProfile,
     MycDeliveryAttemptNonce, MycDeliveryAttemptOutcome, MycDeliveryClaim, MycDeliveryJobStatus,
-    MycDeliveryRelayId, MycDeliverySourceKind, MycDeliveryTimeUnixMs, MycDiscoveryCommitAdmission,
-    MycDiscoveryCommitRequest, MycDiscoveryStateErrorKind, MycStateMetadata,
+    MycDeliveryRecoveryEntropy, MycDeliveryRelayId, MycDeliveryRetryJitter, MycDeliverySourceKind,
+    MycDeliveryTimeUnixMs, MycDiscoveryCommitAdmission, MycDiscoveryCommitRequest,
+    MycDiscoveryStateErrorKind, MycNip05ExportSelection, MycStateMetadata,
     MycStateRepositoryErrorKind, RadrootsHostEnvironment, RadrootsPathResolver, RadrootsPlatform,
-    initialize_myc_state, open_myc_state_read_write, parse_myc_cli_v1_from, parse_myc_config_v1,
-    resolve_myc_runtime_context,
+    initialize_myc_state, open_myc_state_inspection, open_myc_state_read_write,
+    parse_myc_cli_v1_from, parse_myc_config_v1, resolve_myc_runtime_context,
 };
 use nostr::{Keys, SecretKey};
 use radroots_nostr::event::{
@@ -20,6 +21,7 @@ use radroots_nostr::event::{
 };
 use radroots_service_sqlite::{MigrationAppliedAtUnixSeconds, MigrationBuildIdentity};
 use radroots_storage::event::SourceGeneration;
+use sha2::{Digest, Sha256};
 use sqlx::{ConnectOptions, Connection, sqlite::SqliteConnectOptions};
 
 const CONFIG_EXAMPLE: &[u8] =
@@ -198,6 +200,7 @@ async fn deliver_all_required(
                 &relay,
                 claimed.id(),
                 MycDeliveryAttemptOutcome::Delivered,
+                MycDeliveryRetryJitter::new(0).expect("zero retry jitter"),
                 time(start + offset as u64 * 10 + 2),
             )
             .await
@@ -319,6 +322,31 @@ async fn discovery_desired_current_and_exact_documents_are_atomic_restart_safe_a
     assert_eq!(record.state().current_generation_id(), None);
     assert_eq!(record.state().current_job_id(), None);
     let job_id = record.job().id();
+    let desired_export = host
+        .repository()
+        .render_offline_nip05(MycNip05ExportSelection::Desired)
+        .await
+        .expect("desired NIP-05 export");
+    assert_eq!(desired_export.selection(), MycNip05ExportSelection::Desired);
+    assert_eq!(desired_export.domain(), "myc.example.test");
+    let expected_export = format!(
+        "{{\"names\":{{\"_\":\"{}\"}},\"nip46\":{{\"relays\":[\"wss://relay-primary.example.test/\",\"wss://relay-secondary.example.test/\"],\"nostrconnect_url\":\"{}\"}}}}",
+        discovery_keys().public_key().to_hex(),
+        nostrconnect_url()
+    );
+    assert_eq!(desired_export.bytes(), expected_export.as_bytes());
+    assert_eq!(
+        desired_export.digest().as_bytes(),
+        &<[u8; 32]>::from(Sha256::digest(expected_export.as_bytes()))
+    );
+    assert_eq!(
+        host.repository()
+            .render_offline_nip05(MycNip05ExportSelection::Current)
+            .await
+            .expect_err("no proven-current generation")
+            .kind(),
+        MycStateRepositoryErrorKind::Binding
+    );
 
     let replay = host
         .repository()
@@ -360,6 +388,14 @@ async fn discovery_desired_current_and_exact_documents_are_atomic_restart_safe_a
         Some(request.generation_id())
     );
     assert_eq!(promoted.current_job_id(), Some(job_id));
+    assert_eq!(
+        host.repository()
+            .render_offline_nip05(MycNip05ExportSelection::Current)
+            .await
+            .expect("current NIP-05 export")
+            .bytes(),
+        expected_export.as_bytes()
+    );
     assert_eq!(
         host.repository()
             .read_discovery_document_for_job(job_id)
@@ -419,6 +455,176 @@ async fn discovery_desired_current_and_exact_documents_are_atomic_restart_safe_a
         .expect("state")
         .expect("committed state");
     assert_eq!(state.current_job_id(), Some(next_job_id));
+    host.close().await.expect("final close");
+
+    let inspection = open_myc_state_inspection(&runtime, &metadata)
+        .await
+        .expect("inspection host");
+    let offline = inspection
+        .repository()
+        .render_offline_nip05(MycNip05ExportSelection::Current)
+        .await
+        .expect("read-only offline export");
+    assert_eq!(offline.bytes(), expected_export.as_bytes());
+    let rendered = format!("{offline:?}");
+    assert!(!rendered.contains("myc.example.test"));
+    assert!(!rendered.contains(&discovery_keys().public_key().to_hex()));
+    inspection.close().await.expect("inspection close");
+}
+
+#[tokio::test]
+async fn restart_recovery_is_bounded_jittered_and_idempotent() {
+    let directory = tempfile::tempdir().expect("temporary root");
+    let runtime = runtime(directory.path());
+    prepare_state_directory(&runtime);
+    let bounded_source = String::from_utf8(config_source(true))
+        .expect("UTF-8 configuration")
+        .replace("outbox = 4096", "outbox = 1");
+    let metadata = state_metadata(&runtime, bounded_source.as_bytes());
+    let (applied_at, build) = migration_evidence();
+    initialize_myc_state(&runtime, &metadata, applied_at, &build)
+        .await
+        .expect("initialization");
+    let host = open_myc_state_read_write(&runtime, &metadata, applied_at, &build)
+        .await
+        .expect("writer");
+    let request =
+        MycDiscoveryCommitRequest::new(&metadata, &signed_handler_event(1_725_000_020), time(100))
+            .expect("discovery request");
+    let committed = host
+        .repository()
+        .commit_discovery_desired_state(&request)
+        .await
+        .expect("desired state");
+    let job_id = committed.record().job().id();
+    assert!(matches!(
+        host.repository()
+            .commit_discovery_desired_state(&request)
+            .await
+            .expect("exact replay at queue ceiling"),
+        MycDiscoveryCommitAdmission::ExactReplay(_)
+    ));
+    let saturated =
+        MycDiscoveryCommitRequest::new(&metadata, &signed_handler_event(1_725_000_021), time(101))
+            .expect("second desired state");
+    assert_eq!(
+        host.repository()
+            .commit_discovery_desired_state(&saturated)
+            .await
+            .expect_err("outbox ceiling")
+            .kind(),
+        MycStateRepositoryErrorKind::Binding
+    );
+    let primary = MycDeliveryRelayId::new("primary").expect("primary");
+    let attempt = match host
+        .repository()
+        .claim_delivery_target(
+            job_id,
+            &primary,
+            MycDeliveryAttemptNonce::from_injected_entropy([0xa1; 32]),
+            time(120),
+        )
+        .await
+        .expect("claim")
+    {
+        MycDeliveryClaim::Claimed(attempt) => attempt,
+        other => panic!("unexpected claim: {other:?}"),
+    };
+    host.repository()
+        .mark_delivery_attempt_submitted(job_id, &primary, attempt.id(), time(121))
+        .await
+        .expect("submitted");
+    host.close().await.expect("close before restart");
+
+    let host = open_myc_state_read_write(&runtime, &metadata, applied_at, &build)
+        .await
+        .expect("reopened writer");
+    let recovered_at = time(15_121);
+    let report = host
+        .repository()
+        .recover_delivery_state(
+            recovered_at,
+            MycDeliveryRecoveryEntropy::from_injected_entropy([0xb2; 32]),
+        )
+        .await
+        .expect("restart recovery");
+    assert_eq!(report.examined_jobs(), 1);
+    assert_eq!(report.recovered_expired_attempts(), 1);
+    assert_eq!(report.finalized_jobs(), 0);
+    assert_eq!(report.promoted_discovery_generations(), 0);
+    assert_eq!(report.active_targets(), 0);
+    assert_eq!(report.ready_targets() + report.scheduled_targets(), 2);
+    let job = host
+        .repository()
+        .read_delivery_job(job_id)
+        .await
+        .expect("job read")
+        .expect("job");
+    let next = job.targets()[0]
+        .next_attempt_at()
+        .expect("persisted jittered retry");
+    assert!(next >= recovered_at);
+    assert!(next.get() <= recovered_at.get() + 250);
+    let replay = host
+        .repository()
+        .recover_delivery_state(
+            recovered_at,
+            MycDeliveryRecoveryEntropy::from_injected_entropy([0xc3; 32]),
+        )
+        .await
+        .expect("idempotent recovery");
+    assert_eq!(replay.recovered_expired_attempts(), 0);
+    assert_eq!(replay.examined_jobs(), 1);
+    assert_eq!(
+        host.repository()
+            .read_delivery_attempts(job_id, &primary)
+            .await
+            .expect("attempt history")
+            .len(),
+        1
+    );
+    deliver_all_required(&host.repository(), job_id, 16_000).await;
+    assert_eq!(
+        host.repository()
+            .render_offline_nip05(MycNip05ExportSelection::Current)
+            .await
+            .expect_err("delivered desired state is not promoted implicitly")
+            .kind(),
+        MycStateRepositoryErrorKind::Binding
+    );
+    host.close().await.expect("close after delivered job");
+
+    let host = open_myc_state_read_write(&runtime, &metadata, applied_at, &build)
+        .await
+        .expect("reopened writer after delivered job");
+    let promotion = host
+        .repository()
+        .recover_delivery_state(
+            time(16_100),
+            MycDeliveryRecoveryEntropy::from_injected_entropy([0xd4; 32]),
+        )
+        .await
+        .expect("restart promotion recovery");
+    assert_eq!(promotion.examined_jobs(), 1);
+    assert_eq!(promotion.recovered_expired_attempts(), 0);
+    assert_eq!(promotion.finalized_jobs(), 0);
+    assert_eq!(promotion.promoted_discovery_generations(), 1);
+    assert!(
+        host.repository()
+            .render_offline_nip05(MycNip05ExportSelection::Current)
+            .await
+            .is_ok()
+    );
+    let settled = host
+        .repository()
+        .recover_delivery_state(
+            time(16_101),
+            MycDeliveryRecoveryEntropy::from_injected_entropy([0xe5; 32]),
+        )
+        .await
+        .expect("settled recovery");
+    assert_eq!(settled.examined_jobs(), 0);
+    assert_eq!(settled.promoted_discovery_generations(), 0);
     host.close().await.expect("final close");
 }
 

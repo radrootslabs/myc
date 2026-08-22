@@ -12,6 +12,8 @@ const NIP46_WORK: &str = include_str!("../src/nip46_work.rs");
 const NIP46_WAVE_080_A: &str = include_str!("../src/nip46_wave_080_a.rs");
 const NIP46_COMPLETION: &str = include_str!("../src/state_completion.rs");
 const NIP46_RESPONSE: &str = include_str!("../src/state_response.rs");
+const DELIVERY_RECOVERY: &str = include_str!("../src/state_recovery.rs");
+const DISCOVERY_STATE: &str = include_str!("../src/state_discovery.rs");
 const NIP46_VERIFICATION_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_verification.v1.json");
 const NIP46_REPLAY_CONTRACT: &str =
@@ -26,6 +28,8 @@ const NIP46_COMPLETION_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_completion.v1.json");
 const NIP46_RESPONSE_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_response_commit.v1.json");
+const DELIVERY_RECOVERY_EXPORT_CONTRACT: &str =
+    include_str!("../contracts/services_hardening/delivery_recovery_export.v1.json");
 const SOURCES: &[&str] = &[
     include_str!("../src/cli_v1.rs"),
     include_str!("../src/config_v1.rs"),
@@ -51,6 +55,7 @@ const SOURCES: &[&str] = &[
     include_str!("../src/state_maintenance.rs"),
     include_str!("../src/state_metadata.rs"),
     include_str!("../src/state_repository.rs"),
+    include_str!("../src/state_recovery.rs"),
     include_str!("../src/state_request.rs"),
     include_str!("../src/state_response.rs"),
 ];
@@ -89,6 +94,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "state_maintenance",
             "state_metadata",
             "state_repository",
+            "state_recovery",
             "state_request",
             "state_response",
         ])
@@ -148,6 +154,12 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub enum myc::MycNip46ResponseCommitErrorKind",
         "pub async fn myc::MycStateRepository<'_>::commit_nip46_response",
         "pub async fn myc::MycStateRepository<'_>::read_nip46_response",
+        "pub async fn myc::MycStateRepository<'_>::recover_delivery_state",
+        "pub async fn myc::MycStateRepository<'_>::render_offline_nip05",
+        "pub struct myc::MycDeliveryRecoveryEntropy",
+        "pub struct myc::MycDeliveryRecoveryReport",
+        "pub struct myc::MycNip05Document",
+        "pub enum myc::MycNip05ExportSelection",
         "pub async fn myc::MycStateRepository<'_>::read_connection_decision",
         "pub fn myc::admit_myc_nip46_event",
         "pub fn myc::admit_myc_nip46_request",
@@ -192,6 +204,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "state_maintenance",
         "state_metadata",
         "state_repository",
+        "state_recovery",
         "state_request",
         "state_response",
     ] {
@@ -548,6 +561,86 @@ fn step142_verification_remains_pure_and_defers_later_authority() {
         assert!(
             NIP46_VERIFICATION_CONTRACT.contains(required),
             "Step 142 contract is missing `{required}`"
+        );
+    }
+}
+
+#[test]
+fn step149_recovery_and_offline_export_are_bounded_and_non_networked() {
+    let contract: serde_json::Value =
+        serde_json::from_str(DELIVERY_RECOVERY_EXPORT_CONTRACT).expect("Step 149 contract");
+    assert_eq!(
+        contract["schema"],
+        "radroots.myc.delivery-recovery-export.v1"
+    );
+    assert_eq!(contract["contract_version"], 1);
+    assert_eq!(contract["step"], 149);
+    assert_eq!(contract["schema_version"], 9);
+    for required in [
+        "atomic_response_or_discovery_commit_only",
+        "caller_injected_full_jitter_milliseconds",
+        "internal_opaque_job_identity_cursor",
+        "one_bounded_service_sqlite_transaction_per_batch",
+        "signature_verified_canonical_active_response_bytes",
+        "signature_verified_canonical_active_discovery_bytes",
+        "delivered_desired_restart_promotion",
+        "verified_committed_projection",
+        "compact_canonical_utf8_json",
+        "standalone_signer_delivery_job_creation",
+        "final_supervised_startup_loop",
+    ] {
+        assert!(
+            DELIVERY_RECOVERY_EXPORT_CONTRACT.contains(required),
+            "Step 149 contract is missing `{required}`"
+        );
+    }
+    for required in [
+        "MYC_DELIVERY_RECOVERY_BATCH_MAX_COUNT: usize = 128",
+        "READ_INVARIANTS_SQL",
+        "recover_delivery_state",
+        "verify_response_for_delivery_job",
+        "verify_document_for_delivery_job",
+        "recover_expired",
+        "promote_current_if_desired",
+    ] {
+        assert!(
+            DELIVERY_RECOVERY.contains(required),
+            "Step 149 recovery is missing `{required}`"
+        );
+    }
+    for required in [
+        "render_offline_nip05",
+        "MycNip05ExportSelection::Desired",
+        "MycNip05ExportSelection::Current",
+        "struct Nip05Output",
+        "names: Nip05Names",
+        "nip46: Nip46Discovery",
+    ] {
+        assert!(
+            DISCOVERY_STATE.contains(required),
+            "Step 149 offline export is missing `{required}`"
+        );
+    }
+    for removed in ["MycDeliveryJobRequest", "create_delivery_job"] {
+        assert!(
+            !PUBLIC_API.contains(removed),
+            "partial delivery authority remains public: `{removed}`"
+        );
+    }
+    for forbidden in [
+        "reqwest",
+        "RelayPool",
+        ".publish(",
+        "tokio::spawn",
+        "std::time::SystemTime",
+        "Timestamp::now",
+        "rand::",
+        "getrandom",
+        "rusqlite",
+    ] {
+        assert!(
+            !DELIVERY_RECOVERY.contains(forbidden),
+            "Step 149 recovery gained forbidden authority `{forbidden}`"
         );
     }
 }

@@ -4,16 +4,21 @@
 use std::{error::Error, fs, os::unix::fs::PermissionsExt, path::Path};
 
 use myc::{
-    MYC_DELIVERY_RELAY_ID_MAX_BYTES, MYC_STATE_SCHEMA_VERSION, MycConfigProfile,
-    MycDeliveryArtifactDigest, MycDeliveryAttemptNonce, MycDeliveryAttemptOutcome,
-    MycDeliveryAttemptStatus, MycDeliveryClaim, MycDeliveryJobAdmission, MycDeliveryJobRequest,
-    MycDeliveryJobStatus, MycDeliveryPolicyMode, MycDeliveryRelayId, MycDeliveryStateErrorKind,
-    MycDeliveryTargetStatus, MycDeliveryTimeUnixMs, MycNip46ClientPublicKey, MycNip46EventId,
-    MycNip46RequestId, MycRequestReceivedAtUnixMs, MycSignerOperationNonce, MycSignerRequest,
-    MycSignerRequestDigest, MycSignerRequestMethod, MycStateMetadata, MycStateRepositoryErrorKind,
+    MYC_DELIVERY_RELAY_ID_MAX_BYTES, MYC_DELIVERY_RETRY_JITTER_MAX_MS, MYC_STATE_SCHEMA_VERSION,
+    MycConfigProfile, MycDeliveryArtifactDigest, MycDeliveryAttemptNonce,
+    MycDeliveryAttemptOutcome, MycDeliveryAttemptStatus, MycDeliveryClaim, MycDeliveryJobStatus,
+    MycDeliveryPolicyMode, MycDeliveryRelayId, MycDeliveryRetryJitter, MycDeliveryStateErrorKind,
+    MycDeliveryTargetStatus, MycDeliveryTimeUnixMs, MycDiscoveryCommitAdmission,
+    MycDiscoveryCommitRequest, MycStateMetadata, MycStateRepositoryErrorKind,
     RadrootsHostEnvironment, RadrootsPathResolver, RadrootsPlatform, initialize_myc_state,
     open_myc_state_read_write, parse_myc_cli_v1_from, parse_myc_config_v1,
     resolve_myc_runtime_context,
+};
+use nostr::{Keys, SecretKey};
+use radroots_nostr::event::{
+    ApplicationHandlerSpec as RadrootsNostrApplicationHandlerSpec,
+    Metadata as RadrootsNostrMetadata, Timestamp as RadrootsNostrTimestamp,
+    build_application_handler as radroots_nostr_build_application_handler_event,
 };
 use radroots_service_sqlite::{MigrationAppliedAtUnixSeconds, MigrationBuildIdentity};
 use radroots_storage::event::SourceGeneration;
@@ -24,7 +29,7 @@ const CONFIG_EXAMPLE: &[u8] =
 const DELIVERY_SOURCE: &str = include_str!("../src/state_delivery.rs");
 const CATALOG_SOURCE: &str = include_str!("../src/state_catalog.rs");
 const LIB_SOURCE: &str = include_str!("../src/lib.rs");
-const CLIENT_PUBLIC_KEY: &str = "2222222222222222222222222222222222222222222222222222222222222222";
+const DISCOVERY_SECRET: &str = "3333333333333333333333333333333333333333333333333333333333333333";
 
 fn runtime(root: &Path) -> myc::MycRuntimeContext {
     let root = root.to_str().expect("UTF-8 temporary root");
@@ -64,6 +69,58 @@ fn metadata(runtime: &myc::MycRuntimeContext, source: &[u8]) -> MycStateMetadata
     .expect("metadata")
 }
 
+fn discovery_keys() -> Keys {
+    Keys::new(SecretKey::parse(DISCOVERY_SECRET).expect("discovery secret"))
+}
+
+fn config_source(source: &[u8]) -> Vec<u8> {
+    String::from_utf8(source.to_vec())
+        .expect("UTF-8 configuration")
+        .replace(
+            "3333333333333333333333333333333333333333333333333333333333333333",
+            &discovery_keys().public_key().to_hex(),
+        )
+        .into_bytes()
+}
+
+fn nostrconnect_url() -> String {
+    let mut query = url::form_urlencoded::Serializer::new(String::new());
+    query.append_pair("relay", "wss://relay-primary.example.test/");
+    query.append_pair("relay", "wss://relay-secondary.example.test/");
+    let bunker = format!(
+        "bunker://{}?{}",
+        "2222222222222222222222222222222222222222222222222222222222222222",
+        query.finish()
+    );
+    let encoded: String = url::form_urlencoded::byte_serialize(bunker.as_bytes()).collect();
+    format!("https://myc.example.test/connect?uri={encoded}")
+}
+
+fn signed_handler_event(created_at: u64) -> Vec<u8> {
+    let metadata = RadrootsNostrMetadata {
+        name: Some("myc".to_owned()),
+        display_name: Some("Radroots Myc".to_owned()),
+        about: Some("NIP-46 signer".to_owned()),
+        website: Some("https://myc.example.test/".to_owned()),
+        picture: Some("https://myc.example.test/myc.png".to_owned()),
+        ..RadrootsNostrMetadata::default()
+    };
+    let spec = RadrootsNostrApplicationHandlerSpec::new(vec![24_133])
+        .with_identifier("myc")
+        .with_relays(vec![
+            "wss://relay-primary.example.test/".to_owned(),
+            "wss://relay-secondary.example.test/".to_owned(),
+        ])
+        .with_nostr_connect_url(nostrconnect_url())
+        .with_metadata(metadata);
+    let event = radroots_nostr_build_application_handler_event(&spec)
+        .expect("typed handler event")
+        .custom_created_at(RadrootsNostrTimestamp::from_secs(created_at))
+        .sign_with_keys(&discovery_keys())
+        .expect("signed event");
+    serde_json::to_vec(&event).expect("canonical event bytes")
+}
+
 fn migration_evidence() -> (MigrationAppliedAtUnixSeconds, MigrationBuildIdentity) {
     let applied_at = MigrationAppliedAtUnixSeconds::new(1_725_000_000).expect("migration time");
     let build = MigrationBuildIdentity::new(
@@ -83,21 +140,12 @@ fn migration_evidence() -> (MigrationAppliedAtUnixSeconds, MigrationBuildIdentit
     (applied_at, build)
 }
 
-fn signer_request(request_id: &str, nonce: u8, received_at: u64) -> MycSignerRequest {
-    let canonical = format!(r#"{{"id":"{request_id}","method":"ping","params":[]}}"#);
-    MycSignerRequest::new(
-        MycNip46ClientPublicKey::new(CLIENT_PUBLIC_KEY).expect("client identity"),
-        MycNip46RequestId::new(request_id).expect("request ID"),
-        MycNip46EventId::from_bytes([nonce; 32]),
-        MycSignerRequestMethod::Ping,
-        MycSignerRequestDigest::for_canonical_request(canonical.as_bytes()).expect("digest"),
-        MycSignerOperationNonce::from_injected_entropy([nonce; 32]),
-        MycRequestReceivedAtUnixMs::new(received_at).expect("time"),
-    )
-}
-
 fn time(value: u64) -> MycDeliveryTimeUnixMs {
     MycDeliveryTimeUnixMs::new(value).expect("delivery time")
+}
+
+fn jitter(value: u64) -> MycDeliveryRetryJitter {
+    MycDeliveryRetryJitter::new(value).expect("retry jitter")
 }
 
 #[test]
@@ -129,6 +177,13 @@ fn delivery_inputs_and_diagnostics_are_closed_bounded_and_redacted() {
         );
     }
     assert!(MycDeliveryTimeUnixMs::new(i64::MAX.unsigned_abs()).is_ok());
+    assert!(MycDeliveryRetryJitter::new(MYC_DELIVERY_RETRY_JITTER_MAX_MS).is_ok());
+    assert_eq!(
+        MycDeliveryRetryJitter::new(MYC_DELIVERY_RETRY_JITTER_MAX_MS + 1)
+            .expect_err("oversize retry jitter")
+            .kind(),
+        MycDeliveryStateErrorKind::InvalidRetryJitter
+    );
     assert_eq!(
         [
             MycDeliveryPolicyMode::AtLeastOneRequired,
@@ -155,7 +210,8 @@ async fn delivery_jobs_are_config_bound_idempotent_restart_safe_and_unknown_awar
     let directory = tempfile::tempdir().expect("temporary root");
     let runtime = runtime(directory.path());
     prepare_state_directory(&runtime);
-    let metadata = metadata(&runtime, CONFIG_EXAMPLE);
+    let source = config_source(CONFIG_EXAMPLE);
+    let metadata = metadata(&runtime, &source);
     let (applied_at, build) = migration_evidence();
     initialize_myc_state(&runtime, &metadata, applied_at, &build)
         .await
@@ -163,37 +219,37 @@ async fn delivery_jobs_are_config_bound_idempotent_restart_safe_and_unknown_awar
     let host = open_myc_state_read_write(&runtime, &metadata, applied_at, &build)
         .await
         .expect("writer");
-    let admitted = host
-        .repository()
-        .admit_signer_request(&signer_request("delivery-01", 0x31, 100))
-        .await
-        .expect("signer request");
-    let request = MycDeliveryJobRequest::signer_response(
-        admitted.record().operation_id(),
-        MycDeliveryArtifactDigest::from_bytes([0x44; 32]),
-        time(110),
-    );
+    let request =
+        MycDiscoveryCommitRequest::new(&metadata, &signed_handler_event(1_725_000_000), time(110))
+            .expect("discovery request");
     let job = host
         .repository()
-        .create_delivery_job(&request)
+        .commit_discovery_desired_state(&request)
         .await
         .expect("job");
-    assert!(matches!(job, MycDeliveryJobAdmission::Created(_)));
-    let job_id = job.record().id();
+    assert!(matches!(job, MycDiscoveryCommitAdmission::Created(_)));
+    let job_id = job.record().job().id();
     assert_eq!(
-        job.record().policy_mode(),
+        job.record().job().policy_mode(),
         MycDeliveryPolicyMode::AllRequired
     );
-    assert_eq!(job.record().required_acknowledgements(), 2);
-    assert_eq!(job.record().max_attempts(), 5);
-    assert_eq!(job.record().initial_backoff_ms(), 250);
-    assert_eq!(job.record().maximum_backoff_ms(), 30_000);
-    assert_eq!(job.record().attempt_deadline_ms(), 15_000);
-    assert_eq!(job.record().targets().len(), 2);
-    assert_eq!(job.record().targets()[0].relay_id().as_str(), "primary");
-    assert_eq!(job.record().targets()[1].relay_id().as_str(), "secondary");
+    assert_eq!(job.record().job().required_acknowledgements(), 2);
+    assert_eq!(job.record().job().max_attempts(), 5);
+    assert_eq!(job.record().job().initial_backoff_ms(), 250);
+    assert_eq!(job.record().job().maximum_backoff_ms(), 30_000);
+    assert_eq!(job.record().job().attempt_deadline_ms(), 15_000);
+    assert_eq!(job.record().job().targets().len(), 2);
+    assert_eq!(
+        job.record().job().targets()[0].relay_id().as_str(),
+        "primary"
+    );
+    assert_eq!(
+        job.record().job().targets()[1].relay_id().as_str(),
+        "secondary"
+    );
     assert!(
         job.record()
+            .job()
             .targets()
             .iter()
             .all(|target| target.required())
@@ -201,18 +257,19 @@ async fn delivery_jobs_are_config_bound_idempotent_restart_safe_and_unknown_awar
 
     let replay = host
         .repository()
-        .create_delivery_job(&request)
+        .commit_discovery_desired_state(&request)
         .await
         .expect("exact replay");
-    assert!(matches!(replay, MycDeliveryJobAdmission::ExactReplay(_)));
-    let conflicting = MycDeliveryJobRequest::signer_response(
-        admitted.record().operation_id(),
-        MycDeliveryArtifactDigest::from_bytes([0x45; 32]),
-        time(110),
-    );
+    assert!(matches!(
+        replay,
+        MycDiscoveryCommitAdmission::ExactReplay(_)
+    ));
+    let conflicting =
+        MycDiscoveryCommitRequest::new(&metadata, &signed_handler_event(1_725_000_001), time(110))
+            .expect("conflicting discovery request");
     assert_eq!(
         host.repository()
-            .create_delivery_job(&conflicting)
+            .commit_discovery_desired_state(&conflicting)
             .await
             .expect_err("conflicting job")
             .kind(),
@@ -252,6 +309,7 @@ async fn delivery_jobs_are_config_bound_idempotent_restart_safe_and_unknown_awar
                 &primary,
                 claimed.id(),
                 MycDeliveryAttemptOutcome::Delivered,
+                jitter(0),
                 time(121),
             )
             .await
@@ -272,6 +330,7 @@ async fn delivery_jobs_are_config_bound_idempotent_restart_safe_and_unknown_awar
             &primary,
             claimed.id(),
             MycDeliveryAttemptOutcome::Delivered,
+            jitter(0),
             time(122),
         )
         .await
@@ -297,6 +356,21 @@ async fn delivery_jobs_are_config_bound_idempotent_restart_safe_and_unknown_awar
         .mark_delivery_attempt_submitted(job_id, &secondary, first.id(), time(124))
         .await
         .expect("secondary submitted");
+    assert_eq!(
+        host.repository()
+            .record_delivery_attempt_outcome(
+                job_id,
+                &secondary,
+                first.id(),
+                MycDeliveryAttemptOutcome::UnknownAcknowledgement,
+                jitter(251),
+                time(125),
+            )
+            .await
+            .expect_err("jitter exceeds first retry cap")
+            .kind(),
+        MycStateRepositoryErrorKind::Binding
+    );
     let unknown = host
         .repository()
         .record_delivery_attempt_outcome(
@@ -304,6 +378,7 @@ async fn delivery_jobs_are_config_bound_idempotent_restart_safe_and_unknown_awar
             &secondary,
             first.id(),
             MycDeliveryAttemptOutcome::UnknownAcknowledgement,
+            jitter(250),
             time(125),
         )
         .await
@@ -342,7 +417,7 @@ async fn delivery_jobs_are_config_bound_idempotent_restart_safe_and_unknown_awar
     };
     let retry = host
         .repository()
-        .recover_expired_delivery_lease(job_id, &secondary, second.id(), time(15_376))
+        .recover_expired_delivery_lease(job_id, &secondary, second.id(), jitter(500), time(15_376))
         .await
         .expect("expired pre-submit lease");
     assert_eq!(
@@ -375,6 +450,7 @@ async fn delivery_jobs_are_config_bound_idempotent_restart_safe_and_unknown_awar
             &secondary,
             third.id(),
             MycDeliveryAttemptOutcome::Delivered,
+            jitter(0),
             time(15_878),
         )
         .await
@@ -414,7 +490,7 @@ async fn terminal_unknown_is_not_relabelled_as_failure_and_sql_guards_preserve_e
     let directory = tempfile::tempdir().expect("temporary root");
     let runtime = runtime(directory.path());
     prepare_state_directory(&runtime);
-    let source = String::from_utf8(CONFIG_EXAMPLE.to_vec())
+    let source = String::from_utf8(config_source(CONFIG_EXAMPLE))
         .expect("UTF-8 config")
         .replace("max_attempts = 5", "max_attempts = 1");
     let metadata = metadata(&runtime, source.as_bytes());
@@ -425,21 +501,19 @@ async fn terminal_unknown_is_not_relabelled_as_failure_and_sql_guards_preserve_e
     let host = open_myc_state_read_write(&runtime, &metadata, applied_at, &build)
         .await
         .expect("writer");
-    let admitted = host
-        .repository()
-        .admit_signer_request(&signer_request("delivery-unknown", 0x71, 100))
-        .await
-        .expect("request");
     let job = host
         .repository()
-        .create_delivery_job(&MycDeliveryJobRequest::signer_response(
-            admitted.record().operation_id(),
-            MycDeliveryArtifactDigest::from_bytes([0x72; 32]),
-            time(110),
-        ))
+        .commit_discovery_desired_state(
+            &MycDiscoveryCommitRequest::new(
+                &metadata,
+                &signed_handler_event(1_725_000_010),
+                time(110),
+            )
+            .expect("discovery request"),
+        )
         .await
         .expect("job");
-    let job_id = job.record().id();
+    let job_id = job.record().job().id();
     let primary = MycDeliveryRelayId::new("primary").expect("primary");
     let attempt = match host
         .repository()
@@ -466,6 +540,7 @@ async fn terminal_unknown_is_not_relabelled_as_failure_and_sql_guards_preserve_e
             &primary,
             attempt.id(),
             MycDeliveryAttemptOutcome::UnknownAcknowledgement,
+            jitter(0),
             time(122),
         )
         .await

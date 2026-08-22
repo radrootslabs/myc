@@ -544,6 +544,20 @@ async fn read_response_by_job(
     read_response(transaction, READ_RESPONSE_BY_JOB_SQL, job_id.as_bytes()).await
 }
 
+pub(crate) async fn verify_response_for_delivery_job(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    job_id: MycDeliveryJobId,
+) -> Result<(), DeliveryOperationError> {
+    read_response_by_job(transaction, job_id)
+        .await
+        .map_err(|error| match error {
+            AtomicOperationError::Binding => DeliveryOperationError::Binding,
+            AtomicOperationError::Storage => DeliveryOperationError::Storage,
+        })?
+        .map(|_| ())
+        .ok_or(DeliveryOperationError::Binding)
+}
+
 async fn read_response(
     transaction: &mut ServiceSqliteTransaction<'_>,
     sql: &'static str,
