@@ -26,6 +26,25 @@ pub myc::MycAdminHandlerErrorKind::Unavailable
 pub enum myc::MycAdminMethod
 pub myc::MycAdminMethod::Get
 pub myc::MycAdminMethod::Post
+pub enum myc::MycAdminOperationAdmission
+pub myc::MycAdminOperationAdmission::ExactReplay(myc::MycAdminResponseDocument)
+pub myc::MycAdminOperationAdmission::Prepared(myc::MycPreparedAdminOperation)
+impl core::fmt::Debug for myc::MycAdminOperationAdmission
+pub fn myc::MycAdminOperationAdmission::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum myc::MycAdminOperationCompletion
+pub myc::MycAdminOperationCompletion::Completed
+pub myc::MycAdminOperationCompletion::ExactReplay
+pub enum myc::MycAdminOperationErrorKind
+pub myc::MycAdminOperationErrorKind::Binding
+pub myc::MycAdminOperationErrorKind::CommitOutcomeUnknown
+pub myc::MycAdminOperationErrorKind::InvalidInput
+pub myc::MycAdminOperationErrorKind::InvalidMode
+pub myc::MycAdminOperationErrorKind::OperationConflict
+pub myc::MycAdminOperationErrorKind::OperationOutcomeUnknown
+pub myc::MycAdminOperationErrorKind::ResourceExhausted
+pub myc::MycAdminOperationErrorKind::Transaction
+impl myc::MycAdminOperationErrorKind
+pub const fn myc::MycAdminOperationErrorKind::code(self) -> &'static str
 pub enum myc::MycAdminRoute
 pub myc::MycAdminRoute::AuditEvents
 pub myc::MycAdminRoute::AuditSummary
@@ -798,6 +817,24 @@ pub const fn myc::MycAdminHandlerError::new(myc::MycAdminHandlerErrorKind) -> Se
 impl core::error::Error for myc::MycAdminHandlerError
 impl core::fmt::Display for myc::MycAdminHandlerError
 pub fn myc::MycAdminHandlerError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAdminOperationError
+impl myc::MycAdminOperationError
+pub const fn myc::MycAdminOperationError::code(self) -> &'static str
+pub const fn myc::MycAdminOperationError::kind(self) -> myc::MycAdminOperationErrorKind
+impl core::error::Error for myc::MycAdminOperationError
+impl core::fmt::Debug for myc::MycAdminOperationError
+pub fn myc::MycAdminOperationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycAdminOperationError
+pub fn myc::MycAdminOperationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAdminOperationJournalPolicy
+impl myc::MycAdminOperationJournalPolicy
+pub const fn myc::MycAdminOperationJournalPolicy::completed_retention_ms(self) -> u64
+pub fn myc::MycAdminOperationJournalPolicy::new(u64) -> core::result::Result<Self, myc::MycAdminOperationError>
+pub const fn myc::MycAdminOperationJournalPolicy::seven_days() -> Self
+pub struct myc::MycAdminOperationTimeUnixMs(_)
+impl myc::MycAdminOperationTimeUnixMs
+pub const fn myc::MycAdminOperationTimeUnixMs::get(self) -> u64
+pub fn myc::MycAdminOperationTimeUnixMs::new(u64) -> core::result::Result<Self, myc::MycAdminOperationError>
 pub struct myc::MycAdminRequestDocument
 impl myc::MycAdminRequestDocument
 pub fn myc::MycAdminRequestDocument::correlation_id(&self) -> &str
@@ -1547,6 +1584,9 @@ impl myc::MycPersistenceStatusV1
 pub fn myc::MycPersistenceStatusV1::new(myc::MycPersistenceHealthV1, u32, u64, myc::MycIntegrityStateV1, myc::MycStatusReasonCodes) -> core::result::Result<Self, myc::MycStatusError>
 impl core::fmt::Debug for myc::MycPersistenceStatusV1
 pub fn myc::MycPersistenceStatusV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycPreparedAdminOperation
+impl core::fmt::Debug for myc::MycPreparedAdminOperation
+pub fn myc::MycPreparedAdminOperation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycPreparedNip46Request
 impl myc::MycPreparedNip46Request
 pub const fn myc::MycPreparedNip46Request::method(&self) -> myc::MycSignerRequestMethod
@@ -1894,6 +1934,9 @@ impl myc::MycStateRepository<'_>
 pub async fn myc::MycStateRepository<'_>::compact_governance_evidence(&self, myc::MycConnectionTimeUnixMs, myc::MycGovernanceCompactionPolicy, myc::MycAuditCorrelationId) -> core::result::Result<myc::MycGovernanceCompactionOutcome, myc::MycStateRepositoryError>
 pub async fn myc::MycStateRepository<'_>::read_audit_page(&self, myc::MycAuditPageLimit, core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<myc::MycAuditPage, myc::MycStateRepositoryError>
 impl myc::MycStateRepository<'_>
+pub async fn myc::MycStateRepository<'_>::complete_admin_operation(&self, &myc::MycPreparedAdminOperation, &myc::MycAdminResponseDocument, myc::MycAdminOperationTimeUnixMs, myc::MycAdminOperationJournalPolicy) -> core::result::Result<myc::MycAdminOperationCompletion, myc::MycAdminOperationError>
+pub async fn myc::MycStateRepository<'_>::prepare_admin_operation(&self, &myc::MycAdminRequestDocument, myc::MycAdminOperationTimeUnixMs) -> core::result::Result<myc::MycAdminOperationAdmission, myc::MycAdminOperationError>
+impl myc::MycStateRepository<'_>
 pub async fn myc::MycStateRepository<'_>::recover_delivery_state(&self, myc::MycDeliveryTimeUnixMs, myc::MycDeliveryRecoveryEntropy) -> core::result::Result<myc::MycDeliveryRecoveryReport, myc::MycStateRepositoryError>
 impl<'host> myc::MycStateRepository<'host>
 pub async fn myc::MycStateRepository<'host>::verify_binding(&self) -> core::result::Result<(), myc::MycStateRepositoryError>
@@ -2029,6 +2072,14 @@ pub fn myc::MycVerifiedStateBackup::fmt(&self, &mut core::fmt::Formatter<'_>) ->
 pub struct myc::MycWrappingCredential(_)
 impl core::fmt::Debug for myc::MycWrappingCredential
 pub fn myc::MycWrappingCredential::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const myc::MYC_ADMIN_OPERATION_COMPLETED_LIMIT: u16
+pub const myc::MYC_ADMIN_OPERATION_DEFAULT_RETENTION_MS: u64
+pub const myc::MYC_ADMIN_OPERATION_ID_MAX_BYTES: usize
+pub const myc::MYC_ADMIN_OPERATION_MAX_RETENTION_MS: u64
+pub const myc::MYC_ADMIN_OPERATION_MIN_RETENTION_MS: u64
+pub const myc::MYC_ADMIN_OPERATION_PREPARED_LIMIT: u8
+pub const myc::MYC_ADMIN_OPERATION_RESPONSE_ENVELOPE_MAX_UTF8_BYTES: u32
+pub const myc::MYC_ADMIN_OPERATION_RESPONSE_MODEL_MAX_BYTES: usize
 pub const myc::MYC_AUDIT_PAGE_MAX_ITEMS: u16
 pub const myc::MYC_AUDIT_RETENTION_MAX_MS: u64
 pub const myc::MYC_AUTHORIZATION_CHALLENGE_URL_MAX_BYTES: usize
@@ -2092,6 +2143,9 @@ pub const myc::MYC_STATE_SCHEMA_VERSION: u32
 pub const myc::MYC_STATE_SCHEMA_VERSION_10_MIGRATION_SHA256: [u8; 32]
 pub const myc::MYC_STATE_SCHEMA_VERSION_10_OBJECT_COUNT: u32
 pub const myc::MYC_STATE_SCHEMA_VERSION_10_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_11_MIGRATION_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_11_OBJECT_COUNT: u32
+pub const myc::MYC_STATE_SCHEMA_VERSION_11_SHA256: [u8; 32]
 pub const myc::MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT: u32
 pub const myc::MYC_STATE_SCHEMA_VERSION_1_SHA256: [u8; 32]
 pub const myc::MYC_STATE_SCHEMA_VERSION_2_MIGRATION_SHA256: [u8; 32]

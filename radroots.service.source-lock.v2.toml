@@ -18,7 +18,7 @@ flake_lock_sha256 = "90a03f6f0794f3f6556b1f2bf6700812d48ce8dc1cee7c4f8bc62cea69b
 
 [contract_versions]
 config = 1
-state = 10
+state = 11
 admin = 1
 status = 1
 provider = 1

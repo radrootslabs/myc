@@ -141,6 +141,16 @@
   nonterminal delivery work cannot be removed or changed. Do not persist relay
   URLs, paths, credentials, provider envelopes, or protected values in the
   binding history.
+- Step 159 unit 11 owns schema-v11 bounded admin idempotency. Keep operation
+  identifiers on the fixed ASCII grammar, bind route plus canonical request
+  digest, cap replay models at 8,192 bytes, prune only expired Completed rows,
+  reserve completion capacity at admission, and retain unresolved Prepared
+  evidence as outcome-unknown. The configured admin response cap must admit the
+  maximum model in its bounded success envelope. Never persist a
+  request body, path, correlation ID, credential, bundle path, or secret in the
+  journal. Database-only mutations must later compose their effect, audit, and
+  completion in one transaction; online backup records Prepared before capture
+  and completes only after the bundle is durable.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

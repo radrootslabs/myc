@@ -151,7 +151,7 @@ without changing the canonical common artifact inventory.
 
 Create-new initialization reserves the shared schema-v1 metadata and migration
 ledger, retains exclusive writer authority, applies the exact Myc schema-v2
-through schema-v10 migrations, binds the normalized configuration, expected
+through schema-v11 migrations, binds the normalized configuration, expected
 identity roles, and policy versions through a sealed typed repository, and
 explicitly closes the host before reporting success. Existing writable open can
 resume any exact v1 through v9 prefix; read-only inspection requires the current
@@ -172,6 +172,18 @@ must present the latest normalized config and public-identity binding. The
 history stores only digests, public identities,
 closed contract versions, injected application evidence, and safe build
 identity; it stores no credentials, provider envelopes, paths, or relay URLs.
+
+Schema v11 adds the bounded admin-operation journal. It binds each mutation's
+validated operation ID to its fixed route and canonical request digest, retains
+at most 128 unresolved Prepared records and 4,096 completed responses, caps a
+replayed response model at 8,192 bytes, and prunes only a bounded expired
+completed prefix before admission. The journal stores no request body, path,
+correlation ID, credential, bundle path, or secret. Completed responses use an
+explicit retention policy whose admitted range is 1 through 31,536,000,000
+milliseconds; the governed operating value is seven days.
+The admin response transport admits at least 8,382 UTF-8 bytes so the maximum
+retained model plus the maximum safe correlation identity always fits its
+canonical success envelope.
 
 Schema v8 adds immutable NIP-46 operation-completion evidence. The Step 147
 integration checkpoint binds each durable request to its stable operation and

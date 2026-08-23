@@ -274,10 +274,34 @@ impl MycAdminRequestDocument {
             .map(|(_, value)| value.as_ref())
     }
 
+    pub(crate) fn parameter_binding(&self) -> Option<(&'static str, &str)> {
+        self.parameter
+            .as_ref()
+            .map(|(name, value)| (*name, value.as_ref()))
+    }
+
     /// Returns compact canonical JSON for the route's exact request model.
     #[must_use]
     pub fn model_bytes(&self) -> &[u8] {
         &self.model_bytes
+    }
+
+    #[cfg(test)]
+    pub(crate) fn mutation_for_test(
+        route: MycAdminRoute,
+        operation_id: &str,
+        parameter: Option<(&'static str, &str)>,
+        model_bytes: &[u8],
+    ) -> Self {
+        assert!(route.is_mutation());
+        Self {
+            route,
+            operation_id: Some(AdminOperationId::new(operation_id).expect("test operation ID")),
+            correlation_id: AdminCorrelationId::new("test-correlation")
+                .expect("test correlation ID"),
+            parameter: parameter.map(|(name, value)| (name, value.into())),
+            model_bytes: model_bytes.into(),
+        }
     }
 }
 

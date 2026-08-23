@@ -362,7 +362,7 @@
         "header_count": { "type": "integer", "minimum": 1, "maximum": 64, "default": 32, "x-radroots-default-source": "radroots_service_host" },
         "header_bytes": { "type": "integer", "minimum": 1, "maximum": 32768, "default": 16384, "x-radroots-default-source": "radroots_service_host" },
         "request_body_utf8_bytes": { "type": "integer", "minimum": 1, "maximum": 65536, "default": 65536, "x-radroots-default-source": "radroots_service_host" },
-        "response_body_utf8_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576, "default": 1048576, "x-radroots-default-source": "radroots_service_host" },
+        "response_body_utf8_bytes": { "type": "integer", "minimum": 8382, "maximum": 1048576, "default": 1048576, "x-radroots-default-source": "radroots_service_host" },
         "concurrent_connections": { "type": "integer", "minimum": 1, "maximum": 64, "default": 32, "x-radroots-default-source": "radroots_service_host" },
         "request_deadline_ms": { "type": "integer", "minimum": 1, "maximum": 30000, "default": 15000, "x-radroots-default-source": "radroots_service_host" },
         "idle_timeout_ms": { "type": "integer", "minimum": 1, "maximum": 60000, "default": 30000, "x-radroots-default-source": "radroots_service_host" },

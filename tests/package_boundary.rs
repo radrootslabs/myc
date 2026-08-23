@@ -70,6 +70,7 @@ const SOURCES: &[&str] = &[
     include_str!("../src/runtime_supervision.rs"),
     include_str!("../src/status_v1.rs"),
     include_str!("../src/state_catalog.rs"),
+    include_str!("../src/state_admin.rs"),
     include_str!("../src/state_completion.rs"),
     include_str!("../src/state_config.rs"),
     include_str!("../src/state_connection.rs"),
@@ -117,6 +118,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "runtime_supervision",
             "status_v1",
             "state_catalog",
+            "state_admin",
             "state_completion",
             "state_config",
             "state_connection",
@@ -145,6 +147,11 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
         "Schema v10 adds an append-only configuration-binding history capped at exactly\n1,024 generations",
         "Exact replay returns the retained generation without another\nappend or revocation",
         "Future startup\nmust present the latest normalized config and public-identity binding",
+        "Schema v11 adds the bounded admin-operation journal",
+        "at most 128 unresolved Prepared records and 4,096 completed responses",
+        "caps a\nreplayed response model at 8,192 bytes",
+        "admits at least 8,382 UTF-8 bytes",
+        "The journal stores no request body, path,\ncorrelation ID, credential, bundle path, or secret",
     ] {
         assert!(README.contains(required), "README is missing `{required}`");
     }
@@ -216,6 +223,16 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub struct myc::MycNip46WorkError",
         "pub struct myc::MycStateHost",
         "pub struct myc::MycStateRepository",
+        "pub struct myc::MycPreparedAdminOperation",
+        "pub enum myc::MycAdminOperationAdmission",
+        "pub enum myc::MycAdminOperationCompletion",
+        "pub struct myc::MycAdminOperationJournalPolicy",
+        "pub struct myc::MycAdminOperationTimeUnixMs",
+        "pub struct myc::MycAdminOperationError",
+        "pub enum myc::MycAdminOperationErrorKind",
+        "pub const myc::MYC_ADMIN_OPERATION_RESPONSE_ENVELOPE_MAX_UTF8_BYTES: u32",
+        "pub async fn myc::MycStateRepository<'_>::prepare_admin_operation",
+        "pub async fn myc::MycStateRepository<'_>::complete_admin_operation",
         "pub const myc::MYC_CONFIG_BINDING_MAX_GENERATIONS: u16",
         "pub struct myc::MycConfigApplyOutcome",
         "pub struct myc::MycConfigApplyError",
@@ -287,6 +304,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "runtime_supervision",
         "status_v1",
         "state_catalog",
+        "state_admin",
         "state_completion",
         "state_config",
         "state_connection",
@@ -985,9 +1003,10 @@ fn public_errors_remain_crate_owned_redacted_and_source_free() {
         .lines()
         .filter(|line| line.starts_with("pub struct myc::") && line.ends_with("Error"))
         .count();
-    assert_eq!(public_error_count, 33);
+    assert_eq!(public_error_count, 34);
     assert!(PUBLIC_API.contains("pub struct myc::MycDoctorError"));
     assert!(PUBLIC_API.contains("pub struct myc::MycConfigApplyError"));
+    assert!(PUBLIC_API.contains("pub struct myc::MycAdminOperationError"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycRuntimeFoundation {"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycStateHost {"));
 }

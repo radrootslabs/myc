@@ -103,13 +103,13 @@ const INSERT_INITIAL_CONFIG_BINDING_SQL: &str = r#"INSERT INTO myc_config_bindin
 )
 SELECT 1, metadata.normalized_config_sha256, metadata.transport_public_key,
     metadata.user_public_key, metadata.discovery_public_key,
-    metadata.config_contract_version, 10,
+    metadata.config_contract_version, ?,
     metadata.operator_contract_version, metadata.status_contract_version,
     migration.applied_at_unix_s, migration.service_version,
     migration.service_commit, migration.lib_revision, migration.rust_version,
     migration.target, migration.feature_profile, migration.provider_contract_version
 FROM myc_state_metadata AS metadata
-JOIN schema_migrations AS migration ON migration.version = 10
+JOIN schema_migrations AS migration ON migration.version = ?
 WHERE metadata.singleton = 1"#;
 
 /// Stable failure classes for typed Myc state-repository operations.
@@ -251,7 +251,7 @@ impl<'host> MycStateRepository<'host> {
                         insert_initial_config_binding(transaction).await?;
                     }
                     match read_latest_config_binding(transaction).await? {
-                        Some(actual) if actual == expected => Ok(()),
+                        Some(actual) if actual.matches_current_configuration(&expected) => Ok(()),
                         Some(_) | None => Err(RepositoryOperationError::Binding),
                     }
                 })
@@ -304,7 +304,19 @@ impl PersistedMetadata {
 
     fn same_contracts(&self, other: &Self) -> bool {
         self.config_contract_version == other.config_contract_version
-            && matches!(self.state_contract_version, 9 | 10)
+            && (9..=MYC_STATE_SCHEMA_VERSION).contains(&self.state_contract_version)
+            && other.state_contract_version == MYC_STATE_SCHEMA_VERSION
+            && self.operator_contract_version == other.operator_contract_version
+            && self.status_contract_version == other.status_contract_version
+    }
+
+    pub(crate) fn matches_current_configuration(&self, other: &Self) -> bool {
+        self.normalized_config_sha256 == other.normalized_config_sha256
+            && self.transport_public_key == other.transport_public_key
+            && self.user_public_key == other.user_public_key
+            && self.discovery_public_key == other.discovery_public_key
+            && self.config_contract_version == other.config_contract_version
+            && (10..=MYC_STATE_SCHEMA_VERSION).contains(&self.state_contract_version)
             && other.state_contract_version == MYC_STATE_SCHEMA_VERSION
             && self.operator_contract_version == other.operator_contract_version
             && self.status_contract_version == other.status_contract_version
@@ -339,7 +351,7 @@ pub(crate) async fn require_expected_metadata(
     expected: &PersistedMetadata,
 ) -> Result<(), RepositoryOperationError> {
     match read_latest_config_binding(transaction).await? {
-        Some(actual) if actual == *expected => Ok(()),
+        Some(actual) if actual.matches_current_configuration(expected) => Ok(()),
         Some(_) | None => Err(RepositoryOperationError::Binding),
     }
 }
@@ -465,6 +477,8 @@ async fn insert_initial_config_binding(
     transaction: &mut ServiceSqliteTransaction<'_>,
 ) -> Result<(), RepositoryOperationError> {
     let result = sqlx::query(INSERT_INITIAL_CONFIG_BINDING_SQL)
+        .bind(i64::from(MYC_STATE_SCHEMA_VERSION))
+        .bind(i64::from(MYC_STATE_SCHEMA_VERSION))
         .execute(&mut *transaction)
         .await
         .map_err(|_| RepositoryOperationError::Storage)?;

@@ -27,6 +27,8 @@ mod provider_verification;
 mod runtime_context;
 mod runtime_foundation;
 mod runtime_supervision;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod state_admin;
 mod state_catalog;
 mod state_completion;
 mod state_config;
@@ -148,6 +150,16 @@ pub use runtime_supervision::{
     MycCriticalTaskError, MycRuntimeSupervisionError, MycRuntimeSupervisionErrorKind,
     MycSupervisedRuntime, MycTaskCancellation,
 };
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub use state_admin::{
+    MYC_ADMIN_OPERATION_COMPLETED_LIMIT, MYC_ADMIN_OPERATION_DEFAULT_RETENTION_MS,
+    MYC_ADMIN_OPERATION_ID_MAX_BYTES, MYC_ADMIN_OPERATION_MAX_RETENTION_MS,
+    MYC_ADMIN_OPERATION_MIN_RETENTION_MS, MYC_ADMIN_OPERATION_PREPARED_LIMIT,
+    MYC_ADMIN_OPERATION_RESPONSE_ENVELOPE_MAX_UTF8_BYTES,
+    MYC_ADMIN_OPERATION_RESPONSE_MODEL_MAX_BYTES, MycAdminOperationAdmission,
+    MycAdminOperationCompletion, MycAdminOperationError, MycAdminOperationErrorKind,
+    MycAdminOperationJournalPolicy, MycAdminOperationTimeUnixMs, MycPreparedAdminOperation,
+};
 pub use state_catalog::{
     MYC_MIGRATION_CATALOG_SHA256, MYC_STATE_BASE_SCHEMA_VERSION, MYC_STATE_SCHEMA_CATALOG_SHA256,
     MYC_STATE_SCHEMA_VERSION, MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT,
@@ -165,8 +177,9 @@ pub use state_catalog::{
     MYC_STATE_SCHEMA_VERSION_9_MIGRATION_SHA256, MYC_STATE_SCHEMA_VERSION_9_OBJECT_COUNT,
     MYC_STATE_SCHEMA_VERSION_9_SHA256, MYC_STATE_SCHEMA_VERSION_10_MIGRATION_SHA256,
     MYC_STATE_SCHEMA_VERSION_10_OBJECT_COUNT, MYC_STATE_SCHEMA_VERSION_10_SHA256,
-    MycStateCatalogError, MycStateCatalogErrorKind, myc_migration_catalog, myc_schema_catalog,
-    validate_myc_state_catalogs,
+    MYC_STATE_SCHEMA_VERSION_11_MIGRATION_SHA256, MYC_STATE_SCHEMA_VERSION_11_OBJECT_COUNT,
+    MYC_STATE_SCHEMA_VERSION_11_SHA256, MycStateCatalogError, MycStateCatalogErrorKind,
+    myc_migration_catalog, myc_schema_catalog, validate_myc_state_catalogs,
 };
 pub use state_completion::{
     MycNip46CommitAdmission, MycNip46CommitError, MycNip46CommitErrorKind, MycNip46CommitRecord,

@@ -195,6 +195,105 @@ async fn initialize_v9(runtime: &myc::MycRuntimeContext, metadata: &MycStateMeta
     host.close().await.expect("v9 close");
 }
 
+async fn initialize_v10(runtime: &myc::MycRuntimeContext, metadata: &MycStateMetadata) {
+    let full_migrations = myc::myc_migration_catalog().expect("full migrations");
+    let migrations = MigrationCatalog::new(full_migrations.descriptors()[..9].iter().cloned())
+        .expect("v10 migrations");
+    let full_schema = myc::myc_schema_catalog().expect("full schema");
+    let schema = SchemaCatalog::new(&migrations, full_schema.versions()[..10].iter().copied())
+        .expect("v10 schema");
+    let paths = ServiceSqlitePaths::from_runtime_context(runtime.context()).expect("paths");
+    let initial = metadata.initial_database_metadata();
+    let identity = ServiceDatabaseIdentity::new(
+        &paths,
+        initial.source_generation(),
+        NonZeroU32::new(10).unwrap(),
+        initial.application_id(),
+    );
+    let authority = initialize_database(
+        &paths,
+        OpenMode::Initialize,
+        initial,
+        &schema,
+        |path: PathBuf| async move {
+            let connection = sqlx::SqliteConnection::connect_with(
+                &SqliteConnectOptions::new()
+                    .filename(path)
+                    .create_if_missing(false)
+                    .disable_statement_logging(),
+            )
+            .await
+            .map_err(|_| TestInitializationError)?;
+            connection
+                .close()
+                .await
+                .map_err(|_| TestInitializationError)
+        },
+    )
+    .await
+    .expect("v10 initialize");
+    let (host, outcome) = ServiceSqliteHost::open_initialized(
+        &paths,
+        &identity,
+        &migrations,
+        &schema,
+        ServiceSqliteConnectionOptions::reviewed(),
+        authority,
+        MigrationAppliedAtUnixSeconds::new(1_725_000_000).unwrap(),
+        &build_for_schema(10),
+        &[],
+    )
+    .await
+    .expect("v10 migrations");
+    assert_eq!(outcome.final_version(), 10);
+    assert_eq!(outcome.applied_count(), 9);
+
+    let digest = *metadata.configuration_digest().as_bytes();
+    let identities = metadata.expected_identities();
+    let transport: Box<str> = identities.transport().as_hex().into();
+    let user: Box<str> = identities.user().as_hex().into();
+    let discovery: Option<Box<str>> = identities.discovery().map(|value| value.as_hex().into());
+    let versions = metadata.policy_versions();
+    host.transaction(move |transaction| {
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO myc_state_metadata (singleton, normalized_config_sha256, \
+                 transport_public_key, user_public_key, discovery_public_key, \
+                 config_contract_version, state_contract_version, operator_contract_version, \
+                 status_contract_version) VALUES (1, ?, ?, ?, ?, ?, 10, ?, ?)",
+            )
+            .bind(digest.as_slice())
+            .bind(transport.as_ref())
+            .bind(user.as_ref())
+            .bind(discovery.as_deref())
+            .bind(i64::from(versions.configuration()))
+            .bind(i64::from(versions.operator()))
+            .bind(i64::from(versions.status()))
+            .execute(&mut *transaction)
+            .await?;
+            sqlx::query(
+                "INSERT INTO myc_config_bindings (generation, normalized_config_sha256, \
+                 transport_public_key, user_public_key, discovery_public_key, \
+                 config_contract_version, state_contract_version, operator_contract_version, \
+                 status_contract_version, applied_at_unix_s, service_version, service_commit, \
+                 lib_revision, rust_version, target, feature_profile, provider_contract_version) \
+                 SELECT 1, normalized_config_sha256, transport_public_key, user_public_key, \
+                 discovery_public_key, config_contract_version, 10, operator_contract_version, \
+                 status_contract_version, 1725000000, '0.1.0', \
+                 '1111111111111111111111111111111111111111', \
+                 '7d7b454b4c9ed86569671993bd03ca868b676665', 'rustc-test', 'test-target', \
+                 'service-host', 1 FROM myc_state_metadata WHERE singleton = 1",
+            )
+            .execute(&mut *transaction)
+            .await
+            .map(|_| ())
+        })
+    })
+    .await
+    .expect("v10 Myc binding");
+    host.close().await.expect("v10 close");
+}
+
 async fn initialize(runtime: &myc::MycRuntimeContext, metadata: &MycStateMetadata) {
     initialize_myc_state(
         runtime,
@@ -377,7 +476,7 @@ async fn offline_apply_appends_one_generation_and_rebinds_future_startup() {
 }
 
 #[tokio::test]
-async fn v9_upgrade_seeds_one_v10_binding_without_rewriting_birth_evidence() {
+async fn v9_upgrade_seeds_one_current_binding_without_rewriting_birth_evidence() {
     let directory = tempfile::tempdir().expect("root");
     let runtime = runtime(directory.path());
     prepare(&runtime);
@@ -392,7 +491,7 @@ async fn v9_upgrade_seeds_one_v10_binding_without_rewriting_birth_evidence() {
         &build(),
     )
     .await
-    .expect("upgrade to v10");
+    .expect("upgrade to current schema");
     writer.close().await.expect("close upgraded writer");
 
     let mut connection = sqlx::SqliteConnection::connect_with(&options(&runtime))
@@ -413,11 +512,78 @@ async fn v9_upgrade_seeds_one_v10_binding_without_rewriting_birth_evidence() {
     .await
     .expect("seed binding");
     assert_eq!(binding.get::<i64, _>("generation"), 1);
-    assert_eq!(binding.get::<i64, _>("state_contract_version"), 10);
+    assert_eq!(
+        binding.get::<i64, _>("state_contract_version"),
+        i64::from(myc::MYC_STATE_SCHEMA_VERSION)
+    );
     assert_eq!(binding.get::<i64, _>("applied_at_unix_s"), 1_725_000_010);
     assert_eq!(
         binding.get::<Vec<u8>, _>("normalized_config_sha256"),
         current_metadata.configuration_digest().as_bytes()
+    );
+    connection.close().await.expect("close inspection");
+}
+
+#[tokio::test]
+async fn v10_binding_remains_valid_historical_evidence_after_v11_migration() {
+    let directory = tempfile::tempdir().expect("root");
+    let runtime = runtime(directory.path());
+    prepare(&runtime);
+    let current = configuration(CONFIG);
+    let current_metadata = metadata(&runtime, &current);
+    initialize_v10(&runtime, &current_metadata).await;
+
+    let writer = open_myc_state_read_write(
+        &runtime,
+        &current_metadata,
+        MigrationAppliedAtUnixSeconds::new(1_725_000_011).unwrap(),
+        &build(),
+    )
+    .await
+    .expect("v10 binding survives schema-only migration");
+    writer
+        .repository()
+        .verify_binding()
+        .await
+        .expect("historical binding verifies");
+    writer.close().await.expect("close upgraded writer");
+
+    let mut connection = sqlx::SqliteConnection::connect_with(&options(&runtime))
+        .await
+        .expect("inspect upgrade");
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT state_schema_version FROM radroots_service_metadata WHERE singleton = 1",
+        )
+        .fetch_one(&mut connection)
+        .await
+        .expect("shared schema version"),
+        11
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT state_contract_version FROM myc_state_metadata WHERE singleton = 1",
+        )
+        .fetch_one(&mut connection)
+        .await
+        .expect("birth state version"),
+        10
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT state_contract_version FROM myc_config_bindings WHERE generation = 1",
+        )
+        .fetch_one(&mut connection)
+        .await
+        .expect("historical config state version"),
+        10
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM myc_config_bindings")
+            .fetch_one(&mut connection)
+            .await
+            .expect("binding count"),
+        1
     );
     connection.close().await.expect("close inspection");
 }

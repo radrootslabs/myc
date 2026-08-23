@@ -383,6 +383,10 @@ fn lib_derived_limits_and_defaults_are_literal_frozen() {
         schema["$defs"]["operations_limits"]["properties"]["header_bytes"]["minimum"],
         8_192
     );
+    assert_eq!(
+        schema["$defs"]["admin_limits"]["properties"]["response_body_utf8_bytes"]["minimum"],
+        8_382
+    );
     let exact = [
         ("/$defs/operations_limits/properties/header_count", 64, 32),
         (
@@ -649,6 +653,14 @@ fn bounds_relationships_and_conditional_authority_fail_closed() {
         *excessive.pointer_mut(pointer).unwrap() = json!(over);
         assert_rejected(&excessive, Profile::Production);
     }
+
+    let mut exact_admin_response = value.clone();
+    exact_admin_response["resource_limits"]["admin"]["response_body_utf8_bytes"] = json!(8_382);
+    assert!(semantic_valid(&exact_admin_response, Profile::Production));
+    let mut undersized_admin_response = value.clone();
+    undersized_admin_response["resource_limits"]["admin"]["response_body_utf8_bytes"] =
+        json!(8_381);
+    assert_rejected(&undersized_admin_response, Profile::Production);
 
     let mut overlap = value.clone();
     overlap["policy"]["denied_clients"] = overlap["policy"]["trusted_clients"].clone();
