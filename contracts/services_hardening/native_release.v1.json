@@ -24,8 +24,8 @@
     "panic": "unwind"
   },
   "source_lock": {
-    "filename": "radroots.service.source-lock.v1.toml",
-    "schema": "radroots.service.source-lock.v1",
+    "filename": "radroots.service.source-lock.v2.toml",
+    "schema": "radroots.service.source-lock.v2",
     "generator": "cargo xtask service-source-lock",
     "lib_repository": "https://github.com/radrootslabs/lib",
     "architecture": "radroots.crates.release.v2"

@@ -16,6 +16,7 @@ resolver = "3"
 [workspace.metadata.radroots.service_source_lock]
 service = "myc"
 host_feature_profile = "service-host"
+nix_material = "deferred"
 config_contract_version = 1
 state_contract_version = 9
 admin_contract_version = 1
@@ -55,13 +56,13 @@ futures-executor = "0.3"
 hex = "0.4"
 jsonschema = { version = "0.48.1", default-features = false }
 nostr = { version = "0.44.2", features = ["nip04", "nip44", "nip46", "nip49"] }
-radroots_nostr = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha", features = ["events"] }
-radroots_nostr_connect = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha" }
-radroots_runtime_paths = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha" }
-radroots_service_host = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha" }
-radroots_service_sqlite = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha" }
-radroots_secrets = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha", features = ["std"] }
-radroots_storage = { git = "https://github.com/radrootslabs/lib", rev = "b44119fbac5985be8127ad1bf56d2950e6399427", version = "=0.1.0-alpha", default-features = false }
+radroots_nostr = { git = "https://github.com/radrootslabs/lib", rev = "7d7b454b4c9ed86569671993bd03ca868b676665", version = "=0.1.0-alpha", features = ["events"] }
+radroots_nostr_connect = { git = "https://github.com/radrootslabs/lib", rev = "7d7b454b4c9ed86569671993bd03ca868b676665", version = "=0.1.0-alpha" }
+radroots_runtime_paths = { git = "https://github.com/radrootslabs/lib", rev = "7d7b454b4c9ed86569671993bd03ca868b676665", version = "=0.1.0-alpha" }
+radroots_service_host = { git = "https://github.com/radrootslabs/lib", rev = "7d7b454b4c9ed86569671993bd03ca868b676665", version = "=0.1.0-alpha" }
+radroots_service_sqlite = { git = "https://github.com/radrootslabs/lib", rev = "7d7b454b4c9ed86569671993bd03ca868b676665", version = "=0.1.0-alpha" }
+radroots_secrets = { git = "https://github.com/radrootslabs/lib", rev = "7d7b454b4c9ed86569671993bd03ca868b676665", version = "=0.1.0-alpha", features = ["std"] }
+radroots_storage = { git = "https://github.com/radrootslabs/lib", rev = "7d7b454b4c9ed86569671993bd03ca868b676665", version = "=0.1.0-alpha", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value"] }
 sha2 = "0.10"

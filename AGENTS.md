@@ -28,7 +28,7 @@
 ## 2. Authority and preflight
 
 - Before editing, read this file, `README`, `Cargo.toml`,
-  `radroots.service.source-lock.v1.toml`, the relevant implementation and tests,
+  `radroots.service.source-lock.v2.toml`, the relevant implementation and tests,
   and `flake.nix` or migrations when they are in scope.
 - `.radroots-consumer-root` is the standalone source-lock identity and must
   remain exactly `myc`. The implemented control-plane contract is
@@ -89,11 +89,13 @@
   every intentional public-surface change. Shared runtime-path, SQLite, and
   storage identity types are deliberate governed contract dependencies;
   provider, SQLx, Serde, transport, and task implementation types are not.
-- Step 139 owns the final service source-lock schema and the pre-promotion
+- Step 139 established the predecessor service source lock and pre-promotion
   native package metadata. Keep the exact Lib revision consistent across every
-  direct Radroots dependency, Cargo.lock, flake.lock source data, the verified
-  source archive, and the generated service lock. Native target metadata does
-  not qualify an artifact; Nix, OCI, signing, tags, publication, and deployment
+  direct Radroots dependency, Cargo.lock, the verified source archive, and the
+  generated v2 service lock. Deferred `flake.nix` and `flake.lock` material is
+  independently digest-bound and may select an older reachable Lib revision;
+  it is not active native revision authority. Native target metadata does not
+  qualify an artifact; Nix, OCI, signing, tags, publication, and deployment
   remain deferred.
 - Step 148 closes the production NIP-46 response authority in
   `contracts/services_hardening/nip46_response_commit.v1.json`. Production

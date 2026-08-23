@@ -10,7 +10,8 @@ const LOCK: &str = include_str!("../Cargo.lock");
 const FLAKE: &str = include_str!("../flake.nix");
 const FLAKE_LOCK: &str = include_str!("../flake.lock");
 
-const LIB_REVISION: &str = "b44119fbac5985be8127ad1bf56d2950e6399427";
+const LIB_REVISION: &str = "7d7b454b4c9ed86569671993bd03ca868b676665";
+const DEFERRED_NIX_LIB_REVISION: &str = "b44119fbac5985be8127ad1bf56d2950e6399427";
 const LIB_REPOSITORY: &str = "https://github.com/radrootslabs/lib";
 
 #[test]
@@ -44,8 +45,8 @@ fn native_release_contract_and_manifest_metadata_are_exact() {
                 "panic": "unwind"
             },
             "source_lock": {
-                "filename": "radroots.service.source-lock.v1.toml",
-                "schema": "radroots.service.source-lock.v1",
+                "filename": "radroots.service.source-lock.v2.toml",
+                "schema": "radroots.service.source-lock.v2",
                 "generator": "cargo xtask service-source-lock",
                 "lib_repository": LIB_REPOSITORY,
                 "architecture": "radroots.crates.release.v2"
@@ -111,6 +112,7 @@ fn native_release_contract_and_manifest_metadata_are_exact() {
         toml::Value::Table(toml::toml! {
             service = "myc"
             host_feature_profile = "service-host"
+            nix_material = "deferred"
             config_contract_version = 1
             state_contract_version = 9
             admin_contract_version = 1
@@ -207,13 +209,13 @@ fn every_radroots_dependency_is_exactly_source_locked() {
                 "narHash": "sha256-WOcgJuKhM9aP55yTuTM63uBf+/IroeBu26zy+lMkvpE=",
                 "owner": "radrootslabs",
                 "repo": "lib",
-                "rev": LIB_REVISION,
+                "rev": DEFERRED_NIX_LIB_REVISION,
                 "type": "github"
             },
             "original": {
                 "owner": "radrootslabs",
                 "repo": "lib",
-                "rev": LIB_REVISION,
+                "rev": DEFERRED_NIX_LIB_REVISION,
                 "type": "github"
             }
         })
@@ -224,7 +226,8 @@ fn every_radroots_dependency_is_exactly_source_locked() {
 fn removed_and_deferred_release_surfaces_cannot_be_smuggled_into_step_139() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     assert!(!root.join("radroots.lib.source-lock.v1.toml").exists());
-    assert!(root.join("radroots.service.source-lock.v1.toml").is_file());
+    assert!(!root.join("radroots.service.source-lock.v1.toml").exists());
+    assert!(root.join("radroots.service.source-lock.v2.toml").is_file());
     for forbidden in [
         ".github",
         "target",

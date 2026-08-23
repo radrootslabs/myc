@@ -37,9 +37,12 @@ let _snapshot = MycStatusSnapshot {};
 The native package and dependency-trust metadata is frozen by
 `contracts/services_hardening/native_release.v1.json`. Linux x86_64 and
 aarch64 are declared release targets, not qualified artifacts. The canonical
-service source lock binds the exact public Lib cohort, Cargo and flake lock
-source data, toolchain, feature profile, and service contract versions. Nix,
-OCI, signing, tags, publication, and deployment remain deferred and unclaimed.
+service source lock binds the exact active public Lib cohort, Cargo lock,
+verified source archive, toolchain, feature profile, and service contract
+versions. Deferred flake source data is independently digest-bound and may
+select an older reachable Lib revision; it does not control native builds or
+claim Nix qualification. Nix, OCI, signing, tags, publication, and deployment
+remain deferred and unclaimed.
 
 ## Hardened v1 configuration contract
 
