@@ -64,11 +64,10 @@ init|validate|show|schema|apply`; `state init|status|backup|restore|verify|migra
 is an offline create-new/config-apply lifecycle and is intentionally absent
 from the live CLI and Unix-admin inventories.
 The process binary uses only this parser and consumes its sealed execution plan
-exactly once. Every non-daemon command now reaches its governed config, state,
-identity, Unix-admin, or doctor authority. `run` remains explicitly unavailable
-until the next ordered unit installs the authoritative daemon graph; no admitted
-but unimplemented command can return success and no prototype command is used
-as a fallback.
+exactly once. Every command reaches its governed config, state, identity,
+Unix-admin, doctor, or daemon authority. `run` installs the authoritative
+bounded daemon graph; no admitted command can return success through a
+prototype or unavailable-operation fallback.
 
 The selected absolute config path is opened no-follow through its retained
 parent descriptor. The loader requires a regular, single-link,
@@ -149,14 +148,16 @@ codes. It accepts no caller text, path, SQL, raw cause, identity, relay URL,
 credential, secret, or decrypted content. Every public Myc error remains a
 crate-owned source-free classification, so ordinary `Display`, `Debug`, and
 whole-chain traversal cannot bypass redaction. Current binary dispatch reports
-invalid input as exit 2 and the intentionally unavailable daemon graph as exit
-3. The Myc runtime now owns one sealed, bounded critical-task graph over
-the shared supervisor: task error, panic, join failure, unexpected cancellation,
-or success before cancellation cancels peers, joins every task, and maps to the
-fixed unexpected-internal process result. Tasks receive only a cooperative
-cancellation observer; task names and handles remain internal. Step 159 owns
-the process panic hook, signal installation, externally requested and forced
-shutdown, the configured grace deadline, and durability-aware ordered drain.
+invalid input as exit 2 and service dependency unavailability as exit 3. The
+Myc runtime owns one sealed, bounded critical-task graph over the shared supervisor:
+task error, panic, join failure, unexpected cancellation, or critical success
+before cancellation coordinates shutdown, joins every task, and maps to the
+fixed nonzero process result. Tasks receive only a cooperative cancellation
+observer; task names and handles remain internal. The binary owns signal
+installation. The graph uses one configured absolute graceful-shutdown deadline
+for mutation rejection, ingress and operations drain,
+recoverable-work persistence, network and SQLite close, and socket close; it
+adds no hidden second cleanup budget.
 
 `parse_myc_config_v1` caps original bytes before decoding, checks the schema
 header before closed contract admission, rejects duplicate, null, unknown, and
@@ -229,9 +230,19 @@ persists Submitted immediately before execution. Accepted, rejected,
 transport-failed, and unknown acknowledgements remain distinct; cancellation
 or lost acknowledgement after Submitted is durably unknown, and retries never
 alter the committed bytes. Provider or relay work never occurs inside a SQLite
-transaction. Unit 14's secure command executor uses these exact provider and
-read-only relay probe boundaries; runtime task-graph wiring and startup
-handshakes remain the next ordered Step 159 unit.
+transaction. The secure command executor and production daemon graph use these
+same provider, relay, and exact-byte delivery boundaries.
+
+The production `run` path owns the exact five-role bounded graph:
+`admin_server`, optional `operations_server`, `relay_ingress`,
+`provider_dispatch`, and `delivery_outbox`. It creates no task per request or
+relay. Required relay subscriptions and provider handshakes complete before
+Ready; bounded reconnect publishes Unready when a required dependency is lost,
+while optional operations loss publishes Degraded. NIP-46 dispatch verifies,
+decrypts, admits, authorizes, executes providers outside transactions,
+re-encrypts in the verified request context, signs through the user provider,
+and atomically commits completion, exact response bytes, immutable targets,
+and initial outbox state. Completed replay never re-executes a provider.
 
 Schema v8 adds immutable NIP-46 operation-completion evidence. The Step 147
 integration checkpoint binds each durable request to its stable operation and

@@ -129,20 +129,20 @@ fn binary_writes_only_fixed_json_diagnostics_to_stderr() {
     assert!(!invalid_stderr.contains(canary));
 
     let repo_local = tempfile::tempdir().expect("repo-local root");
-    let unavailable = Command::new(env!("CARGO_BIN_EXE_myc"))
+    let unconfigured = Command::new(env!("CARGO_BIN_EXE_myc"))
         .args(["--profile", "repo-local", "--instance", "primary"])
         .arg("--repo-local-root")
         .arg(repo_local.path())
         .arg("run")
         .output()
         .expect("admitted invocation");
-    assert_eq!(unavailable.status.code(), Some(3));
-    assert!(unavailable.stdout.is_empty());
+    assert_eq!(unconfigured.status.code(), Some(2));
+    assert!(unconfigured.stdout.is_empty());
     assert_eq!(
-        String::from_utf8(unavailable.stderr).expect("unavailable stderr"),
+        String::from_utf8(unconfigured.stderr).expect("unconfigured stderr"),
         format!(
             "{}\n",
-            MycLogRecord::process_result(MycProcessResult::ServiceOrDependencyUnavailable)
+            MycLogRecord::process_result(MycProcessResult::InputOrConfiguration)
         )
     );
 }

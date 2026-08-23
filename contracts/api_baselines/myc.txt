@@ -578,6 +578,13 @@ impl myc::MycProcessResult
 pub const fn myc::MycProcessResult::code(self) -> &'static str
 pub fn myc::MycProcessResult::exit_code(self) -> std::process::ExitCode
 pub const fn myc::MycProcessResult::exit_code_u8(self) -> u8
+pub enum myc::MycProcessSignal
+pub myc::MycProcessSignal::Interrupt
+pub myc::MycProcessSignal::Terminate
+impl myc::MycProcessSignal
+pub const fn myc::MycProcessSignal::as_str(self) -> &'static str
+impl core::fmt::Display for myc::MycProcessSignal
+pub fn myc::MycProcessSignal::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum myc::MycProviderCapability
 pub myc::MycProviderCapability::Describe
 pub myc::MycProviderCapability::Nip04Decrypt
@@ -2266,11 +2273,14 @@ pub trait myc::MycAdminHandler: core::marker::Send + core::marker::Sync + 'stati
 pub fn myc::MycAdminHandler::handle<'a>(&'a self, myc::MycAdminRequestDocument) -> myc::MycAdminFuture<'a>
 pub trait myc::MycDoctorProbe: core::marker::Send + core::marker::Sync
 pub fn myc::MycDoctorProbe::probe(&self, myc::MycDoctorCheckDefinition) -> myc::MycDoctorFuture<'_>
+pub trait myc::MycProcessSignalSource: core::marker::Send
+pub fn myc::MycProcessSignalSource::next_signal(&mut self) -> myc::MycProcessSignalFuture<'_>
 pub fn myc::admit_myc_nip46_event(myc::MycNip46AdmissionLimits, &[u8]) -> core::result::Result<myc::MycBoundedNip46Event, myc::MycNip46AdmissionError>
 pub fn myc::admit_myc_nip46_request(myc::MycNip46AdmissionLimits, &[u8]) -> core::result::Result<myc::MycBoundedNip46Request, myc::MycNip46AdmissionError>
 pub fn myc::bind_myc_nip46_replay(myc::MycVerifiedNip46Event, myc::MycVerifiedNip46Request) -> core::result::Result<myc::MycReplayBoundNip46Request, myc::MycSignerRequestError>
 pub fn myc::build_myc_admin_router<H>(alloc::sync::Arc<H>) -> core::result::Result<myc::MycAdminRouter, myc::MycAdminRouterError> where H: myc::MycAdminHandler
 pub fn myc::execute_myc_cli_v1(myc::MycCliInvocationV1) -> myc::MycProcessResult
+pub fn myc::execute_myc_cli_v1_with_signal_source<F, S>(myc::MycCliInvocationV1, F) -> myc::MycProcessResult where F: core::ops::function::FnOnce() -> core::option::Option<S>, S: myc::MycProcessSignalSource + 'static
 pub async fn myc::finalize_myc_state_restore(myc::MycStagedStateRestore) -> core::result::Result<(), myc::MycStateMaintenanceError>
 pub fn myc::initialize_myc_config_document(&myc::MycRuntimeContext, &[u8]) -> core::result::Result<myc::MycConfigDocumentV1, myc::MycConfigLoadError>
 pub async fn myc::initialize_myc_state(&myc::MycRuntimeContext, &myc::MycStateMetadata, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<(), myc::MycStateHostError>
@@ -2303,3 +2313,4 @@ pub fn myc::verify_myc_nip46_request(myc::MycBoundedNip46Request) -> core::resul
 pub fn myc::verify_myc_state_backup(&[u8], radroots_service_sqlite::backup::manifest::BackupManifestSha256, &std::path::Path, &myc::MycStateMetadata, core::num::nonzero::NonZeroU64) -> core::result::Result<myc::MycVerifiedStateBackup, myc::MycStateMaintenanceError>
 pub type myc::MycAdminFuture<'a> = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<myc::MycAdminResponseDocument, myc::MycAdminHandlerError>> + core::marker::Send + 'a)>>
 pub type myc::MycDoctorFuture<'a> = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = myc::MycDoctorObservation> + core::marker::Send + 'a)>>
+pub type myc::MycProcessSignalFuture<'a> = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::option::Option<myc::MycProcessSignal>> + core::marker::Send + 'a)>>

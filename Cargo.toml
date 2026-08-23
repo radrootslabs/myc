@@ -56,6 +56,7 @@ futures-executor = "0.3"
 hex = "0.4"
 jsonschema = { version = "0.48.1", default-features = false }
 nostr = { version = "0.44.2", features = ["nip04", "nip44", "nip46", "nip49"] }
+radroots_identity = { git = "https://github.com/radrootslabs/lib", rev = "7d7b454b4c9ed86569671993bd03ca868b676665", version = "=0.1.0-alpha" }
 radroots_nostr = { git = "https://github.com/radrootslabs/lib", rev = "7d7b454b4c9ed86569671993bd03ca868b676665", version = "=0.1.0-alpha", features = ["events"] }
 radroots_nostr_connect = { git = "https://github.com/radrootslabs/lib", rev = "7d7b454b4c9ed86569671993bd03ca868b676665", version = "=0.1.0-alpha" }
 radroots_event_codec = { git = "https://github.com/radrootslabs/lib", rev = "7d7b454b4c9ed86569671993bd03ca868b676665", version = "=0.1.0-alpha", features = ["json"] }
@@ -71,7 +72,7 @@ serde_json = { version = "1.0", features = ["raw_value"] }
 sha2 = "0.10"
 sqlx = { version = "0.9.0", default-features = false, features = ["derive", "sqlite-bundled"] }
 rustix = { version = "1", features = ["fs", "process", "std"] }
-tokio = { version = "1.48", default-features = false, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1.48", default-features = false, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 toml = "0.8"
 url = "2.5"
 zeroize = "1.8"

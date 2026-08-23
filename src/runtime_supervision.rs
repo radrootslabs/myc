@@ -32,6 +32,10 @@ pub struct MycTaskCancellation {
 }
 
 impl MycTaskCancellation {
+    pub(crate) const fn from_host(inner: CancellationToken) -> Self {
+        Self { inner }
+    }
+
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub(crate) fn uncancelled() -> Self {
         Self {

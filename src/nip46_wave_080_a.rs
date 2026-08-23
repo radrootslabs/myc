@@ -265,7 +265,7 @@ pub(crate) fn untrusted_response(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn admit_connect(
+pub(crate) async fn admit_connect(
     repository: &MycStateRepository<'_>,
     config: &MycConfigDocumentV1,
     client_seed: u8,

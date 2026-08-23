@@ -1,6 +1,6 @@
 //! Bounded durable idempotency for permissioned Myc admin mutations.
 
-use core::fmt;
+use core::{fmt, future::Future, pin::Pin};
 use std::error::Error;
 
 use radroots_service_sqlite::{
@@ -292,6 +292,133 @@ pub enum MycAdminOperationCompletion {
 }
 
 impl MycStateRepository<'_> {
+    /// Atomically commits one SQLite-only admin mutation and its replay receipt.
+    ///
+    /// The supplied operation runs inside the same governed transaction that
+    /// admits the operation identifier and records the canonical response. A
+    /// domain failure therefore leaves neither a prepared journal row nor a
+    /// partial domain effect.
+    pub(crate) async fn execute_database_admin_operation<F>(
+        &self,
+        request: &MycAdminRequestDocument,
+        completed_at: MycAdminOperationTimeUnixMs,
+        policy: MycAdminOperationJournalPolicy,
+        operation: F,
+    ) -> Result<MycAdminResponseDocument, MycAdminOperationError>
+    where
+        F: for<'a, 'b> FnOnce(
+                &'a mut ServiceSqliteTransaction<'b>,
+            ) -> AdminDatabaseOperationFuture<'a>
+            + Send
+            + 'static,
+    {
+        if !self.is_writable() {
+            return Err(MycAdminOperationError::new(
+                MycAdminOperationErrorKind::InvalidMode,
+            ));
+        }
+        let binding = AdminRequestBinding::from_document(request)?;
+        let expires_at = completed_at
+            .get()
+            .checked_add(policy.completed_retention_ms())
+            .filter(|value| i64::try_from(*value).is_ok())
+            .ok_or_else(|| MycAdminOperationError::new(MycAdminOperationErrorKind::InvalidInput))?;
+        let expected = PersistedMetadata::from(self.expected());
+        self.host()
+            .transaction(move |transaction| {
+                Box::pin(async move {
+                    require_expected_metadata(transaction, &expected)
+                        .await
+                        .map_err(AdminJournalOperationError::from)?;
+                    let prepared = match prepare_operation(transaction, &binding, completed_at)
+                        .await?
+                    {
+                        MycAdminOperationAdmission::ExactReplay(response) => return Ok(response),
+                        MycAdminOperationAdmission::Prepared(prepared) => prepared,
+                    };
+                    let response = operation(transaction).await?;
+                    if response.route() != binding.route
+                        || response.canonical_bytes().is_empty()
+                        || response.canonical_bytes().len()
+                            > MYC_ADMIN_OPERATION_RESPONSE_MODEL_MAX_BYTES
+                    {
+                        return Err(AdminJournalOperationError::InvalidInput);
+                    }
+                    complete_operation(
+                        transaction,
+                        &PreparedBinding::from_prepared(&prepared),
+                        response.canonical_bytes(),
+                        completed_at,
+                        expires_at,
+                    )
+                    .await?;
+                    Ok(response)
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
+    }
+
+    pub(crate) async fn complete_prepared_database_admin_operation<F>(
+        &self,
+        prepared: &MycPreparedAdminOperation,
+        completed_at: MycAdminOperationTimeUnixMs,
+        policy: MycAdminOperationJournalPolicy,
+        operation: F,
+    ) -> Result<MycAdminResponseDocument, MycAdminOperationError>
+    where
+        F: for<'a, 'b> FnOnce(
+                &'a mut ServiceSqliteTransaction<'b>,
+            ) -> AdminDatabaseOperationFuture<'a>
+            + Send
+            + 'static,
+    {
+        if !self.is_writable() {
+            return Err(MycAdminOperationError::new(
+                MycAdminOperationErrorKind::InvalidMode,
+            ));
+        }
+        if completed_at < prepared.prepared_at {
+            return Err(MycAdminOperationError::new(
+                MycAdminOperationErrorKind::InvalidInput,
+            ));
+        }
+        let expires_at = completed_at
+            .get()
+            .checked_add(policy.completed_retention_ms())
+            .filter(|value| i64::try_from(*value).is_ok())
+            .ok_or_else(|| MycAdminOperationError::new(MycAdminOperationErrorKind::InvalidInput))?;
+        let binding = PreparedBinding::from_prepared(prepared);
+        let expected = PersistedMetadata::from(self.expected());
+        self.host()
+            .transaction(move |transaction| {
+                Box::pin(async move {
+                    require_expected_metadata(transaction, &expected)
+                        .await
+                        .map_err(AdminJournalOperationError::from)?;
+                    let response = operation(transaction).await?;
+                    if response.route() != binding.route
+                        || response.canonical_bytes().is_empty()
+                        || response.canonical_bytes().len()
+                            > MYC_ADMIN_OPERATION_RESPONSE_MODEL_MAX_BYTES
+                    {
+                        return Err(AdminJournalOperationError::InvalidInput);
+                    }
+                    complete_operation(
+                        transaction,
+                        &binding,
+                        response.canonical_bytes(),
+                        completed_at,
+                        expires_at,
+                    )
+                    .await?;
+                    Ok(response)
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
+    }
+
     /// Prunes a bounded expired prefix and admits or replays one mutation.
     pub async fn prepare_admin_operation(
         &self,
@@ -423,7 +550,7 @@ enum StoredOperation {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum AdminJournalOperationError {
+pub(crate) enum AdminJournalOperationError {
     InvalidInput,
     Conflict,
     OutcomeUnknown,
@@ -431,6 +558,14 @@ enum AdminJournalOperationError {
     Binding,
     Storage,
 }
+
+pub(crate) type AdminDatabaseOperationFuture<'a> = Pin<
+    Box<
+        dyn Future<Output = Result<MycAdminResponseDocument, AdminJournalOperationError>>
+            + Send
+            + 'a,
+    >,
+>;
 
 impl From<RepositoryOperationError> for AdminJournalOperationError {
     fn from(error: RepositoryOperationError) -> Self {
@@ -1061,6 +1196,117 @@ mod tests {
                 .expect("exact expiry prunes before admission"),
             MycAdminOperationAdmission::Prepared(_)
         ));
+        host.close().await.expect("close");
+    }
+
+    #[tokio::test]
+    async fn database_only_admin_effect_and_receipt_share_one_transaction() {
+        let (_directory, _runtime, _metadata, host) = fixture().await;
+        let repository = host.repository();
+        let request = request("atomic-admin-1", "connection-1", 1);
+        let error = repository
+            .execute_database_admin_operation(
+                &request,
+                MycAdminOperationTimeUnixMs::new(100).expect("time"),
+                MycAdminOperationJournalPolicy::seven_days(),
+                |transaction| {
+                    Box::pin(async move {
+                        sqlx::query(
+                            r#"INSERT INTO connection_rate_windows (
+                                rate_kind, subject_scope, subject_sha256,
+                                window_started_at_unix_ms, window_ends_at_unix_ms,
+                                accepted_count, rejected_count, lifetime_accepted_count,
+                                lifetime_rejected_count, last_observed_at_unix_ms,
+                                retention_expires_at_unix_ms
+                            ) VALUES ('connection_admission', 'global', ?, 1, 2, 0, 0, 0, 0, 1, 2)"#,
+                        )
+                        .bind([0xaa_u8; 32].as_slice())
+                        .execute(&mut *transaction)
+                        .await
+                        .map_err(|_| AdminJournalOperationError::Storage)?;
+                        Err(AdminJournalOperationError::Binding)
+                    })
+                },
+            )
+            .await
+            .expect_err("domain failure rolls back");
+        assert_eq!(error.kind(), MycAdminOperationErrorKind::Binding);
+        assert_eq!(
+            repository
+                .host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM connection_rate_windows")
+                            .fetch_one(&mut *transaction)
+                            .await
+                    })
+                })
+                .await
+                .expect("rolled-back effect"),
+            0
+        );
+
+        let expected = response_document("atomic-admin-1", 1);
+        let expected_bytes = expected.canonical_bytes().to_vec();
+        let committed = repository
+            .execute_database_admin_operation(
+                &request,
+                MycAdminOperationTimeUnixMs::new(101).expect("time"),
+                MycAdminOperationJournalPolicy::seven_days(),
+                move |transaction| {
+                    let expected_bytes = expected_bytes.clone();
+                    Box::pin(async move {
+                        sqlx::query(
+                            r#"INSERT INTO connection_rate_windows (
+                                rate_kind, subject_scope, subject_sha256,
+                                window_started_at_unix_ms, window_ends_at_unix_ms,
+                                accepted_count, rejected_count, lifetime_accepted_count,
+                                lifetime_rejected_count, last_observed_at_unix_ms,
+                                retention_expires_at_unix_ms
+                            ) VALUES ('connection_admission', 'global', ?, 3, 4, 0, 0, 0, 0, 3, 4)"#,
+                        )
+                        .bind([0xbb_u8; 32].as_slice())
+                        .execute(&mut *transaction)
+                        .await
+                        .map_err(|_| AdminJournalOperationError::Storage)?;
+                        MycAdminResponseDocument::from_canonical_bytes(
+                            MycAdminRoute::ConnectionApprove,
+                            &expected_bytes,
+                        )
+                        .map_err(|_| AdminJournalOperationError::Binding)
+                    })
+                },
+            )
+            .await
+            .expect("atomic commit");
+        let replay = repository
+            .execute_database_admin_operation(
+                &request,
+                MycAdminOperationTimeUnixMs::new(102).expect("time"),
+                MycAdminOperationJournalPolicy::seven_days(),
+                |_transaction| {
+                    Box::pin(
+                        async move { panic!("exact replay must not execute the domain operation") },
+                    )
+                },
+            )
+            .await
+            .expect("exact replay");
+        assert_eq!(replay.canonical_bytes(), committed.canonical_bytes());
+        assert_eq!(
+            repository
+                .host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM connection_rate_windows")
+                            .fetch_one(&mut *transaction)
+                            .await
+                    })
+                })
+                .await
+                .expect("single committed effect"),
+            1
+        );
         host.close().await.expect("close");
     }
 

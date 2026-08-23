@@ -1,10 +1,5 @@
 //! Durable delivery orchestration over exact committed event bytes.
 
-#![allow(
-    dead_code,
-    reason = "Step 159 Unit 12 seals the worker before Unit 15 runtime graph wiring"
-)]
-
 use core::fmt;
 use std::error::Error;
 
@@ -14,9 +9,10 @@ use crate::transport_nostr_adapter::{
     MycNostrDeliveryAdapter, MycRelayAdapter, MycRelayExecutionOutcome,
 };
 use crate::{
-    MycConfigDocumentV1, MycDeliveryAttemptNonce, MycDeliveryAttemptOutcome, MycDeliveryClaim,
-    MycDeliveryJobId, MycDeliveryJobRecord, MycDeliveryRelayId, MycDeliveryRetryJitter,
-    MycDeliverySourceKind, MycDeliveryTimeUnixMs, MycStateRepository, MycTaskCancellation,
+    MycConfigDocumentV1, MycDeliveryAttemptNonce, MycDeliveryAttemptOutcome,
+    MycDeliveryAttemptRecord, MycDeliveryClaim, MycDeliveryJobId, MycDeliveryJobRecord,
+    MycDeliveryRelayId, MycDeliveryRetryJitter, MycDeliverySourceKind, MycDeliveryTimeUnixMs,
+    MycStateRepository, MycTaskCancellation,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,6 +27,7 @@ pub(crate) struct MycDeliveryWorkerError {
 }
 
 impl MycDeliveryWorkerError {
+    #[cfg(test)]
     pub(crate) const fn kind(&self) -> MycDeliveryWorkerErrorKind {
         self.kind
     }
@@ -80,7 +77,7 @@ pub(crate) struct MycDeliveryExecutionEvidence {
     pub(crate) claimed_at: MycDeliveryTimeUnixMs,
     pub(crate) submitted_at: MycDeliveryTimeUnixMs,
     pub(crate) observed_at: MycDeliveryTimeUnixMs,
-    pub(crate) retry_jitter: MycDeliveryRetryJitter,
+    pub(crate) retry_entropy: [u8; 8],
 }
 
 impl fmt::Debug for MycDeliveryExecutionEvidence {
@@ -164,10 +161,10 @@ async fn run_with_adapter<A: MycRelayAdapter>(
         Err(_) => {
             return persist_outcome(
                 repository,
-                job_id,
                 relay_id,
-                attempt.id(),
                 MycDeliveryAttemptOutcome::TransportFailed,
+                &job,
+                &attempt,
                 evidence,
             )
             .await;
@@ -176,10 +173,10 @@ async fn run_with_adapter<A: MycRelayAdapter>(
     if cancellation.is_cancelled() {
         return persist_outcome(
             repository,
-            job_id,
             relay_id,
-            attempt.id(),
             MycDeliveryAttemptOutcome::TransportFailed,
+            &job,
+            &attempt,
             evidence,
         )
         .await;
@@ -200,15 +197,7 @@ async fn run_with_adapter<A: MycRelayAdapter>(
             MycDeliveryAttemptOutcome::UnknownAcknowledgement
         }
     };
-    persist_outcome(
-        repository,
-        job_id,
-        relay_id,
-        attempt.id(),
-        outcome,
-        evidence,
-    )
-    .await
+    persist_outcome(repository, relay_id, outcome, &job, &attempt, evidence).await
 }
 
 async fn read_exact_event(
@@ -239,24 +228,46 @@ async fn read_exact_event(
 
 async fn persist_outcome(
     repository: &MycStateRepository<'_>,
-    job_id: MycDeliveryJobId,
     relay_id: &MycDeliveryRelayId,
-    attempt_id: crate::MycDeliveryAttemptId,
     outcome: MycDeliveryAttemptOutcome,
+    job: &MycDeliveryJobRecord,
+    attempt: &MycDeliveryAttemptRecord,
     evidence: MycDeliveryExecutionEvidence,
 ) -> Result<MycDeliveryWorkerResult, MycDeliveryWorkerError> {
+    let retry_jitter =
+        delivery_retry_jitter(job, attempt.number(), outcome, evidence.retry_entropy)?;
     repository
         .record_delivery_attempt_outcome(
-            job_id,
+            job.id(),
             relay_id,
-            attempt_id,
+            attempt.id(),
             outcome,
-            evidence.retry_jitter,
+            retry_jitter,
             evidence.observed_at,
         )
         .await
         .map(MycDeliveryWorkerResult::Completed)
         .map_err(|_| worker_error(MycDeliveryWorkerErrorKind::State))
+}
+
+fn delivery_retry_jitter(
+    job: &MycDeliveryJobRecord,
+    attempt_number: u32,
+    outcome: MycDeliveryAttemptOutcome,
+    entropy: [u8; 8],
+) -> Result<MycDeliveryRetryJitter, MycDeliveryWorkerError> {
+    if outcome == MycDeliveryAttemptOutcome::Delivered || attempt_number >= job.max_attempts() {
+        return MycDeliveryRetryJitter::new(0)
+            .map_err(|_| worker_error(MycDeliveryWorkerErrorKind::State));
+    }
+    let exponent = attempt_number.saturating_sub(1).min(31);
+    let factor = 1_u64.checked_shl(exponent).unwrap_or(u64::MAX);
+    let maximum_delay = job
+        .initial_backoff_ms()
+        .saturating_mul(factor)
+        .min(job.maximum_backoff_ms());
+    let jitter = u64::from_be_bytes(entropy) % (maximum_delay + 1);
+    MycDeliveryRetryJitter::new(jitter).map_err(|_| worker_error(MycDeliveryWorkerErrorKind::State))
 }
 
 fn request_id(job_id: MycDeliveryJobId, attempt_id: crate::MycDeliveryAttemptId) -> String {
@@ -390,8 +401,52 @@ mod tests {
             submitted_at: MycDeliveryTimeUnixMs::new(RECEIVED_AT_MS + 4_001)
                 .expect("submitted time"),
             observed_at: MycDeliveryTimeUnixMs::new(RECEIVED_AT_MS + 4_002).expect("observed time"),
-            retry_jitter: MycDeliveryRetryJitter::new(0).expect("jitter"),
+            retry_entropy: [0; 8],
         }
+    }
+
+    #[tokio::test]
+    async fn injected_entropy_uses_the_exact_full_jitter_cap() {
+        let root = tempfile::tempdir().expect("temporary root");
+        let (host, job_id, _) = committed_response_host(root.path()).await;
+        let job = host
+            .repository()
+            .read_delivery_job(job_id)
+            .await
+            .expect("job read")
+            .expect("job");
+        let first = delivery_retry_jitter(
+            &job,
+            1,
+            MycDeliveryAttemptOutcome::TransportFailed,
+            u64::MAX.to_be_bytes(),
+        )
+        .expect("first-attempt jitter");
+        assert_eq!(first.get(), u64::MAX % (job.initial_backoff_ms() + 1));
+        assert!(first.get() <= job.initial_backoff_ms());
+        assert_eq!(
+            delivery_retry_jitter(
+                &job,
+                job.max_attempts(),
+                MycDeliveryAttemptOutcome::TransportFailed,
+                u64::MAX.to_be_bytes(),
+            )
+            .expect("exhausted jitter")
+            .get(),
+            0
+        );
+        assert_eq!(
+            delivery_retry_jitter(
+                &job,
+                1,
+                MycDeliveryAttemptOutcome::Delivered,
+                u64::MAX.to_be_bytes(),
+            )
+            .expect("terminal jitter")
+            .get(),
+            0
+        );
+        host.close().await.expect("close");
     }
 
     #[tokio::test]

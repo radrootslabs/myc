@@ -59,6 +59,11 @@ authentication = "required"
 [transport]
 connect_deadline_ms = 10000
 
+[transport.ingress]
+subscription_deadline_ms = 30000
+maximum_past_seconds = 120
+maximum_future_seconds = 120
+
 [transport.delivery_policy]
 mode = "all_required"
 

@@ -453,10 +453,6 @@ impl MycSignerRequest {
         self.request_digest
     }
 
-    pub(crate) const fn received_at(&self) -> MycRequestReceivedAtUnixMs {
-        self.received_at
-    }
-
     fn derived_operation_id(&self) -> MycSignerOperationId {
         MycSignerOperationId(derive_operation_id(
             &self.request_identity,
@@ -516,6 +512,10 @@ impl MycSignerRequestRecord {
         &self.client_public_key
     }
 
+    pub(crate) const fn request_id(&self) -> &MycNip46RequestId {
+        &self.request_id
+    }
+
     #[must_use]
     /// Returns the stable logical operation identity.
     pub const fn operation_id(&self) -> MycSignerOperationId {
@@ -554,7 +554,7 @@ impl MycSignerRequestRecord {
             && self.first_event_id == request.event_id()
             && self.method == request.method()
             && self.request_digest == request.request_digest()
-            && self.received_at == request.received_at()
+            && self.received_at == request.received_at
     }
 
     pub(crate) const fn received_at(&self) -> MycRequestReceivedAtUnixMs {

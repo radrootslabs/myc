@@ -142,6 +142,24 @@ fn binary_executes_config_state_backup_restore_and_doctor_boundaries() {
     assert_eq!(status_value["schema_version"], 11);
     assert_eq!(status_value["integrity"], "verified");
 
+    let service_status = fixture.run(&["status"]);
+    assert_success(&service_status);
+    let service_status_value: serde_json::Value =
+        serde_json::from_slice(&service_status.stdout).expect("service status JSON");
+    assert_eq!(
+        service_status_value["myc"]["connection_counts"],
+        serde_json::json!({
+            "active": 0,
+            "denied": 0,
+            "expired": 0,
+            "pending": 0,
+        })
+    );
+    assert_eq!(
+        service_status_value["myc"]["outbox"],
+        serde_json::json!({"pending": 0, "unknown": 0})
+    );
+
     let bundle = fixture.root.path().join("backup");
     let backup = fixture
         .command(&["state", "backup", "--operation-id", "process-backup-01"])

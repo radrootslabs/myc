@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use crate::state_admin::AdminJournalOperationError;
 use crate::state_delivery::{
     DeliveryOperationError, MycDeliveryArtifactDigest, MycDeliveryJobId, MycDeliveryJobRecord,
     MycDeliveryJobStatus, MycDeliverySource, MycDeliveryTimeUnixMs, create_job,
@@ -24,7 +26,10 @@ use crate::state_repository::{
 use crate::{MycExpectedIdentities, MycStateMetadata};
 use nostr::RelayUrl as RadrootsNostrRelayUrl;
 use radroots_nostr::event::{
-    Event as RadrootsNostrEvent, Kind as RadrootsNostrKind, Metadata as RadrootsNostrMetadata,
+    ApplicationHandlerSpec as RadrootsNostrApplicationHandlerSpec, Event as RadrootsNostrEvent,
+    Kind as RadrootsNostrKind, Metadata as RadrootsNostrMetadata,
+    Timestamp as RadrootsNostrTimestamp,
+    build_application_handler as radroots_nostr_build_application_handler_event,
 };
 
 /// Maximum exact signed-event bytes admitted from the configured event bound.
@@ -427,6 +432,52 @@ impl MycDiscoveryPolicies {
     }
 }
 
+pub(crate) fn prepare_discovery_signing_bytes(
+    metadata: &MycStateMetadata,
+    created_at_unix_seconds: u64,
+) -> Result<Box<[u8]>, MycDiscoveryStateError> {
+    let policy = metadata
+        .discovery_policies()
+        .ok_or_else(|| MycDiscoveryStateError::new(MycDiscoveryStateErrorKind::Disabled))?;
+    let metadata = if policy.metadata_json.is_empty() {
+        RadrootsNostrMetadata::default()
+    } else {
+        serde_json::from_str(&policy.metadata_json).map_err(|_| {
+            MycDiscoveryStateError::new(MycDiscoveryStateErrorKind::InvalidProjection)
+        })?
+    };
+    let mut spec = RadrootsNostrApplicationHandlerSpec::new(vec![NIP46_RPC_KIND])
+        .with_identifier(policy.handler_identifier.to_string())
+        .with_relays(
+            policy
+                .public_relays
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+        )
+        .with_metadata(metadata);
+    if let Some(url) = &policy.nostrconnect_url {
+        spec = spec.with_nostr_connect_url(url.to_string());
+    }
+    let public_key = policy
+        .author_public_key
+        .parse()
+        .map_err(|_| MycDiscoveryStateError::new(MycDiscoveryStateErrorKind::IdentityMismatch))?;
+    let request = radroots_nostr_build_application_handler_event(&spec)
+        .map_err(|_| MycDiscoveryStateError::new(MycDiscoveryStateErrorKind::InvalidProjection))?
+        .custom_created_at(RadrootsNostrTimestamp::from_secs(created_at_unix_seconds))
+        .into_external_signing_request(public_key)
+        .map_err(|_| MycDiscoveryStateError::new(MycDiscoveryStateErrorKind::InvalidProjection))?;
+    let bytes = serde_json::to_vec(&request)
+        .map_err(|_| MycDiscoveryStateError::new(MycDiscoveryStateErrorKind::InvalidProjection))?;
+    if bytes.is_empty() || bytes.len() > policy.event_max_bytes {
+        return Err(MycDiscoveryStateError::new(
+            MycDiscoveryStateErrorKind::TooLarge,
+        ));
+    }
+    Ok(bytes.into_boxed_slice())
+}
+
 impl fmt::Debug for MycDiscoveryPolicies {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -517,6 +568,14 @@ impl MycDiscoveryCommitRequest {
     #[must_use]
     pub const fn desired_digest(&self) -> MycDiscoveryDocumentDigest {
         self.desired_digest
+    }
+
+    pub(crate) const fn event_digest(&self) -> MycDeliveryArtifactDigest {
+        self.event_digest
+    }
+
+    pub(crate) const fn projection_digest(&self) -> MycNip05ProjectionDigest {
+        self.projection_digest
     }
 
     fn owned(&self) -> Self {
@@ -809,9 +868,31 @@ impl MycStateRepository<'_> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DiscoveryOperationError {
+pub(crate) enum DiscoveryOperationError {
     Binding,
     Storage,
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+impl From<DiscoveryOperationError> for AdminJournalOperationError {
+    fn from(error: DiscoveryOperationError) -> Self {
+        match error {
+            DiscoveryOperationError::Binding => Self::Binding,
+            DiscoveryOperationError::Storage => Self::Storage,
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) async fn apply_admin_discovery_publish(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    request: &MycDiscoveryCommitRequest,
+    delivery_policy: &crate::state_delivery::MycDeliveryPolicies,
+    discovery_policy: &MycDiscoveryPolicies,
+) -> Result<MycDiscoveryCommitAdmission, AdminJournalOperationError> {
+    commit_desired(transaction, request, delivery_policy, discovery_policy)
+        .await
+        .map_err(Into::into)
 }
 
 impl From<DeliveryOperationError> for DiscoveryOperationError {

@@ -34,6 +34,9 @@ const PROCESS_V1_UNSUPPORTED: &str = include_str!("../src/process_v1_unsupported
 const CONFIG_LOADER: &str = include_str!("../src/config_loader.rs");
 const SYSTEM_DOCTOR: &str = include_str!("../src/system_doctor.rs");
 const STATUS_V1: &str = include_str!("../src/status_v1.rs");
+const RUNTIME_GRAPH: &str = include_str!("../src/runtime_graph.rs");
+const RUNTIME_NIP46: &str = include_str!("../src/runtime_nip46.rs");
+const RUNTIME_SIGNAL: &str = include_str!("../src/runtime_signal.rs");
 const RUNTIME_SUPERVISION: &str = include_str!("../src/runtime_supervision.rs");
 const RUNTIME_SUPERVISION_CONTRACT: &str =
     include_str!("../contracts/services_hardening/runtime_supervision.v1.json");
@@ -84,6 +87,9 @@ const SOURCES: &[&str] = &[
     include_str!("../src/provider_verification.rs"),
     include_str!("../src/runtime_context.rs"),
     include_str!("../src/runtime_foundation.rs"),
+    include_str!("../src/runtime_graph.rs"),
+    include_str!("../src/runtime_nip46.rs"),
+    include_str!("../src/runtime_signal.rs"),
     include_str!("../src/runtime_supervision.rs"),
     include_str!("../src/status_v1.rs"),
     include_str!("../src/system_doctor.rs"),
@@ -139,6 +145,9 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "provider_verification",
             "runtime_context",
             "runtime_foundation",
+            "runtime_graph",
+            "runtime_nip46",
+            "runtime_signal",
             "runtime_supervision",
             "status_v1",
             "system_doctor",
@@ -185,9 +194,45 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
         "Restore derives expected backup identity\nfrom the trusted manifest digest",
         "The production adapter composes secure path and disk inspection",
         "It never publishes a relay event",
-        "runtime task-graph wiring and startup\nhandshakes remain the next ordered Step 159 unit",
+        "The production `run` path owns the exact five-role bounded graph",
+        "Required relay subscriptions and provider handshakes complete before\nReady",
+        "one configured absolute graceful-shutdown deadline",
     ] {
         assert!(README.contains(required), "README is missing `{required}`");
+    }
+}
+
+#[test]
+fn step159_runtime_graph_is_fixed_joined_and_binary_signal_owned() {
+    for required in [
+        "const TASK_ADMIN_SERVER: &str = \"admin_server\"",
+        "const TASK_OPERATIONS_SERVER: &str = \"operations_server\"",
+        "const TASK_RELAY_INGRESS: &str = \"relay_ingress\"",
+        "const TASK_PROVIDER_DISPATCH: &str = \"provider_dispatch\"",
+        "const TASK_DELIVERY_OUTBOX: &str = \"delivery_outbox\"",
+        "open_initial_subscriptions(&ingress_adapter, &configuration).await",
+        "required_relays_ready(slots)",
+        "MycRuntimeNip46Coordinator::new",
+        "let admission_evidence = runtime_nip46_admission_evidence()",
+        "let mut retry = initial",
+        "GracefulShutdown::new(grace)",
+        "ProcessSignalAdapter::new(HostSignalSource::new(signals))",
+        "publish(MycServicePhase::Ready)",
+    ] {
+        assert!(RUNTIME_GRAPH.contains(required), "missing `{required}`");
+    }
+    assert_eq!(RUNTIME_GRAPH.matches(".spawn(").count(), 5);
+    assert!(RUNTIME_NIP46.contains("commit_nip46_response(&commit)"));
+    assert!(RUNTIME_NIP46.contains("ExactCompletedReplay"));
+    assert!(RUNTIME_NIP46.contains("admission_evidence: MycRuntimeNip46AdmissionEvidence"));
+    assert!(RUNTIME_SIGNAL.contains("pub trait MycProcessSignalSource: Send"));
+    for forbidden in [
+        "tokio::spawn",
+        "spawn_blocking",
+        "std::thread::spawn",
+        "std::process::exit",
+    ] {
+        assert!(!RUNTIME_GRAPH.contains(forbidden), "found `{forbidden}`");
     }
 }
 
@@ -709,7 +754,7 @@ fn step158_runtime_supervision_is_one_owned_bounded_redacted_graph() {
     for required in [
         "one sealed, bounded critical-task graph",
         "task names and handles remain internal",
-        "Step 159 owns\nthe process panic hook, signal installation",
+        "The binary owns signal\ninstallation",
     ] {
         assert!(README.contains(required), "README is missing `{required}`");
     }

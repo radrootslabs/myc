@@ -149,7 +149,7 @@ fn every_radroots_dependency_is_exactly_source_locked() {
         .iter()
         .filter(|(name, _)| name.starts_with("radroots_"))
         .collect::<Vec<_>>();
-    assert_eq!(radroots.len(), 10);
+    assert_eq!(radroots.len(), 11);
     for (name, dependency) in radroots {
         let dependency = dependency.as_table().expect("detailed dependency");
         assert_eq!(

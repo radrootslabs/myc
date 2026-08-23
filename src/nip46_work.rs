@@ -217,6 +217,7 @@ impl fmt::Debug for MycDecryptedNip46Request {
 pub struct MycPreparedNip46Request {
     signer_request: MycSignerRequest,
     request: Request,
+    encryption_context: MycNip46EncryptionContext,
 }
 
 impl MycPreparedNip46Request {
@@ -249,6 +250,7 @@ pub fn prepare_myc_nip46_request(
     nonce: MycSignerOperationNonce,
     received_at: MycRequestReceivedAtUnixMs,
 ) -> Result<MycPreparedNip46Request, MycNip46WorkError> {
+    let encryption_context = decrypted.replay.encryption_context();
     let method = MycSignerRequestMethod::parse(decrypted.replay.method())
         .ok_or_else(|| work_error(MycNip46WorkErrorKind::UnsupportedMethod))?;
     let message: RequestMessage = serde_json::from_slice(decrypted.replay.canonical_request())
@@ -273,6 +275,7 @@ pub fn prepare_myc_nip46_request(
     Ok(MycPreparedNip46Request {
         signer_request,
         request: message.request,
+        encryption_context,
     })
 }
 
@@ -298,6 +301,7 @@ pub struct MycNip46Work {
     request: MycSignerRequestRecord,
     connection: Option<MycConnectionRecord>,
     method: MycSignerRequestMethod,
+    encryption_context: MycNip46EncryptionContext,
     payload: Nip46WorkPayload,
 }
 
@@ -320,6 +324,7 @@ impl MycNip46Work {
             request,
             connection: Some(connection),
             method,
+            encryption_context: MycNip46EncryptionContext::Nip44V2,
             payload: Nip46WorkPayload::Local,
         }
     }
@@ -340,6 +345,10 @@ impl MycNip46Work {
     #[must_use]
     pub const fn method(&self) -> MycSignerRequestMethod {
         self.method
+    }
+
+    pub(crate) const fn encryption_context(&self) -> MycNip46EncryptionContext {
+        self.encryption_context
     }
 
     /// Returns the work class without exposing protected parameters.
@@ -424,6 +433,7 @@ pub fn prepare_myc_nip46_work(
     let MycPreparedNip46Request {
         signer_request,
         request,
+        encryption_context,
     } = prepared;
     if !record.matches_request(&signer_request) || observed_at.get() < record.received_at().get() {
         return Err(work_error(MycNip46WorkErrorKind::InvalidBinding));
@@ -448,6 +458,7 @@ pub fn prepare_myc_nip46_work(
                 request: record,
                 connection: None,
                 method,
+                encryption_context,
                 payload: Nip46WorkPayload::Connect {
                     client: signer_request.client_public_key().clone(),
                     permissions,
@@ -562,6 +573,7 @@ pub fn prepare_myc_nip46_work(
         request: record,
         connection: Some(connection),
         method,
+        encryption_context,
         payload,
     })
 }

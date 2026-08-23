@@ -272,11 +272,38 @@
     "transport": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["delivery_policy"],
+      "required": ["delivery_policy", "ingress"],
       "properties": {
         "connect_deadline_ms": { "type": "integer", "minimum": 1, "maximum": 30000, "default": 10000, "x-radroots-default-source": "engineering_safety" },
         "delivery_policy": { "$ref": "#/$defs/delivery_policy" },
+        "ingress": { "$ref": "#/$defs/ingress" },
         "publish_retry": { "$ref": "#/$defs/publish_retry" }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subscription_deadline_ms",
+        "maximum_past_seconds",
+        "maximum_future_seconds"
+      ],
+      "properties": {
+        "subscription_deadline_ms": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 300000
+        },
+        "maximum_past_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600
+        },
+        "maximum_future_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600
+        }
       }
     },
     "permission": {

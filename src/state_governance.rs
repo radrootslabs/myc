@@ -342,6 +342,10 @@ impl MycAuditCorrelationId {
     pub const fn new(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
+
+    pub(crate) const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
 }
 
 impl fmt::Debug for MycAuditCorrelationId {
@@ -362,7 +366,7 @@ pub enum MycAuditKind {
 }
 
 impl MycAuditKind {
-    const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::ConnectionAdmission => "connection_admission",
             Self::ConnectionOperatorDecision => "connection_operator_decision",
@@ -373,7 +377,7 @@ impl MycAuditKind {
         }
     }
 
-    fn parse(value: &str) -> Option<Self> {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         match value {
             "connection_admission" => Some(Self::ConnectionAdmission),
             "connection_operator_decision" => Some(Self::ConnectionOperatorDecision),
@@ -395,7 +399,7 @@ pub enum MycAuditOutcome {
 }
 
 impl MycAuditOutcome {
-    const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Succeeded => "succeeded",
             Self::Rejected => "rejected",
@@ -403,7 +407,7 @@ impl MycAuditOutcome {
         }
     }
 
-    fn parse(value: &str) -> Option<Self> {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         match value {
             "succeeded" => Some(Self::Succeeded),
             "rejected" => Some(Self::Rejected),
@@ -430,7 +434,7 @@ pub enum MycAuditReasonCode {
 }
 
 impl MycAuditReasonCode {
-    const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Trusted => "trusted",
             Self::ApprovalRequired => "approval_required",
@@ -573,6 +577,47 @@ impl fmt::Debug for MycAuditPage {
             .field("snapshot_sequence", &self.snapshot_sequence)
             .field("item_count", &self.items.len())
             .finish()
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct MycAdminAuditQuery {
+    limit: MycAuditPageLimit,
+    snapshot_sequence: Option<u64>,
+    before_sequence: Option<u64>,
+    from_unix_ms: Option<u64>,
+    to_unix_ms: Option<u64>,
+    kind: Option<MycAuditKind>,
+    outcome: Option<MycAuditOutcome>,
+}
+
+impl MycAdminAuditQuery {
+    pub(crate) fn new(
+        limit: MycAuditPageLimit,
+        snapshot_sequence: Option<u64>,
+        before_sequence: Option<u64>,
+        from_unix_ms: Option<u64>,
+        to_unix_ms: Option<u64>,
+        kind: Option<MycAuditKind>,
+        outcome: Option<MycAuditOutcome>,
+    ) -> Result<Self, MycStateRepositoryError> {
+        if from_unix_ms.is_some_and(|from| to_unix_ms.is_some_and(|to| from > to))
+            || from_unix_ms.is_some_and(|value| i64::try_from(value).is_err())
+            || to_unix_ms.is_some_and(|value| i64::try_from(value).is_err())
+        {
+            return Err(MycStateRepositoryError::new(
+                MycStateRepositoryErrorKind::Binding,
+            ));
+        }
+        Ok(Self {
+            limit,
+            snapshot_sequence,
+            before_sequence,
+            from_unix_ms,
+            to_unix_ms,
+            kind,
+            outcome,
+        })
     }
 }
 
@@ -766,6 +811,82 @@ pub(crate) async fn record_audit(
 }
 
 impl MycStateRepository<'_> {
+    pub(crate) async fn read_admin_audit_page(
+        &self,
+        query: MycAdminAuditQuery,
+    ) -> Result<MycAuditPage, MycStateRepositoryError> {
+        let expected = PersistedMetadata::from(self.expected());
+        self.host()
+            .transaction(move |transaction| {
+                Box::pin(async move {
+                    verify_metadata(transaction, &expected).await?;
+                    read_admin_audit_page(transaction, query).await
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
+    }
+
+    pub(crate) async fn read_admin_audit_summary(
+        &self,
+        from_unix_ms: u64,
+        to_unix_ms: u64,
+    ) -> Result<Box<[(String, u64)]>, MycStateRepositoryError> {
+        if from_unix_ms > to_unix_ms
+            || i64::try_from(from_unix_ms).is_err()
+            || i64::try_from(to_unix_ms).is_err()
+        {
+            return Err(MycStateRepositoryError::new(
+                MycStateRepositoryErrorKind::Binding,
+            ));
+        }
+        let expected = PersistedMetadata::from(self.expected());
+        self.host()
+            .transaction(move |transaction| {
+                Box::pin(async move {
+                    verify_metadata(transaction, &expected).await?;
+                    let rows = sqlx::query(
+                        r#"SELECT audit_kind, outcome, COUNT(*) AS item_count
+                        FROM operation_audit
+                        WHERE occurred_at_unix_ms BETWEEN ? AND ?
+                        GROUP BY audit_kind, outcome
+                        ORDER BY audit_kind ASC, outcome ASC
+                        LIMIT 19"#,
+                    )
+                    .bind(
+                        i64::try_from(from_unix_ms)
+                            .map_err(|_| GovernanceOperationError::Binding)?,
+                    )
+                    .bind(i64::try_from(to_unix_ms).map_err(|_| GovernanceOperationError::Binding)?)
+                    .fetch_all(&mut *transaction)
+                    .await
+                    .map_err(|_| GovernanceOperationError::Storage)?;
+                    let mut counts = Vec::with_capacity(rows.len());
+                    for row in rows {
+                        let kind = row
+                            .try_get::<&str, _>("audit_kind")
+                            .ok()
+                            .and_then(MycAuditKind::parse)
+                            .ok_or(GovernanceOperationError::Binding)?;
+                        let outcome = row
+                            .try_get::<&str, _>("outcome")
+                            .ok()
+                            .and_then(MycAuditOutcome::parse)
+                            .ok_or(GovernanceOperationError::Binding)?;
+                        let count = row
+                            .try_get::<i64, _>("item_count")
+                            .ok()
+                            .and_then(|value| u64::try_from(value).ok())
+                            .ok_or(GovernanceOperationError::Binding)?;
+                        counts.push((format!("{}.{}", kind.as_str(), outcome.as_str()), count));
+                    }
+                    Ok(counts.into_boxed_slice())
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
+    }
+
     /// Reads one deterministic, snapshot-bounded page of safe audit evidence.
     pub async fn read_audit_page(
         &self,
@@ -995,6 +1116,82 @@ async fn read_audit_page(
     let has_more = rows.len() > usize::from(limit.0);
     let mut items = Vec::with_capacity(rows.len().min(usize::from(limit.0)));
     for row in rows.iter().take(usize::from(limit.0)) {
+        let id = bounded_digest(row, "audit_id")?;
+        items.push(
+            read_audit_by_id(transaction, id)
+                .await?
+                .ok_or(GovernanceOperationError::Binding)?,
+        );
+    }
+    let next = has_more
+        .then(|| items.last().map(|item| item.sequence))
+        .flatten();
+    Ok(MycAuditPage {
+        snapshot_sequence: snapshot,
+        items: items.into_boxed_slice(),
+        next_before_sequence: next,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn read_admin_audit_page(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    query: MycAdminAuditQuery,
+) -> Result<MycAuditPage, GovernanceOperationError> {
+    let high_water = read_audit_state(transaction).await?;
+    let snapshot = query.snapshot_sequence.unwrap_or(high_water);
+    if snapshot > high_water
+        || query
+            .before_sequence
+            .is_some_and(|value| value == 0 || value > snapshot.saturating_add(1))
+    {
+        return Err(GovernanceOperationError::Binding);
+    }
+    let before = query
+        .before_sequence
+        .unwrap_or_else(|| snapshot.saturating_add(1));
+    let fetch_limit = u32::from(query.limit.0) + 1;
+    let from = query
+        .from_unix_ms
+        .map(i64::try_from)
+        .transpose()
+        .map_err(|_| GovernanceOperationError::Binding)?;
+    let to = query
+        .to_unix_ms
+        .map(i64::try_from)
+        .transpose()
+        .map_err(|_| GovernanceOperationError::Binding)?;
+    let kind = query.kind.map(MycAuditKind::as_str);
+    let outcome = query.outcome.map(MycAuditOutcome::as_str);
+    let rows = sqlx::query(
+        r#"SELECT audit_id FROM operation_audit
+        WHERE audit_sequence <= ? AND audit_sequence < ?
+            AND (? IS NULL OR occurred_at_unix_ms >= ?)
+            AND (? IS NULL OR occurred_at_unix_ms <= ?)
+            AND (? IS NULL OR audit_kind = ?)
+            AND (? IS NULL OR outcome = ?)
+        ORDER BY audit_sequence DESC LIMIT ?"#,
+    )
+    .bind(to_i64(snapshot)?)
+    .bind(to_i64(before)?)
+    .bind(from)
+    .bind(from)
+    .bind(to)
+    .bind(to)
+    .bind(kind)
+    .bind(kind)
+    .bind(outcome)
+    .bind(outcome)
+    .bind(i64::from(fetch_limit))
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| GovernanceOperationError::Storage)?;
+    if rows.len() > usize::try_from(fetch_limit).map_err(|_| GovernanceOperationError::Binding)? {
+        return Err(GovernanceOperationError::Binding);
+    }
+    let has_more = rows.len() > usize::from(query.limit.0);
+    let mut items = Vec::with_capacity(rows.len().min(usize::from(query.limit.0)));
+    for row in rows.iter().take(usize::from(query.limit.0)) {
         let id = bounded_digest(row, "audit_id")?;
         items.push(
             read_audit_by_id(transaction, id)

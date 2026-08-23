@@ -181,6 +181,13 @@ fn semantic_valid(value: &Value, profile: Profile) -> bool {
     {
         return false;
     }
+    let ingress = &value["transport"]["ingress"];
+    if !(1000..=300000).contains(&ingress["subscription_deadline_ms"].as_u64().unwrap_or(0))
+        || ingress["maximum_past_seconds"].as_u64() > Some(3600)
+        || ingress["maximum_future_seconds"].as_u64() > Some(3600)
+    {
+        return false;
+    }
     let required_writers = relays
         .iter()
         .filter(|relay| {
@@ -718,6 +725,23 @@ fn bounds_relationships_and_conditional_authority_fail_closed() {
     backoff["transport"]["publish_retry"]["initial_backoff_ms"] = json!(30_000);
     backoff["transport"]["publish_retry"]["maximum_backoff_ms"] = json!(1);
     assert_rejected(&backoff, Profile::Production);
+    for (field, invalid_values) in [
+        ("subscription_deadline_ms", vec![json!(999), json!(300001)]),
+        ("maximum_past_seconds", vec![json!(3601), json!(-1)]),
+        ("maximum_future_seconds", vec![json!(3601), json!(-1)]),
+    ] {
+        for invalid_value in invalid_values {
+            let mut invalid = value.clone();
+            invalid["transport"]["ingress"][field] = invalid_value;
+            assert_rejected(&invalid, Profile::Production);
+        }
+        let mut missing = value.clone();
+        missing["transport"]["ingress"]
+            .as_object_mut()
+            .expect("ingress object")
+            .remove(field);
+        assert_rejected(&missing, Profile::Production);
+    }
     let mut quorum = value.clone();
     quorum["transport"]["delivery_policy"] =
         json!({"mode": "required_quorum", "required_acknowledgements": 3});
@@ -783,6 +807,9 @@ fn schema_and_version_are_closed_and_defaults_are_only_safe_leaves() {
         "challenges",
         "rate_limits",
         "delivery_policy",
+        "subscription_deadline_ms",
+        "maximum_past_seconds",
+        "maximum_future_seconds",
         "discovery",
     ] {
         assert!(

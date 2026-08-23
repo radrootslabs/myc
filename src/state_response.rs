@@ -463,6 +463,28 @@ impl MycStateRepository<'_> {
             .await
             .map_err(map_transaction_error)
     }
+
+    /// Reads an already committed response by stable signer operation identity.
+    ///
+    /// Runtime replay handling uses this lookup before any provider call so an
+    /// exact completed replay always reuses the originally committed bytes.
+    pub(crate) async fn read_nip46_response_by_operation(
+        &self,
+        operation_id: MycSignerOperationId,
+    ) -> Result<Option<MycNip46ResponseRecord>, MycStateRepositoryError> {
+        let expected = PersistedMetadata::from(self.expected());
+        self.host()
+            .transaction(move |transaction| {
+                Box::pin(async move {
+                    require_expected_metadata(transaction, &expected)
+                        .await
+                        .map_err(AtomicOperationError::from)?;
+                    read_response_by_operation(transaction, operation_id).await
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

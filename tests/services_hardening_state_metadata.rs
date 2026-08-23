@@ -89,7 +89,7 @@ fn exact_database_configuration_identity_and_policy_bindings_are_frozen() {
     assert_eq!(versions.status(), MYC_SIGNER_STATUS_CONTRACT_VERSION);
     assert_eq!(
         hex::encode(metadata.configuration_digest().as_bytes()),
-        "56942af2ea11124114cae734dacdac75efd22c5476af6fe970e1d586d439b630"
+        "68f65b32652a4646d33aafc12075ff44548fb7d9f9a96c4eacaa823702d386cc"
     );
 }
 
@@ -122,6 +122,20 @@ fn digest_uses_fully_defaulted_values_and_changes_with_normalized_policy() {
     assert_ne!(
         explicit.configuration_digest(),
         changed.configuration_digest()
+    );
+
+    let changed_ingress = state_metadata(
+        &runtime,
+        &EXAMPLE.replacen(
+            "maximum_past_seconds = 120",
+            "maximum_past_seconds = 121",
+            1,
+        ),
+    )
+    .expect("changed ingress policy");
+    assert_ne!(
+        explicit.configuration_digest(),
+        changed_ingress.configuration_digest()
     );
 }
 

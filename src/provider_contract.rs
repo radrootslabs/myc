@@ -810,6 +810,49 @@ impl MycProviderOperationInput {
         }
     }
 
+    fn owned(&self) -> Self {
+        let kind = match &self.kind {
+            ProviderOperationInputKind::Describe => ProviderOperationInputKind::Describe,
+            ProviderOperationInputKind::PublicIdentity => {
+                ProviderOperationInputKind::PublicIdentity
+            }
+            ProviderOperationInputKind::SignEvent(bytes) => {
+                ProviderOperationInputKind::SignEvent(bytes.clone())
+            }
+            ProviderOperationInputKind::Nip04Encrypt { peer, plaintext } => {
+                ProviderOperationInputKind::Nip04Encrypt {
+                    peer: peer.clone(),
+                    plaintext: plaintext.clone(),
+                }
+            }
+            ProviderOperationInputKind::Nip04Decrypt { peer, ciphertext } => {
+                ProviderOperationInputKind::Nip04Decrypt {
+                    peer: peer.clone(),
+                    ciphertext: ciphertext.clone(),
+                }
+            }
+            ProviderOperationInputKind::Nip44Encrypt {
+                peer,
+                version,
+                plaintext,
+            } => ProviderOperationInputKind::Nip44Encrypt {
+                peer: peer.clone(),
+                version: *version,
+                plaintext: plaintext.clone(),
+            },
+            ProviderOperationInputKind::Nip44Decrypt {
+                peer,
+                version,
+                ciphertext,
+            } => ProviderOperationInputKind::Nip44Decrypt {
+                peer: peer.clone(),
+                version: *version,
+                ciphertext: ciphertext.clone(),
+            },
+        };
+        Self { kind }
+    }
+
     #[must_use]
     pub const fn nip44_version(&self) -> Option<MycProviderNip44Version> {
         match &self.kind {
@@ -923,6 +966,19 @@ impl MycProviderOperation {
     #[must_use]
     pub const fn input(&self) -> &MycProviderOperationInput {
         &self.input
+    }
+
+    pub(crate) fn owned_for_runtime(&self) -> Self {
+        Self {
+            role: self.role,
+            instance: self.instance,
+            provider: self.provider,
+            operation_id: self.operation_id,
+            correlation_id: self.correlation_id,
+            deadline: self.deadline,
+            expected_identity: self.expected_identity.clone(),
+            input: self.input.owned(),
+        }
     }
 
     pub(crate) fn binding_digest(&self) -> [u8; 32] {

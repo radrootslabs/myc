@@ -110,6 +110,11 @@ impl MycReplayBoundNip46Request {
         self.event.client_public_key()
     }
 
+    #[must_use]
+    pub(crate) const fn encryption_context(&self) -> crate::MycNip46EncryptionContext {
+        self.event.encryption_context()
+    }
+
     /// Returns the validated request identifier.
     #[must_use]
     pub const fn request_id(&self) -> &MycNip46RequestId {

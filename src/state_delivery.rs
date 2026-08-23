@@ -30,6 +30,30 @@ const ATTEMPT_ID_DOMAIN: &[u8] = b"radroots.myc.delivery_attempt.v1\0";
 const READ_ACTIVE_JOB_COUNT_SQL: &str =
     "SELECT COUNT(*) AS row_count FROM delivery_jobs WHERE status IN ('pending', 'active')";
 
+const READ_RUNTIME_OUTBOX_STATUS_SQL: &str = r#"SELECT
+    COUNT(CASE WHEN status IN ('pending', 'active') THEN 1 END) AS pending_count,
+    (SELECT COUNT(*) FROM delivery_targets WHERE status = 'unknown') AS unknown_count,
+    MIN(CASE WHEN status IN ('pending', 'active') THEN created_at_unix_ms ELSE NULL END)
+        AS oldest_pending_at_unix_ms,
+    typeof(MIN(CASE WHEN status IN ('pending', 'active') THEN created_at_unix_ms ELSE NULL END))
+        AS oldest_pending_type
+FROM delivery_jobs"#;
+
+const READ_NEXT_READY_TARGET_SQL: &str = r#"SELECT
+    CASE WHEN typeof(t.job_id) = 'blob' AND length(t.job_id) = 32
+        THEN t.job_id ELSE NULL END AS job_id,
+    CASE WHEN typeof(t.relay_id) = 'text'
+        AND length(CAST(t.relay_id AS BLOB)) BETWEEN 1 AND 64
+        THEN t.relay_id ELSE NULL END AS relay_id
+FROM delivery_targets t
+JOIN delivery_jobs j ON j.job_id = t.job_id
+WHERE j.status IN ('pending', 'active')
+    AND t.status IN ('pending', 'retryable', 'unknown')
+    AND t.active_attempt_id IS NULL
+    AND (t.next_attempt_at_unix_ms IS NULL OR t.next_attempt_at_unix_ms <= ?)
+ORDER BY j.created_at_unix_ms, t.job_id, t.target_index
+LIMIT 2"#;
+
 const READ_JOB_SQL: &str = r#"SELECT
     CASE WHEN typeof(job_id) = 'blob' AND length(job_id) = 32
         THEN job_id ELSE NULL END AS job_id,
@@ -1000,6 +1024,86 @@ impl fmt::Debug for MycDeliveryClaim {
 }
 
 impl MycStateRepository<'_> {
+    pub(crate) async fn read_runtime_outbox_status(
+        &self,
+    ) -> Result<crate::MycOutboxStatusV1, MycStateRepositoryError> {
+        let expected = PersistedMetadata::from(self.expected());
+        self.host()
+            .transaction(move |transaction| {
+                Box::pin(async move {
+                    verify_metadata(transaction, &expected).await?;
+                    let rows = sqlx::query(READ_RUNTIME_OUTBOX_STATUS_SQL)
+                        .fetch_all(&mut *transaction)
+                        .await
+                        .map_err(|_| DeliveryOperationError::Storage)?;
+                    let [row] = rows.as_slice() else {
+                        return Err(DeliveryOperationError::Binding);
+                    };
+                    let count = |column| {
+                        row.try_get::<i64, _>(column)
+                            .ok()
+                            .and_then(|value| u64::try_from(value).ok())
+                            .ok_or(DeliveryOperationError::Binding)
+                    };
+                    let oldest = match row
+                        .try_get::<&str, _>("oldest_pending_type")
+                        .map_err(|_| DeliveryOperationError::Binding)?
+                    {
+                        "null" => None,
+                        "integer" => {
+                            let milliseconds = count("oldest_pending_at_unix_ms")?;
+                            Some(
+                                crate::MycStatusUnixSeconds::new(milliseconds / 1_000)
+                                    .map_err(|_| DeliveryOperationError::Binding)?,
+                            )
+                        }
+                        _ => return Err(DeliveryOperationError::Binding),
+                    };
+                    Ok(crate::MycOutboxStatusV1::new(
+                        count("pending_count")?,
+                        count("unknown_count")?,
+                        oldest,
+                    ))
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
+    }
+
+    /// Returns the first exact target eligible for bounded delivery work.
+    ///
+    /// Selection is deterministic and performs no claim or network I/O. The
+    /// subsequent claim transaction remains the sole lease authority.
+    pub(crate) async fn next_ready_delivery_target(
+        &self,
+        observed_at: MycDeliveryTimeUnixMs,
+    ) -> Result<Option<(MycDeliveryJobId, MycDeliveryRelayId)>, MycStateRepositoryError> {
+        let expected = PersistedMetadata::from(self.expected());
+        self.host()
+            .transaction(move |transaction| {
+                Box::pin(async move {
+                    verify_metadata(transaction, &expected).await?;
+                    let rows = sqlx::query(READ_NEXT_READY_TARGET_SQL)
+                        .bind(observed_at.sqlite_value())
+                        .fetch_all(&mut *transaction)
+                        .await
+                        .map_err(|_| DeliveryOperationError::Storage)?;
+                    match rows.as_slice() {
+                        [] => Ok(None),
+                        [row] => {
+                            let job_id = MycDeliveryJobId::from_persisted(blob32(row, "job_id")?);
+                            let relay_id = MycDeliveryRelayId::new(text(row, "relay_id")?)
+                                .map_err(|_| DeliveryOperationError::Binding)?;
+                            Ok(Some((job_id, relay_id)))
+                        }
+                        _ => Err(DeliveryOperationError::Binding),
+                    }
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
+    }
+
     /// Claims one eligible target under a bounded expiring attempt lease.
     pub async fn claim_delivery_target(
         &self,

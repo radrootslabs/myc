@@ -184,7 +184,6 @@ fn obsolete_provider_sources_and_dependencies_are_absent() {
         "axum",
         "keyring",
         "nostr-sdk",
-        "radroots_identity",
         "radroots_event",
         "radroots_signing",
         "rand",
@@ -246,10 +245,10 @@ fn binary_uses_only_the_hardened_parser_and_fails_closed_before_dispatch() {
         .args(["--profile", "service-host", "--instance", "primary", "run"])
         .output()
         .expect("run admitted command");
-    assert_eq!(admitted.status.code(), Some(3));
+    assert_eq!(admitted.status.code(), Some(2));
     assert_eq!(
         String::from_utf8(admitted.stderr).expect("utf8 stderr"),
-        process_diagnostic(MycProcessResult::ServiceOrDependencyUnavailable)
+        process_diagnostic(MycProcessResult::InputOrConfiguration)
     );
 }
 

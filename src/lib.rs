@@ -36,6 +36,11 @@ mod provider_local_signer;
 mod provider_verification;
 mod runtime_context;
 mod runtime_foundation;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod runtime_graph;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod runtime_nip46;
+mod runtime_signal;
 mod runtime_supervision;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod state_admin;
@@ -118,7 +123,7 @@ pub use operations_v1::{
     MycBoundOperationsServer, MycOperationsCancellationToken, MycOperationsError,
     MycOperationsErrorKind, MycOperationsServer,
 };
-pub use process_v1::execute_myc_cli_v1;
+pub use process_v1::{execute_myc_cli_v1, execute_myc_cli_v1_with_signal_source};
 pub use provider_contract::{
     MYC_PROVIDER_CONCURRENCY_MAX, MYC_PROVIDER_CONTRACT_VERSION, MYC_PROVIDER_INPUT_MAX_BYTES,
     MYC_PROVIDER_OUTPUT_MAX_BYTES, MYC_PROVIDER_REQUEST_DEADLINE_MAX_MS,
@@ -165,6 +170,7 @@ pub use runtime_foundation::{
     MycRuntimeFoundationErrorKind, MycRuntimePrerequisite, MycRuntimeReadiness,
     MycRuntimeReadinessReason, open_myc_runtime_foundation,
 };
+pub use runtime_signal::{MycProcessSignal, MycProcessSignalFuture, MycProcessSignalSource};
 pub use runtime_supervision::{
     MYC_CRITICAL_TASK_MAX_COUNT, MYC_RUNTIME_SUPERVISION_CONTRACT_VERSION, MycCriticalTask,
     MycCriticalTaskError, MycRuntimeSupervisionError, MycRuntimeSupervisionErrorKind,

@@ -24,12 +24,13 @@ use crate::{
     MYC_OPERATOR_CONTRACT_VERSION, MYC_PROVIDER_CONTRACT_VERSION,
     MYC_SIGNER_STATUS_CONTRACT_VERSION, MYC_STATE_SCHEMA_VERSION, MycBootstrapProfileV1,
     MycCliInvocationV1, MycCliOutputModeV1, MycCliPrimaryAuthorityV1, MycCommandV1,
-    MycConfigCommandV1, MycConfigDocumentV1, MycIdentityCommandArgsV1, MycIdentityCommandV1,
-    MycLocalSignerClient, MycProcessResult, MycProviderKind, MycProviderRole, MycRuntimeContext,
-    MycStateBackupArgsV1, MycStateCommandV1, MycStateMetadata, MycStateRestoreArgsV1,
-    RadrootsHostEnvironment, RadrootsPathResolver, RadrootsPlatform, finalize_myc_state_restore,
-    initialize_myc_config_document, initialize_myc_state, load_myc_config_candidate,
-    load_myc_config_document, open_myc_encrypted_identity, open_myc_state_inspection_from_config,
+    MycConfigCommandV1, MycConfigDocumentV1, MycConnectionCountsV1, MycIdentityCommandArgsV1,
+    MycIdentityCommandV1, MycLocalSignerClient, MycOutboxStatusV1, MycProcessResult,
+    MycProviderKind, MycProviderRole, MycRuntimeContext, MycStateBackupArgsV1, MycStateCommandV1,
+    MycStateMetadata, MycStateRestoreArgsV1, RadrootsHostEnvironment, RadrootsPathResolver,
+    RadrootsPlatform, finalize_myc_state_restore, initialize_myc_config_document,
+    initialize_myc_state, load_myc_config_candidate, load_myc_config_document,
+    open_myc_encrypted_identity, open_myc_state_inspection_from_config,
     open_myc_state_read_write_from_config, plan_myc_cli_v1, provision_myc_encrypted_identity,
     resolve_myc_runtime_context, resolve_myc_wrapping_credential, stage_myc_state_restore,
     verify_myc_state_backup,
@@ -40,6 +41,12 @@ struct ProcessFailure(MycProcessResult);
 
 type ProcessResult<T> = Result<T, ProcessFailure>;
 
+struct OfflineStateSnapshot {
+    value: Value,
+    connection_counts: MycConnectionCountsV1,
+    outbox: MycOutboxStatusV1,
+}
+
 /// Executes one admitted Myc invocation without reparsing process arguments.
 ///
 /// Result bytes are written to stdout only after the governed operation
@@ -48,6 +55,56 @@ type ProcessResult<T> = Result<T, ProcessFailure>;
 #[must_use]
 pub fn execute_myc_cli_v1(invocation: MycCliInvocationV1) -> MycProcessResult {
     execute(invocation).unwrap_or_else(|failure| failure.0)
+}
+
+/// Executes one admitted invocation with a binary-owned process-signal source.
+///
+/// The signal source factory is consulted only for `run` and only after the
+/// governed Tokio runtime has entered. Non-daemon commands retain the exact
+/// one-pass execution path used by [`execute_myc_cli_v1`].
+#[must_use]
+pub fn execute_myc_cli_v1_with_signal_source<F, S>(
+    invocation: MycCliInvocationV1,
+    make_signal_source: F,
+) -> MycProcessResult
+where
+    F: FnOnce() -> Option<S>,
+    S: crate::MycProcessSignalSource + 'static,
+{
+    if !matches!(invocation.command(), MycCommandV1::Run) {
+        return execute_myc_cli_v1(invocation);
+    }
+    execute_run(invocation, make_signal_source).unwrap_or_else(|failure| failure.0)
+}
+
+fn execute_run<F, S>(
+    invocation: MycCliInvocationV1,
+    make_signal_source: F,
+) -> ProcessResult<MycProcessResult>
+where
+    F: FnOnce() -> Option<S>,
+    S: crate::MycProcessSignalSource + 'static,
+{
+    let resolver = RadrootsPathResolver::new(RadrootsPlatform::current(), host_environment());
+    let runtime =
+        resolve_myc_runtime_context(&resolver, &invocation).map_err(|_| input_failure())?;
+    let configuration = load_myc_config_document(&runtime).map_err(|_| input_failure())?;
+    let applied_at = migration_time()?;
+    let build = migration_build_identity()?;
+    let tokio = build_tokio_runtime(configuration.runtime_thread_limits())?;
+    tokio.block_on(async move {
+        let signals = make_signal_source().ok_or(ProcessFailure(
+            MycProcessResult::ServiceOrDependencyUnavailable,
+        ))?;
+        Ok(crate::runtime_graph::run_myc_daemon(
+            runtime,
+            configuration,
+            applied_at,
+            &build,
+            signals,
+        )
+        .await)
+    })
 }
 
 fn execute(invocation: MycCliInvocationV1) -> ProcessResult<MycProcessResult> {
@@ -396,6 +453,15 @@ async fn offline_state_status(
     runtime: &MycRuntimeContext,
     configuration: &MycConfigDocumentV1,
 ) -> ProcessResult<Value> {
+    inspect_offline_state(runtime, configuration)
+        .await
+        .map(|snapshot| snapshot.value)
+}
+
+async fn inspect_offline_state(
+    runtime: &MycRuntimeContext,
+    configuration: &MycConfigDocumentV1,
+) -> ProcessResult<OfflineStateSnapshot> {
     let state = open_myc_state_inspection_from_config(runtime, configuration)
         .await
         .map_err(|_| state_failure())?;
@@ -403,6 +469,16 @@ async fn offline_state_status(
         let generation = state
             .repository()
             .current_configuration_generation()
+            .await
+            .map_err(|_| state_failure())?;
+        let connection_counts = state
+            .repository()
+            .read_runtime_connection_counts()
+            .await
+            .map_err(|_| state_failure())?;
+        let outbox = state
+            .repository()
+            .read_runtime_outbox_status()
             .await
             .map_err(|_| state_failure())?;
         let checked_at = integrity_time()?;
@@ -417,14 +493,18 @@ async fn offline_state_status(
             .get();
         let verified = report.sqlite() == IntegrityCheckOutcome::Verified
             && report.foreign_keys() == IntegrityCheckOutcome::Verified;
-        Ok(json!({
-            "backup_eligible": verified,
-            "generation": generation,
-            "integrity": if verified { "verified" } else { "failed" },
-            "reason_codes": if verified { json!([]) } else { json!(["database_integrity_failed"]) },
-            "schema_version": schema,
-            "writer_lock": "free",
-        }))
+        Ok(OfflineStateSnapshot {
+            value: json!({
+                "backup_eligible": verified,
+                "generation": generation,
+                "integrity": if verified { "verified" } else { "failed" },
+                "reason_codes": if verified { json!([]) } else { json!(["database_integrity_failed"]) },
+                "schema_version": schema,
+                "writer_lock": "free",
+            }),
+            connection_counts,
+            outbox,
+        })
     }
     .await;
     let closed = state.close().await.map_err(|_| state_failure());
@@ -435,7 +515,8 @@ async fn offline_service_status(
     runtime: &MycRuntimeContext,
     configuration: &MycConfigDocumentV1,
 ) -> ProcessResult<Value> {
-    let state = offline_state_status(runtime, configuration).await?;
+    let snapshot = inspect_offline_state(runtime, configuration).await?;
+    let state = &snapshot.value;
     let generation = state
         .get("generation")
         .and_then(Value::as_u64)
@@ -492,9 +573,9 @@ async fn offline_service_status(
         "contract_version": MYC_SIGNER_STATUS_CONTRACT_VERSION,
         "instance": runtime.context().instance().as_str(),
         "myc": {
-            "connection_counts": {},
+            "connection_counts": snapshot.connection_counts,
             "discovery": unavailable(discovery_configured),
-            "outbox": {"pending": 0, "unknown": 0},
+            "outbox": snapshot.outbox,
             "transport": unavailable(true),
             "user": unavailable(true),
         },

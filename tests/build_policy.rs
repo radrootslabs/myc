@@ -23,7 +23,7 @@ fn service_host_is_the_exact_default_feature_profile() {
     assert!(MANIFEST.contains("[features]\ndefault = [\"service-host\"]\nservice-host = []"));
     assert!(!MANIFEST.contains("getrandom = \"0.2\""));
     assert!(MANIFEST.contains(
-        "tokio = { version = \"1.48\", default-features = false, features = [\"io-util\", \"macros\", \"net\", \"rt-multi-thread\", \"sync\", \"time\"] }"
+        "tokio = { version = \"1.48\", default-features = false, features = [\"io-util\", \"macros\", \"net\", \"rt-multi-thread\", \"signal\", \"sync\", \"time\"] }"
     ));
 }
 
@@ -31,6 +31,13 @@ fn service_host_is_the_exact_default_feature_profile() {
 fn shared_runtime_paths_is_exactly_pinned_to_the_source_locked_lib() {
     assert!(MANIFEST.contains(
         "radroots_runtime_paths = { git = \"https://github.com/radrootslabs/lib\", rev = \"7d7b454b4c9ed86569671993bd03ca868b676665\", version = \"=0.1.0-alpha\" }"
+    ));
+}
+
+#[test]
+fn shared_identity_is_exactly_pinned_to_the_source_locked_lib() {
+    assert!(MANIFEST.contains(
+        "radroots_identity = { git = \"https://github.com/radrootslabs/lib\", rev = \"7d7b454b4c9ed86569671993bd03ca868b676665\", version = \"=0.1.0-alpha\" }"
     ));
 }
 

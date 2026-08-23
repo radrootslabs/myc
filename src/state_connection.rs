@@ -10,6 +10,8 @@ use sha2::{Digest, Sha256};
 use sqlx::Row;
 use url::{Host, Url};
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use crate::state_admin::AdminJournalOperationError;
 use crate::state_governance::{
     AuditEvidence, GovernanceOperationError, MycAuditCorrelationId, MycAuditKind, MycAuditOutcome,
     MycAuditReasonCode, MycRateLimitClass, MycRateLimitPolicy, MycRateRelayId, connection_subject,
@@ -101,6 +103,35 @@ FROM connections
 WHERE connection_id = ?
 LIMIT 2"#;
 
+const READ_ACTIVE_CONNECTION_FOR_CLIENT_SQL: &str = r#"SELECT
+    CASE WHEN typeof(connection_id) = 'blob' AND length(connection_id) = 32
+        THEN connection_id ELSE NULL END AS connection_id
+FROM connections
+WHERE client_public_key = ? AND status = 'active'
+    AND (authorized_until_unix_ms IS NULL OR authorized_until_unix_ms >= ?)
+ORDER BY updated_at_unix_ms DESC, connection_id ASC
+LIMIT 2"#;
+
+const READ_RUNTIME_CONNECTION_COUNTS_SQL: &str = r#"SELECT
+    CASE WHEN typeof(status) = 'text' AND length(CAST(status AS BLOB)) <= 16
+        THEN status ELSE NULL END AS status,
+    COUNT(*) AS row_count
+FROM connections
+GROUP BY status
+LIMIT 5"#;
+
+const READ_ADMIN_CONNECTION_PAGE_SQL: &str = r#"SELECT
+    CASE WHEN typeof(connection_id) = 'blob' AND length(connection_id) = 32
+        THEN connection_id ELSE NULL END AS connection_id,
+    updated_at_unix_ms
+FROM connections
+WHERE updated_at_unix_ms <= ?
+    AND (? IS NULL OR status = ?)
+    AND (? IS NULL OR updated_at_unix_ms < ?
+        OR (updated_at_unix_ms = ? AND connection_id > ?))
+ORDER BY updated_at_unix_ms DESC, connection_id ASC
+LIMIT ?"#;
+
 const READ_PERMISSIONS_SQL: &str = r#"SELECT
     CASE WHEN typeof(permission_code) = 'text'
         AND length(CAST(permission_code AS BLOB)) BETWEEN 1 AND 64
@@ -121,6 +152,18 @@ const EXPIRE_CONNECTION_SQL: &str = r#"UPDATE connections
 SET status = 'expired', updated_at_unix_ms = ?, authorized_until_unix_ms = NULL
 WHERE connection_id = ? AND status = 'active' AND policy_generation = ?
     AND authorized_until_unix_ms IS NOT NULL AND authorized_until_unix_ms < ?"#;
+
+const REVOKE_CONNECTION_SQL: &str = r#"UPDATE connections
+SET status = 'expired', updated_at_unix_ms = ?, authorized_until_unix_ms = NULL
+WHERE connection_id = ? AND status = 'active' AND policy_generation = ?"#;
+
+const READ_PENDING_DECISION_FOR_CONNECTION_SQL: &str = r#"SELECT
+    CASE WHEN typeof(operation_id) = 'blob' AND length(operation_id) = 32
+        THEN operation_id ELSE NULL END AS operation_id
+FROM nip46_request_decisions
+WHERE connection_id = ? AND decision = 'pending_approval' AND policy_generation = ?
+ORDER BY decided_at_unix_ms DESC, operation_id ASC
+LIMIT 2"#;
 
 const UPDATE_APPROVAL_DECISION_SQL: &str = r#"UPDATE nip46_request_decisions
 SET decision = ?, reason_code = ?, decided_at_unix_ms = ?
@@ -151,6 +194,13 @@ const READ_CHALLENGE_SQL: &str = r#"SELECT
     typeof(resolved_at_unix_ms) AS resolved_at_type
 FROM connection_auth_challenges
 WHERE operation_id = ?
+LIMIT 2"#;
+
+const READ_CHALLENGE_OPERATION_BY_ID_SQL: &str = r#"SELECT
+    CASE WHEN typeof(operation_id) = 'blob' AND length(operation_id) = 32
+        THEN operation_id ELSE NULL END AS operation_id
+FROM connection_auth_challenges
+WHERE challenge_id = ?
 LIMIT 2"#;
 
 const RESOLVE_CHALLENGE_SQL: &str = r#"UPDATE connection_auth_challenges
@@ -258,7 +308,7 @@ pub enum MycConnectionPermission {
 }
 
 impl MycConnectionPermission {
-    fn code(self) -> String {
+    pub(crate) fn code(self) -> String {
         match self {
             Self::GetPublicKey => "get_public_key".into(),
             Self::GetSessionCapability => "get_session_capability".into(),
@@ -392,6 +442,10 @@ macro_rules! digest_id {
         pub struct $name([u8; 32]);
 
         impl $name {
+            pub(crate) const fn from_bytes(bytes: [u8; 32]) -> Self {
+                Self(bytes)
+            }
+
             /// Returns the exact stable identity bytes.
             #[must_use]
             pub const fn as_bytes(&self) -> &[u8; 32] {
@@ -640,6 +694,15 @@ impl MycConnectionStatus {
             _ => None,
         }
     }
+
+    pub(crate) const fn admin_state(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Active => "approved",
+            Self::Denied => "rejected",
+            Self::Expired => "revoked",
+        }
+    }
 }
 
 /// Validated durable connection record.
@@ -654,6 +717,21 @@ pub struct MycConnectionRecord {
     created_at: MycConnectionTimeUnixMs,
     updated_at: MycConnectionTimeUnixMs,
     authorized_until: Option<MycConnectionTimeUnixMs>,
+}
+
+pub(crate) struct MycAdminConnectionPage {
+    items: Box<[MycConnectionRecord]>,
+    next: Option<(MycConnectionTimeUnixMs, MycConnectionId)>,
+}
+
+impl MycAdminConnectionPage {
+    pub(crate) fn items(&self) -> &[MycConnectionRecord] {
+        &self.items
+    }
+
+    pub(crate) const fn next(&self) -> Option<(MycConnectionTimeUnixMs, MycConnectionId)> {
+        self.next
+    }
 }
 
 impl MycConnectionRecord {
@@ -692,6 +770,15 @@ impl MycConnectionRecord {
     #[must_use]
     pub const fn authorized_until(&self) -> Option<MycConnectionTimeUnixMs> {
         self.authorized_until
+    }
+
+    pub(crate) fn admin_permissions(&self) -> String {
+        self.granted_permissions
+            .permissions()
+            .iter()
+            .map(|permission| permission.code())
+            .collect::<Vec<_>>()
+            .join(",")
     }
 
     #[cfg(test)]
@@ -804,6 +891,16 @@ pub enum MycConnectionOperatorDecision {
         authorized_until: Option<MycConnectionTimeUnixMs>,
     },
     Deny,
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) enum MycAdminConnectionAction {
+    Approve {
+        permissions: MycConnectionPermissionSet,
+        authorized_until: Option<MycConnectionTimeUnixMs>,
+    },
+    Reject,
+    Revoke,
 }
 
 impl fmt::Debug for MycConnectionOperatorDecision {
@@ -1079,6 +1176,112 @@ impl fmt::Debug for MycAuthorizationChallengeAuthorization {
 }
 
 impl MycStateRepository<'_> {
+    pub(crate) async fn read_runtime_connection_counts(
+        &self,
+    ) -> Result<crate::MycConnectionCountsV1, MycStateRepositoryError> {
+        let expected = PersistedMetadata::from(self.expected());
+        self.host()
+            .transaction(move |transaction| {
+                Box::pin(async move {
+                    verify_metadata(transaction, &expected).await?;
+                    let rows = sqlx::query(READ_RUNTIME_CONNECTION_COUNTS_SQL)
+                        .fetch_all(&mut *transaction)
+                        .await
+                        .map_err(|_| ConnectionOperationError::Storage)?;
+                    if rows.len() > 4 {
+                        return Err(ConnectionOperationError::Binding);
+                    }
+                    let mut counts = [None; 4];
+                    for row in rows {
+                        let status = bounded_text(&row, "status")?;
+                        let index = match MycConnectionStatus::parse(status) {
+                            Some(MycConnectionStatus::Pending) => 0,
+                            Some(MycConnectionStatus::Active) => 1,
+                            Some(MycConnectionStatus::Denied) => 2,
+                            Some(MycConnectionStatus::Expired) => 3,
+                            None => return Err(ConnectionOperationError::Binding),
+                        };
+                        let value = row
+                            .try_get::<i64, _>("row_count")
+                            .ok()
+                            .and_then(|value| u64::try_from(value).ok())
+                            .ok_or(ConnectionOperationError::Binding)?;
+                        if counts[index].replace(value).is_some() {
+                            return Err(ConnectionOperationError::Binding);
+                        }
+                    }
+                    Ok(crate::MycConnectionCountsV1::new(
+                        counts[0].unwrap_or(0),
+                        counts[1].unwrap_or(0),
+                        counts[2].unwrap_or(0),
+                        counts[3].unwrap_or(0),
+                    ))
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
+    }
+
+    pub(crate) async fn read_admin_connection_page(
+        &self,
+        limit: u16,
+        status: Option<MycConnectionStatus>,
+        snapshot: MycConnectionTimeUnixMs,
+        before: Option<(MycConnectionTimeUnixMs, MycConnectionId)>,
+    ) -> Result<MycAdminConnectionPage, MycStateRepositoryError> {
+        if limit == 0 || limit > 200 {
+            return Err(MycStateRepositoryError::new(
+                MycStateRepositoryErrorKind::Binding,
+            ));
+        }
+        let expected = PersistedMetadata::from(self.expected());
+        self.host()
+            .transaction(move |transaction| {
+                Box::pin(async move {
+                    verify_metadata(transaction, &expected).await?;
+                    read_admin_connection_page(transaction, limit, status, snapshot, before).await
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
+    }
+
+    /// Resolves the sole active session for one verified transport client.
+    ///
+    /// Multiple simultaneously active sessions are ambiguous because NIP-46
+    /// requests carry no server connection identifier; fail closed rather
+    /// than silently selecting a different authorization grant.
+    pub(crate) async fn read_active_connection_for_client(
+        &self,
+        client: &MycNip46ClientPublicKey,
+        observed_at: MycConnectionTimeUnixMs,
+    ) -> Result<Option<MycConnectionRecord>, MycStateRepositoryError> {
+        let expected = PersistedMetadata::from(self.expected());
+        let client = client.clone();
+        self.host()
+            .transaction(move |transaction| {
+                Box::pin(async move {
+                    verify_metadata(transaction, &expected).await?;
+                    let rows = sqlx::query(READ_ACTIVE_CONNECTION_FOR_CLIENT_SQL)
+                        .bind(client.as_hex())
+                        .bind(observed_at.sqlite_value())
+                        .fetch_all(&mut *transaction)
+                        .await
+                        .map_err(|_| ConnectionOperationError::Storage)?;
+                    match rows.as_slice() {
+                        [] => Ok(None),
+                        [row] => {
+                            let id = MycConnectionId(exact_digest(row, "connection_id")?);
+                            read_connection(transaction, id).await.map(Some)
+                        }
+                        _ => Err(ConnectionOperationError::Binding),
+                    }
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
+    }
+
     /// Reads one fully validated durable connection decision by stable operation identity.
     pub async fn read_connection_decision(
         &self,
@@ -1294,6 +1497,47 @@ impl MycStateRepository<'_> {
     }
 }
 
+async fn read_admin_connection_page(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    limit: u16,
+    status: Option<MycConnectionStatus>,
+    snapshot: MycConnectionTimeUnixMs,
+    before: Option<(MycConnectionTimeUnixMs, MycConnectionId)>,
+) -> Result<MycAdminConnectionPage, ConnectionOperationError> {
+    let status = status.map(MycConnectionStatus::as_str);
+    let before_time = before.map(|(time, _)| time.sqlite_value());
+    let before_id = before.map(|(_, id)| id.as_bytes().to_vec());
+    let fetch_limit = i64::from(limit) + 1;
+    let rows = sqlx::query(READ_ADMIN_CONNECTION_PAGE_SQL)
+        .bind(snapshot.sqlite_value())
+        .bind(status)
+        .bind(status)
+        .bind(before_time)
+        .bind(before_time)
+        .bind(before_time)
+        .bind(before_id)
+        .bind(fetch_limit)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| ConnectionOperationError::Storage)?;
+    if rows.len() > usize::try_from(fetch_limit).map_err(|_| ConnectionOperationError::Binding)? {
+        return Err(ConnectionOperationError::Binding);
+    }
+    let has_more = rows.len() > usize::from(limit);
+    let mut items = Vec::with_capacity(rows.len().min(usize::from(limit)));
+    for row in rows.iter().take(usize::from(limit)) {
+        let id = MycConnectionId(exact_digest(row, "connection_id")?);
+        items.push(read_connection(transaction, id).await?);
+    }
+    let next = has_more
+        .then(|| items.last().map(|item| (item.updated_at, item.id)))
+        .flatten();
+    Ok(MycAdminConnectionPage {
+        items: items.into_boxed_slice(),
+        next,
+    })
+}
+
 async fn record_connection_expiry_audit(
     transaction: &mut ServiceSqliteTransaction<'_>,
     correlation: MycAuditCorrelationId,
@@ -1319,6 +1563,174 @@ async fn record_connection_expiry_audit(
 enum ConnectionOperationError {
     Binding,
     Storage,
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+impl From<ConnectionOperationError> for AdminJournalOperationError {
+    fn from(error: ConnectionOperationError) -> Self {
+        match error {
+            ConnectionOperationError::Binding => Self::Binding,
+            ConnectionOperationError::Storage => Self::Storage,
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) async fn apply_admin_connection_mutation(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    connection_id: MycConnectionId,
+    policy_generation: MycConnectionPolicyGeneration,
+    observed_at: MycConnectionTimeUnixMs,
+    audit_correlation: MycAuditCorrelationId,
+    action: MycAdminConnectionAction,
+) -> Result<(MycConnectionRecord, MycConnectionRecord), AdminJournalOperationError> {
+    let before = read_connection(transaction, connection_id).await?;
+    if before.policy_generation != policy_generation {
+        return Err(AdminJournalOperationError::Conflict);
+    }
+    let after = match action {
+        MycAdminConnectionAction::Approve {
+            permissions,
+            authorized_until,
+        } => {
+            let operation_id =
+                read_pending_decision_operation(transaction, connection_id, policy_generation)
+                    .await?;
+            decide_connection(
+                transaction,
+                operation_id,
+                connection_id,
+                policy_generation,
+                observed_at,
+                audit_correlation,
+                MycConnectionOperatorDecision::Approve {
+                    granted_permissions: permissions,
+                    authorized_until,
+                },
+            )
+            .await?
+        }
+        MycAdminConnectionAction::Reject => {
+            let operation_id =
+                read_pending_decision_operation(transaction, connection_id, policy_generation)
+                    .await?;
+            decide_connection(
+                transaction,
+                operation_id,
+                connection_id,
+                policy_generation,
+                observed_at,
+                audit_correlation,
+                MycConnectionOperatorDecision::Deny,
+            )
+            .await?
+        }
+        MycAdminConnectionAction::Revoke => {
+            if before.status == MycConnectionStatus::Expired {
+                before.clone()
+            } else {
+                if before.status != MycConnectionStatus::Active || observed_at < before.updated_at {
+                    return Err(AdminJournalOperationError::Conflict);
+                }
+                let result = sqlx::query(REVOKE_CONNECTION_SQL)
+                    .bind(observed_at.sqlite_value())
+                    .bind(connection_id.as_bytes().as_slice())
+                    .bind(policy_generation.sqlite_value())
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| AdminJournalOperationError::Storage)?;
+                require_one(result.rows_affected())?;
+                let record = read_connection(transaction, connection_id).await?;
+                record_operator_audit(
+                    transaction,
+                    audit_correlation,
+                    observed_at,
+                    MycAuditOutcome::Succeeded,
+                    MycAuditReasonCode::ConnectionExpired,
+                )
+                .await?;
+                record
+            }
+        }
+    };
+    Ok((before, after))
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) async fn apply_admin_challenge_require(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    request: MycAuthorizationChallengeRequest,
+    rate_policy: MycRateLimitPolicy,
+) -> Result<MycAuthorizationChallengeRecord, AdminJournalOperationError> {
+    match issue_challenge(transaction, &request, rate_policy).await? {
+        MycAuthorizationChallengeAdmission::Created(record)
+        | MycAuthorizationChallengeAdmission::ExactReplay(record) => Ok(record),
+        MycAuthorizationChallengeAdmission::RateLimited => {
+            Err(AdminJournalOperationError::ResourceExhausted)
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) async fn apply_admin_challenge_authorize(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    challenge_id: MycAuthorizationChallengeId,
+    policy_generation: MycConnectionPolicyGeneration,
+    observed_at: MycConnectionTimeUnixMs,
+    rate_policy: MycRateLimitPolicy,
+) -> Result<MycAuthorizationChallengeRecord, AdminJournalOperationError> {
+    let rows = sqlx::query(READ_CHALLENGE_OPERATION_BY_ID_SQL)
+        .bind(challenge_id.as_bytes().as_slice())
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| AdminJournalOperationError::Storage)?;
+    let operation_id = match rows.as_slice() {
+        [row] => MycSignerOperationId::from_persisted(exact_digest(row, "operation_id")?),
+        [] | [_, ..] => return Err(AdminJournalOperationError::Binding),
+    };
+    let before = read_challenge(transaction, operation_id)
+        .await?
+        .ok_or(AdminJournalOperationError::Binding)?;
+    if before.policy_generation != policy_generation {
+        return Err(AdminJournalOperationError::Conflict);
+    }
+    match authorize_challenge(
+        transaction,
+        challenge_id,
+        before.connection_id,
+        before.operation_id,
+        policy_generation,
+        observed_at,
+        rate_policy,
+    )
+    .await?
+    {
+        MycAuthorizationChallengeAuthorization::Resolved(record)
+        | MycAuthorizationChallengeAuthorization::ExactReplay(record) => Ok(record),
+        MycAuthorizationChallengeAuthorization::RateLimited => {
+            Err(AdminJournalOperationError::ResourceExhausted)
+        }
+    }
+}
+
+async fn read_pending_decision_operation(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    connection_id: MycConnectionId,
+    policy_generation: MycConnectionPolicyGeneration,
+) -> Result<MycSignerOperationId, ConnectionOperationError> {
+    let rows = sqlx::query(READ_PENDING_DECISION_FOR_CONNECTION_SQL)
+        .bind(connection_id.as_bytes().as_slice())
+        .bind(policy_generation.sqlite_value())
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| ConnectionOperationError::Storage)?;
+    match rows.as_slice() {
+        [row] => Ok(MycSignerOperationId::from_persisted(exact_digest(
+            row,
+            "operation_id",
+        )?)),
+        [] | [_, ..] => Err(ConnectionOperationError::Binding),
+    }
 }
 
 const fn map_governance_error(error: GovernanceOperationError) -> ConnectionOperationError {

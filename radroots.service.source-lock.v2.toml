@@ -7,7 +7,7 @@ architecture = "radroots.crates.release.v2"
 workspace_catalog_sha256 = "deca0c080deae187ff8186c0708903e42f41ea57f77c5f91581e23aa561164a4"
 version = "0.1.0-alpha"
 source_archive_sha256 = "b425371c134be96cce46b37f7035d6212f1efe8cff50bef366631ba5632991b0"
-cargo_lock_sha256 = "a49a45076e3fecb49cdf8d98ea1082f62d7025cbe5cd9359df1e7b89e36df6d4"
+cargo_lock_sha256 = "8599fbc43a79dd13b0d496e86b7aefe2e6c863e016ac8a0d5612b7eb7cd979d6"
 rust_version = "1.97.1"
 host_feature_profile = "service-host"
 

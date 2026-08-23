@@ -1,27 +1,28 @@
 //! Exact source-locked Nostr delivery adapter owned by the Myc runtime.
 
-#![allow(
-    dead_code,
-    reason = "Step 159 Unit 12 seals the adapter before Unit 15 runtime graph wiring"
-)]
-
 use core::{fmt, future::Future, pin::Pin};
 use std::{collections::BTreeMap, error::Error};
 
 use radroots_event_codec::Codec;
 use radroots_transport::{
-    EventSource, FetchRequest, Target, TargetSet,
+    EventSource, EventSubscriber, FetchRequest, Target, TargetSet,
     outcome::{DeliveryOutcomeKind, FetchTargetState},
     policy::{SatisfactionClass, SatisfactionPolicy, TargetPolicy},
     sink::{DeliveryPayload, DeliveryRequest, DeliveryTargetReceipt},
-    source::{FetchBounds, FetchSelector},
+    source::{
+        BoxSubscription, FetchBounds, FetchSelector, SubscriptionBounds, SubscriptionCheckpoint,
+        SubscriptionRequest,
+    },
+    target::TargetFingerprint,
 };
 use radroots_transport_nostr::{
     Config, NostrTransport, PreparedDelivery, RelayAccess, RelayEndpoint, RelayProfile,
     RelayProfileKind, RelayUrlPolicy,
 };
 
-use crate::{MycConfigDocumentV1, MycConfigProfile, MycDeliveryRelayId};
+use crate::{MycConfigDocumentV1, MycConfigProfile, MycDeliveryRelayId, MycRateRelayId};
+
+const NIP46_RPC_KIND: u32 = 24_133;
 
 pub(crate) type RelayExecutionFuture<'a> = Pin<
     Box<dyn Future<Output = Result<MycRelayExecutionOutcome, MycRelayAdapterError>> + Send + 'a>,
@@ -41,6 +42,7 @@ pub(crate) struct MycRelayAdapterError {
 }
 
 impl MycRelayAdapterError {
+    #[cfg(test)]
     pub(crate) const fn kind(&self) -> MycRelayAdapterErrorKind {
         self.kind
     }
@@ -65,6 +67,12 @@ impl Error for MycRelayAdapterError {}
 
 const fn adapter_error(kind: MycRelayAdapterErrorKind) -> MycRelayAdapterError {
     MycRelayAdapterError { kind }
+}
+
+pub(crate) const fn runtime_relay_adapter_error(
+    kind: MycRelayAdapterErrorKind,
+) -> MycRelayAdapterError {
+    adapter_error(kind)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,6 +115,208 @@ pub(crate) struct MycNostrDeliveryAdapter {
 struct RelayTarget {
     transport: NostrTransport,
     target: Target,
+}
+
+/// One exact source-locked subscription group owned by the sole ingress task.
+pub(crate) struct MycNostrIngressAdapter {
+    groups: Box<[IngressGroup]>,
+}
+
+struct IngressGroup {
+    transport: NostrTransport,
+    targets: TargetSet,
+    relay_ids: BTreeMap<TargetFingerprint, MycRateRelayId>,
+    required: bool,
+    request_id: &'static str,
+}
+
+impl MycNostrIngressAdapter {
+    pub(crate) fn from_configuration(
+        configuration: &MycConfigDocumentV1,
+    ) -> Result<Self, MycRelayAdapterError> {
+        let relays = configuration
+            .normalized()
+            .pointer("/relays")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| adapter_error(MycRelayAdapterErrorKind::Configuration))?;
+        let connect_timeout =
+            configuration_integer(configuration, "/transport/connect_deadline_ms")?;
+        let request_timeout =
+            configuration_integer(configuration, "/transport/ingress/subscription_deadline_ms")?;
+        let mut public = Vec::new();
+        let mut public_targets = Vec::new();
+        let mut public_ids = BTreeMap::new();
+        let mut public_required = false;
+        let mut local = Vec::new();
+        let mut local_targets = Vec::new();
+        let mut local_ids = BTreeMap::new();
+        let mut local_required = false;
+        for relay in relays.iter().filter(|relay| {
+            relay.pointer("/read").and_then(serde_json::Value::as_bool) == Some(true)
+        }) {
+            let id = relay
+                .pointer("/id")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|value| MycRateRelayId::new(value).ok())
+                .ok_or_else(|| adapter_error(MycRelayAdapterErrorKind::Configuration))?;
+            let url = relay
+                .pointer("/url")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| adapter_error(MycRelayAdapterErrorKind::Configuration))?;
+            let required = relay
+                .pointer("/required")
+                .and_then(serde_json::Value::as_bool)
+                .ok_or_else(|| adapter_error(MycRelayAdapterErrorKind::Configuration))?;
+            let target = Target::nostr_relay(url)
+                .map_err(|_| adapter_error(MycRelayAdapterErrorKind::Target))?;
+            let fingerprint = target.fingerprint().clone();
+            let (kind, policy) = if url.starts_with("wss://") {
+                (RelayProfileKind::Public, RelayUrlPolicy::Public)
+            } else if configuration.profile() == MycConfigProfile::RepoLocal
+                && url.starts_with("ws://")
+            {
+                (RelayProfileKind::Simulator, RelayUrlPolicy::Local)
+            } else {
+                return Err(adapter_error(MycRelayAdapterErrorKind::Configuration));
+            };
+            let endpoint = RelayEndpoint::new(url, policy, RelayAccess::ReadOnly)
+                .map_err(|_| adapter_error(MycRelayAdapterErrorKind::Configuration))?;
+            match kind {
+                RelayProfileKind::Public => {
+                    public.push(endpoint);
+                    public_targets.push(target);
+                    public_required |= required;
+                    if public_ids.insert(fingerprint, id).is_some() {
+                        return Err(adapter_error(MycRelayAdapterErrorKind::Configuration));
+                    }
+                }
+                RelayProfileKind::Simulator => {
+                    local.push(endpoint);
+                    local_targets.push(target);
+                    local_required |= required;
+                    if local_ids.insert(fingerprint, id).is_some() {
+                        return Err(adapter_error(MycRelayAdapterErrorKind::Configuration));
+                    }
+                }
+                RelayProfileKind::Device => {
+                    return Err(adapter_error(MycRelayAdapterErrorKind::Configuration));
+                }
+                _ => return Err(adapter_error(MycRelayAdapterErrorKind::Configuration)),
+            }
+        }
+        let mut groups = Vec::with_capacity(2);
+        add_ingress_group(
+            &mut groups,
+            RelayProfileKind::Public,
+            public,
+            public_targets,
+            public_ids,
+            public_required,
+            connect_timeout,
+            request_timeout,
+            "myc-runtime-public",
+        )?;
+        add_ingress_group(
+            &mut groups,
+            RelayProfileKind::Simulator,
+            local,
+            local_targets,
+            local_ids,
+            local_required,
+            connect_timeout,
+            request_timeout,
+            "myc-runtime-local",
+        )?;
+        if groups.is_empty() || groups.len() > 2 || !groups.iter().any(|group| group.required) {
+            return Err(adapter_error(MycRelayAdapterErrorKind::Configuration));
+        }
+        Ok(Self {
+            groups: groups.into_boxed_slice(),
+        })
+    }
+
+    pub(crate) fn group_count(&self) -> usize {
+        self.groups.len()
+    }
+
+    pub(crate) fn group_is_required(&self, index: usize) -> Option<bool> {
+        self.groups.get(index).map(|group| group.required)
+    }
+
+    pub(crate) async fn subscribe(
+        &self,
+        index: usize,
+        event_limit: u16,
+        deadline_unix_ms: u64,
+        checkpoints: &[SubscriptionCheckpoint],
+    ) -> Result<BoxSubscription, MycRelayAdapterError> {
+        let group = self
+            .groups
+            .get(index)
+            .ok_or_else(|| adapter_error(MycRelayAdapterErrorKind::Configuration))?;
+        let selector = FetchSelector::all()
+            .with_kinds(vec![NIP46_RPC_KIND])
+            .map_err(|_| adapter_error(MycRelayAdapterErrorKind::Configuration))?;
+        let request = SubscriptionRequest::new(
+            group.request_id,
+            group.targets.clone(),
+            SubscriptionBounds::new(event_limit, deadline_unix_ms)
+                .map_err(|_| adapter_error(MycRelayAdapterErrorKind::Configuration))?,
+        )
+        .map_err(|_| adapter_error(MycRelayAdapterErrorKind::Configuration))?
+        .with_selector(selector)
+        .with_checkpoints(checkpoints.iter().cloned())
+        .map_err(|_| adapter_error(MycRelayAdapterErrorKind::Configuration))?;
+        group
+            .transport
+            .subscribe(request)
+            .await
+            .map_err(|_| adapter_error(MycRelayAdapterErrorKind::Execution))
+    }
+
+    pub(crate) fn relay_id(
+        &self,
+        index: usize,
+        target: &TargetFingerprint,
+    ) -> Result<MycRateRelayId, MycRelayAdapterError> {
+        self.groups
+            .get(index)
+            .and_then(|group| group.relay_ids.get(target))
+            .cloned()
+            .ok_or_else(|| adapter_error(MycRelayAdapterErrorKind::Target))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_ingress_group(
+    groups: &mut Vec<IngressGroup>,
+    kind: RelayProfileKind,
+    endpoints: Vec<RelayEndpoint>,
+    targets: Vec<Target>,
+    relay_ids: BTreeMap<TargetFingerprint, MycRateRelayId>,
+    required: bool,
+    connect_timeout: u64,
+    request_timeout: u64,
+    request_id: &'static str,
+) -> Result<(), MycRelayAdapterError> {
+    if targets.is_empty() {
+        return Ok(());
+    }
+    let transport = build_transport(kind, endpoints, connect_timeout, request_timeout)?
+        .ok_or_else(|| adapter_error(MycRelayAdapterErrorKind::Configuration))?;
+    let targets =
+        TargetSet::new(targets).map_err(|_| adapter_error(MycRelayAdapterErrorKind::Target))?;
+    if targets.len() != relay_ids.len() {
+        return Err(adapter_error(MycRelayAdapterErrorKind::Configuration));
+    }
+    groups.push(IngressGroup {
+        transport,
+        targets,
+        relay_ids,
+        required,
+        request_id,
+    });
+    Ok(())
 }
 
 impl MycNostrDeliveryAdapter {
