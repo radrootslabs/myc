@@ -248,6 +248,22 @@ impl MycDecryptedIdentity {
     pub fn public_identity(&self) -> &MycProviderPublicIdentity {
         &self.public_identity
     }
+
+    pub(crate) fn secret_bytes(&self) -> &[u8; IDENTITY_SECRET_BYTES] {
+        &self.secret
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_test_secret(secret: [u8; IDENTITY_SECRET_BYTES]) -> Self {
+        let secret_key = SecretKey::from_slice(&secret).expect("test secret must be valid");
+        let public_identity =
+            MycProviderPublicIdentity::new(&Keys::new(secret_key).public_key().to_hex())
+                .expect("test public identity must be valid");
+        Self {
+            secret: Zeroizing::new(secret),
+            public_identity,
+        }
+    }
 }
 
 impl fmt::Debug for MycDecryptedIdentity {

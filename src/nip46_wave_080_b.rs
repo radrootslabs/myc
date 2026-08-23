@@ -25,7 +25,7 @@ use super::nip46_wave_080_a::{
     prepared_request, runtime, unsigned_sign_event, untrusted_response,
 };
 
-async fn active_connection(
+pub(crate) async fn active_connection(
     repository: &crate::MycStateRepository<'_>,
     config: &crate::MycConfigDocumentV1,
 ) -> (
@@ -92,7 +92,7 @@ async fn active_connection(
     (work, active, decision)
 }
 
-fn atomic_response_request(
+pub(crate) fn atomic_response_request(
     config: &crate::MycConfigDocumentV1,
     completion: &MycNip46CommitRequest,
 ) -> (MycNip46ResponseCommitRequest, Vec<u8>) {

@@ -14,10 +14,10 @@ use crate::provider_local_signer::{
     WireProviderResult, WireRole,
 };
 use crate::{
-    MYC_PROVIDER_OUTPUT_MAX_BYTES, MycProviderBinding, MycProviderCapability,
-    MycProviderCapabilitySet, MycProviderCorrelationId, MycProviderInstanceId, MycProviderKind,
-    MycProviderNip44Version, MycProviderOperation, MycProviderOperationId,
-    MycProviderPublicIdentity, MycProviderRole,
+    MYC_PROVIDER_INPUT_MAX_BYTES, MYC_PROVIDER_OUTPUT_MAX_BYTES, MycProviderBinding,
+    MycProviderCapability, MycProviderCapabilitySet, MycProviderCorrelationId,
+    MycProviderInstanceId, MycProviderKind, MycProviderNip44Version, MycProviderOperation,
+    MycProviderOperationId, MycProviderPublicIdentity, MycProviderRole,
 };
 
 const NIP44_V2_VERSION: u8 = 2;
@@ -308,6 +308,42 @@ impl MycLocalSignerUntrustedResponse {
     }
 }
 
+pub(crate) fn verify_encrypted_provider_response(
+    binding: &MycProviderBinding,
+    operation: &MycProviderOperation,
+    observed_at: MycProviderResponseObservedAtUnixMs,
+    result: WireProviderResult,
+) -> Result<MycVerifiedProviderResponse, MycProviderVerificationError> {
+    if binding.kind() != MycProviderKind::EncryptedFile
+        || operation.provider() != MycProviderKind::EncryptedFile
+        || operation.role() != binding.role()
+        || operation.instance() != binding.instance()
+        || operation.expected_identity() != binding.expected_identity()
+        || !binding
+            .required_capabilities()
+            .contains(operation.input().capability())
+    {
+        return Err(verification_error(
+            MycProviderVerificationErrorKind::InvalidBinding,
+        ));
+    }
+    if observed_at.get() > operation.deadline().get() {
+        return Err(verification_error(
+            MycProviderVerificationErrorKind::LateResponse,
+        ));
+    }
+    let result = verify_result(binding, operation, result)?;
+    Ok(MycVerifiedProviderResponse {
+        operation_id: operation.operation_id(),
+        correlation_id: operation.correlation_id(),
+        instance: operation.instance(),
+        role: operation.role(),
+        capability: operation.input().capability(),
+        operation_binding: operation.binding_digest(),
+        result,
+    })
+}
+
 fn verify_response(
     binding: &MycProviderBinding,
     operation: &MycProviderOperation,
@@ -555,10 +591,14 @@ fn verify_describe(
             MycProviderVerificationErrorKind::Capability,
         ));
     }
-    let limits = binding
-        .local_signer_limits()
-        .ok_or_else(|| verification_error(MycProviderVerificationErrorKind::InvalidBinding))?;
-    if maximum_request_bytes != limits.request_max_bytes() {
+    let expected_maximum = match binding.kind() {
+        MycProviderKind::EncryptedFile => MYC_PROVIDER_INPUT_MAX_BYTES as u64,
+        MycProviderKind::LocalSigner => binding
+            .local_signer_limits()
+            .ok_or_else(|| verification_error(MycProviderVerificationErrorKind::InvalidBinding))?
+            .request_max_bytes(),
+    };
+    if maximum_request_bytes != expected_maximum {
         return Err(verification_error(MycProviderVerificationErrorKind::Size));
     }
     Ok(VerifiedProviderResult::Describe {

@@ -56,6 +56,22 @@ fn shared_storage_evidence_is_exactly_pinned_to_the_source_locked_lib() {
 }
 
 #[test]
+fn delivery_dependencies_are_exactly_source_locked() {
+    for dependency in [
+        "radroots_event_codec",
+        "radroots_transport",
+        "radroots_transport_nostr",
+    ] {
+        assert!(
+            MANIFEST.contains(&format!(
+                "{dependency} = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"7d7b454b4c9ed86569671993bd03ca868b676665\", version = \"=0.1.0-alpha\""
+            )),
+            "{dependency} is not pinned to the exact source lock"
+        );
+    }
+}
+
+#[test]
 fn release_acceptance_checks_both_feature_profiles() {
     assert!(
         RELEASE_ACCEPTANCE.contains("cargo check --locked --all-targets --no-default-features\n")

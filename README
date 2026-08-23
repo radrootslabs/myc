@@ -185,6 +185,23 @@ The admin response transport admits at least 8,382 UTF-8 bytes so the maximum
 retained model plus the maximum safe correlation identity always fits its
 canonical success envelope.
 
+The Step 159 provider and delivery boundary is sealed inside the crate. Both
+governed provider kinds execute only fully bound operations, and every result
+is independently verified before it becomes authority. Protected blocking
+work is joined, local-signer calls use the hardened Unix-admin client, and no
+raw provider client, secret, callback, or dependency-owned error crosses the
+public API.
+
+Relay publication uses only the exact source-locked
+`radroots_transport_nostr` adapter. Preparation validates the exact committed,
+signature-verified event bytes without network I/O. The delivery worker then
+persists Submitted immediately before execution. Accepted, rejected,
+transport-failed, and unknown acknowledgements remain distinct; cancellation
+or lost acknowledgement after Submitted is durably unknown, and retries never
+alter the committed bytes. Provider or relay work never occurs inside a SQLite
+transaction. Runtime task-graph wiring and startup handshakes remain the next
+ordered Step 159 unit.
+
 Schema v8 adds immutable NIP-46 operation-completion evidence. The Step 147
 integration checkpoint binds each durable request to its stable operation and
 correlation identities, terminal connect authority or exact active session,

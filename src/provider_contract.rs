@@ -85,7 +85,7 @@ pub enum MycProviderCapability {
 }
 
 impl MycProviderCapability {
-    const ALL: [Self; 7] = [
+    pub(crate) const ALL: [Self; 7] = [
         Self::Describe,
         Self::PublicIdentity,
         Self::SignEvent,

@@ -1,0 +1,52 @@
+{
+  "schema": "radroots.myc.provider-delivery.v1",
+  "contract_version": 1,
+  "step": 159,
+  "unit": "myc-provider-delivery",
+  "provider_executor": {
+    "visibility": "crate_private_sealed",
+    "providers": ["encrypted_file", "local_signer"],
+    "operation_input": "closed_provider_operation",
+    "encrypted_file_execution": "joined_bounded_blocking_worker",
+    "local_signer_execution": "hardened_unix_admin_client",
+    "result_authority": "independently_verified_provider_response",
+    "raw_secret_exposure": false,
+    "raw_client_exposure": false,
+    "detached_blocking_work": false
+  },
+  "relay_adapter": {
+    "implementation": "radroots_transport_nostr",
+    "source_locked_revision": "7d7b454b4c9ed86569671993bd03ca868b676665",
+    "preparation_performs_io": false,
+    "target_cardinality_per_attempt": 1,
+    "public_profile": "wss_only",
+    "repo_local_simulator_profile": "ws_loopback_only",
+    "raw_transport_error_exposure": false
+  },
+  "durable_delivery": {
+    "payload_authority": "exact_committed_signature_verified_event_bytes",
+    "submitted_transition": "immediately_after_prepare_before_execute",
+    "outcomes": ["delivered", "relay_rejected", "transport_failed", "unknown_acknowledgement"],
+    "cancellation_before_submission": "proven_transport_failure",
+    "cancellation_after_submission": "unknown_acknowledgement",
+    "execution_error_after_submission": "unknown_acknowledgement",
+    "exact_replay_performs_io": false,
+    "retry_payload_mutation": false,
+    "external_io_inside_sqlite_transaction": false
+  },
+  "resource_policy": {
+    "one_task_per_relay": false,
+    "unbounded_queue": false,
+    "runtime_creation": false,
+    "ambient_time": false,
+    "ambient_entropy": false
+  },
+  "deferred": [
+    "runtime_task_graph_wiring",
+    "provider_startup_handshake",
+    "relay_ingress_subscription",
+    "delivery_outbox_coordinator",
+    "ordered_shutdown"
+  ],
+  "nonclaims": ["step_159_closure", "rcld_promotion", "nix", "oci"]
+}

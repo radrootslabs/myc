@@ -7,6 +7,7 @@ mod cli_v1;
 mod config_v1;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod control_plane_wave_090_a;
+mod delivery_worker;
 mod diagnostics_v1;
 mod doctor_v1;
 mod nip46_admission;
@@ -22,6 +23,7 @@ mod operations_v1;
 mod provider_contract;
 mod provider_credential;
 mod provider_envelope;
+mod provider_executor;
 mod provider_local_signer;
 mod provider_verification;
 mod runtime_context;
@@ -44,6 +46,7 @@ mod state_repository;
 mod state_request;
 mod state_response;
 mod status_v1;
+mod transport_nostr_adapter;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub use admin_v1::{

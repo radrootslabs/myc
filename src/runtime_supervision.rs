@@ -42,6 +42,17 @@ impl MycTaskCancellation {
     pub async fn cancelled(&self) {
         self.inner.cancelled().await;
     }
+
+    #[cfg(test)]
+    pub(crate) fn test_pair() -> (Self, CancellationToken) {
+        let token = CancellationToken::new();
+        (
+            Self {
+                inner: token.clone(),
+            },
+            token,
+        )
+    }
 }
 
 impl fmt::Debug for MycTaskCancellation {

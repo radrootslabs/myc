@@ -14,6 +14,11 @@ const NIP46_WAVE_080_A: &str = include_str!("../src/nip46_wave_080_a.rs");
 const NIP46_COMPLETION: &str = include_str!("../src/state_completion.rs");
 const NIP46_RESPONSE: &str = include_str!("../src/state_response.rs");
 const DELIVERY_RECOVERY: &str = include_str!("../src/state_recovery.rs");
+const DELIVERY_WORKER: &str = include_str!("../src/delivery_worker.rs");
+const PROVIDER_EXECUTOR: &str = include_str!("../src/provider_executor.rs");
+const TRANSPORT_NOSTR_ADAPTER: &str = include_str!("../src/transport_nostr_adapter.rs");
+const PROVIDER_DELIVERY_CONTRACT: &str =
+    include_str!("../contracts/services_hardening/provider_delivery.v1.json");
 const DOCTOR_V1: &str = include_str!("../src/doctor_v1.rs");
 const CONTROL_PLANE_WAVE_090_A: &str = include_str!("../src/control_plane_wave_090_a.rs");
 const CONTROL_PLANE_WAVE_090_A_CONTRACT: &str =
@@ -52,6 +57,7 @@ const SOURCES: &[&str] = &[
     include_str!("../src/cli_v1.rs"),
     include_str!("../src/config_v1.rs"),
     include_str!("../src/control_plane_wave_090_a.rs"),
+    include_str!("../src/delivery_worker.rs"),
     include_str!("../src/doctor_v1.rs"),
     include_str!("../src/diagnostics_v1.rs"),
     include_str!("../src/nip46_admission.rs"),
@@ -63,12 +69,14 @@ const SOURCES: &[&str] = &[
     include_str!("../src/provider_contract.rs"),
     include_str!("../src/provider_credential.rs"),
     include_str!("../src/provider_envelope.rs"),
+    include_str!("../src/provider_executor.rs"),
     include_str!("../src/provider_local_signer.rs"),
     include_str!("../src/provider_verification.rs"),
     include_str!("../src/runtime_context.rs"),
     include_str!("../src/runtime_foundation.rs"),
     include_str!("../src/runtime_supervision.rs"),
     include_str!("../src/status_v1.rs"),
+    include_str!("../src/transport_nostr_adapter.rs"),
     include_str!("../src/state_catalog.rs"),
     include_str!("../src/state_admin.rs"),
     include_str!("../src/state_completion.rs"),
@@ -98,6 +106,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "cli_v1",
             "config_v1",
             "control_plane_wave_090_a",
+            "delivery_worker",
             "doctor_v1",
             "diagnostics_v1",
             "nip46_admission",
@@ -111,12 +120,14 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "provider_contract",
             "provider_credential",
             "provider_envelope",
+            "provider_executor",
             "provider_local_signer",
             "provider_verification",
             "runtime_context",
             "runtime_foundation",
             "runtime_supervision",
             "status_v1",
+            "transport_nostr_adapter",
             "state_catalog",
             "state_admin",
             "state_completion",
@@ -152,6 +163,9 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
         "caps a\nreplayed response model at 8,192 bytes",
         "admits at least 8,382 UTF-8 bytes",
         "The journal stores no request body, path,\ncorrelation ID, credential, bundle path, or secret",
+        "The Step 159 provider and delivery boundary is sealed inside the crate",
+        "persists Submitted immediately before execution",
+        "Runtime task-graph wiring and startup handshakes remain the next\nordered Step 159 unit",
     ] {
         assert!(README.contains(required), "README is missing `{required}`");
     }
@@ -284,6 +298,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "cli_v1",
         "config_v1",
         "control_plane_wave_090_a",
+        "delivery_worker",
         "doctor_v1",
         "diagnostics_v1",
         "nip46_admission",
@@ -297,12 +312,14 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "provider_contract",
         "provider_credential",
         "provider_envelope",
+        "provider_executor",
         "provider_local_signer",
         "provider_verification",
         "runtime_context",
         "runtime_foundation",
         "runtime_supervision",
         "status_v1",
+        "transport_nostr_adapter",
         "state_catalog",
         "state_admin",
         "state_completion",
@@ -1120,5 +1137,88 @@ fn step149_recovery_and_offline_export_are_bounded_and_non_networked() {
             !DELIVERY_RECOVERY.contains(forbidden),
             "Step 149 recovery gained forbidden authority `{forbidden}`"
         );
+    }
+}
+
+#[test]
+fn step159_provider_delivery_is_sealed_exact_and_durability_ordered() {
+    let contract: serde_json::Value = serde_json::from_str(PROVIDER_DELIVERY_CONTRACT)
+        .expect("Step 159 provider-delivery contract");
+    assert_eq!(contract["schema"], "radroots.myc.provider-delivery.v1");
+    assert_eq!(contract["contract_version"], 1);
+    assert_eq!(contract["step"], 159);
+    assert_eq!(contract["unit"], "myc-provider-delivery");
+    assert_eq!(
+        contract["relay_adapter"]["implementation"],
+        "radroots_transport_nostr"
+    );
+    assert_eq!(
+        contract["durable_delivery"]["submitted_transition"],
+        "immediately_after_prepare_before_execute"
+    );
+    for required in [
+        "spawn_blocking",
+        "let _ = worker.await",
+        "verify_encrypted_provider_response",
+        "MycLocalSignerClient",
+    ] {
+        assert!(
+            PROVIDER_EXECUTOR.contains(required),
+            "provider executor is missing `{required}`"
+        );
+    }
+    for required in [
+        "radroots_transport_nostr",
+        "prepare_delivery(request)",
+        "execute_prepared_delivery(prepared).await",
+        "DeliveryOutcomeKind::Accepted",
+        "DeliveryOutcomeKind::Rejected",
+        "DeliveryOutcomeKind::Unavailable",
+    ] {
+        assert!(
+            TRANSPORT_NOSTR_ADAPTER.contains(required),
+            "transport adapter is missing `{required}`"
+        );
+    }
+    for required in [
+        "claim_delivery_target",
+        "read_nip46_response",
+        "read_discovery_document_for_job",
+        "mark_delivery_attempt_submitted",
+        "adapter.execute(prepared)",
+        "MycDeliveryAttemptOutcome::UnknownAcknowledgement",
+        "record_delivery_attempt_outcome",
+    ] {
+        assert!(
+            DELIVERY_WORKER.contains(required),
+            "delivery worker is missing `{required}`"
+        );
+    }
+    for forbidden in [
+        "pub struct myc::MycProviderExecutor",
+        "pub struct myc::MycDeliveryWorker",
+        "pub struct myc::MycNostrDeliveryAdapter",
+        "radroots_transport_nostr::",
+        "radroots_transport::",
+    ] {
+        assert!(
+            !PUBLIC_API.contains(forbidden),
+            "sealed delivery authority escaped: `{forbidden}`"
+        );
+    }
+    for source in [PROVIDER_EXECUTOR, TRANSPORT_NOSTR_ADAPTER, DELIVERY_WORKER] {
+        for forbidden in [
+            "std::time::SystemTime",
+            "Timestamp::now",
+            "getrandom",
+            "rand::",
+            "tokio::runtime::Runtime",
+            "tokio::spawn(",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "Step 159 provider-delivery gained `{forbidden}`"
+            );
+        }
     }
 }

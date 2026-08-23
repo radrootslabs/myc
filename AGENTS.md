@@ -151,6 +151,16 @@
   journal. Database-only mutations must later compose their effect, audit, and
   completion in one transaction; online backup records Prepared before capture
   and completes only after the bundle is durable.
+- Step 159 unit 12 owns the crate-private provider executor, the exact
+  source-locked `radroots_transport_nostr` adapter, and the durable delivery
+  worker. Provider results remain untrusted until independently verified.
+  Delivery preparation performs no relay I/O; the worker persists Submitted
+  immediately before execution, maps post-submit cancellation or lost
+  acknowledgement to UnknownAcknowledgement, and retries only the exact
+  committed signed bytes. Never hold a SQLite transaction across provider or
+  relay work, detach protected blocking work, expose the executor/client, or
+  create one task per relay. Unit 13 alone wires these components into the
+  fixed runtime graph and startup handshake.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.
