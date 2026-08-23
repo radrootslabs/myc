@@ -151,11 +151,27 @@ without changing the canonical common artifact inventory.
 
 Create-new initialization reserves the shared schema-v1 metadata and migration
 ledger, retains exclusive writer authority, applies the exact Myc schema-v2
-through schema-v9 migrations, binds the normalized configuration, expected
+through schema-v10 migrations, binds the normalized configuration, expected
 identity roles, and policy versions through a sealed typed repository, and
 explicitly closes the host before reporting success. Existing writable open can
-resume any exact v1 through v8 prefix; read-only inspection requires the current
-catalog and exact immutable Myc binding.
+resume any exact v1 through v9 prefix; read-only inspection requires the current
+catalog and exact latest Myc binding.
+
+Schema v10 adds an append-only configuration-binding history capped at exactly
+1,024 generations. Generation 1 is seeded only after the v10 migration commits,
+including for an upgraded v9 database, while the immutable original birth
+record remains unchanged. `apply_configuration` is admitted only through an
+exclusive writable host and independently validates the retained current and
+candidate documents before one atomic append. A changed identity expires live
+sessions and pending challenges; permission narrowing expires only sessions
+whose retained grants are removed. Removing or changing a relay that is still
+referenced by nonterminal delivery work fails closed, while safe relay additions
+remain admissible. Exact replay returns the retained generation without another
+append or revocation, including after an ambiguous caller result. Future startup
+must present the latest normalized config and public-identity binding. The
+history stores only digests, public identities,
+closed contract versions, injected application evidence, and safe build
+identity; it stores no credentials, provider envelopes, paths, or relay URLs.
 
 Schema v8 adds immutable NIP-46 operation-completion evidence. The Step 147
 integration checkpoint binds each durable request to its stable operation and

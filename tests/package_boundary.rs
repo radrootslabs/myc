@@ -71,6 +71,7 @@ const SOURCES: &[&str] = &[
     include_str!("../src/status_v1.rs"),
     include_str!("../src/state_catalog.rs"),
     include_str!("../src/state_completion.rs"),
+    include_str!("../src/state_config.rs"),
     include_str!("../src/state_connection.rs"),
     include_str!("../src/state_delivery.rs"),
     include_str!("../src/state_discovery.rs"),
@@ -117,6 +118,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "status_v1",
             "state_catalog",
             "state_completion",
+            "state_config",
             "state_connection",
             "state_delivery",
             "state_discovery",
@@ -140,6 +142,9 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
         "```compile_fail",
         "[Myc API baseline](contracts/api_baselines/myc.txt)",
         "Status publication and cached snapshots can be obtained only",
+        "Schema v10 adds an append-only configuration-binding history capped at exactly\n1,024 generations",
+        "Exact replay returns the retained generation without another\nappend or revocation",
+        "Future startup\nmust present the latest normalized config and public-identity binding",
     ] {
         assert!(README.contains(required), "README is missing `{required}`");
     }
@@ -211,6 +216,11 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub struct myc::MycNip46WorkError",
         "pub struct myc::MycStateHost",
         "pub struct myc::MycStateRepository",
+        "pub const myc::MYC_CONFIG_BINDING_MAX_GENERATIONS: u16",
+        "pub struct myc::MycConfigApplyOutcome",
+        "pub struct myc::MycConfigApplyError",
+        "pub enum myc::MycConfigApplyErrorKind",
+        "pub async fn myc::MycStateRepository<'_>::apply_configuration",
         "pub struct myc::MycNip46CommitRequest",
         "pub struct myc::MycNip46CommitRecord",
         "pub enum myc::MycNip46CommitAdmission",
@@ -278,6 +288,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "status_v1",
         "state_catalog",
         "state_completion",
+        "state_config",
         "state_connection",
         "state_delivery",
         "state_discovery",
@@ -974,8 +985,9 @@ fn public_errors_remain_crate_owned_redacted_and_source_free() {
         .lines()
         .filter(|line| line.starts_with("pub struct myc::") && line.ends_with("Error"))
         .count();
-    assert_eq!(public_error_count, 32);
+    assert_eq!(public_error_count, 33);
     assert!(PUBLIC_API.contains("pub struct myc::MycDoctorError"));
+    assert!(PUBLIC_API.contains("pub struct myc::MycConfigApplyError"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycRuntimeFoundation {"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycStateHost {"));
 }

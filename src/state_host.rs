@@ -151,7 +151,11 @@ impl MycStateHost {
     /// Returns sealed typed repository access bound to this host and metadata.
     #[must_use]
     pub const fn repository(&self) -> MycStateRepository<'_> {
-        MycStateRepository::new(&self.host, &self.metadata)
+        MycStateRepository::new(
+            &self.host,
+            &self.metadata,
+            matches!(self.mode, MycStateHostMode::ReadWriteExisting),
+        )
     }
 
     /// Captures one governed point-in-time backup from a writable Myc host.
@@ -377,21 +381,22 @@ fn require_migration_build(
 fn exact_initialization_outcome(outcome: MigrationApplicationOutcome) -> bool {
     outcome.initial_version() == MYC_STATE_BASE_SCHEMA_VERSION
         && outcome.final_version() == MYC_STATE_SCHEMA_VERSION
-        && outcome.applied_count() == 8
+        && outcome.applied_count() == 9
 }
 
 fn exact_existing_outcome(outcome: MigrationApplicationOutcome) -> bool {
     outcome.final_version() == MYC_STATE_SCHEMA_VERSION
         && matches!(
             (outcome.initial_version(), outcome.applied_count()),
-            (MYC_STATE_BASE_SCHEMA_VERSION, 8)
-                | (2, 7)
-                | (3, 6)
-                | (4, 5)
-                | (5, 4)
-                | (6, 3)
-                | (7, 2)
-                | (8, 1)
+            (MYC_STATE_BASE_SCHEMA_VERSION, 9)
+                | (2, 8)
+                | (3, 7)
+                | (4, 6)
+                | (5, 5)
+                | (6, 4)
+                | (7, 3)
+                | (8, 2)
+                | (9, 1)
                 | (MYC_STATE_SCHEMA_VERSION, 0)
         )
 }

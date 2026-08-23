@@ -132,6 +132,15 @@
   task. Keep connection-count keys and identity roles closed, preserve the last
   valid snapshot on any failed publication, admit only the fixed twelve status
   reasons, and keep detailed status on the permissioned Unix-admin boundary.
+- Step 159 unit 10 owns schema-v10 offline configuration lifecycle. Keep the
+  configuration-binding ledger append-only and capped at 1,024 generations;
+  seed one post-migration generation without rewriting the immutable birth
+  record. Startup must match the latest config/public-identity binding. Identity
+  changes revoke live connection/challenge authority, permission narrowing
+  revokes affected sessions only, and an existing relay referenced by
+  nonterminal delivery work cannot be removed or changed. Do not persist relay
+  URLs, paths, credentials, provider envelopes, or protected values in the
+  binding history.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

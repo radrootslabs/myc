@@ -120,7 +120,7 @@ async fn initialization_migrates_and_binds_exact_metadata_before_inspection() {
         .fetch_all(&mut connection)
         .await
         .expect("migration rows");
-    assert_eq!(migrations.len(), 8);
+    assert_eq!(migrations.len(), 9);
     assert_eq!(migrations[0].get::<i64, _>(0), 2);
     assert_eq!(
         migrations[0].get::<String, _>(1),
@@ -160,6 +160,11 @@ async fn initialization_migrates_and_binds_exact_metadata_before_inspection() {
     assert_eq!(
         migrations[7].get::<String, _>(1),
         "create_nip46_atomic_response"
+    );
+    assert_eq!(migrations[8].get::<i64, _>(0), 10);
+    assert_eq!(
+        migrations[8].get::<String, _>(1),
+        "create_configuration_binding_history"
     );
     let binding = sqlx::query(
         "SELECT normalized_config_sha256, transport_public_key, user_public_key, \
@@ -283,7 +288,9 @@ async fn repository_boundary_is_sealed_typed_redacted_and_network_free() {
         "BEGIN ",
         "COMMIT",
         "ROLLBACK",
-        "provider",
+        "MycProvider",
+        "provider_credential",
+        "provider_envelope",
         "relay",
         "reqwest",
         "nostr::",

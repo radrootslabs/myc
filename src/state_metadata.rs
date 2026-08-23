@@ -451,7 +451,7 @@ fn require_profile_binding(
         .ok_or_else(|| MycStateMetadataError::new(MycStateMetadataErrorKind::Profile))
 }
 
-fn normalized_config_digest(
+pub(crate) fn normalized_config_digest(
     profile: MycConfigProfile,
     normalized: &serde_json::Value,
 ) -> Result<MycNormalizedConfigDigest, MycStateMetadataError> {
@@ -582,7 +582,7 @@ fn delivery_policies(
     .map_err(|_| invalid())
 }
 
-fn expected_identities(
+pub(crate) fn expected_identities(
     normalized: &serde_json::Value,
 ) -> Result<MycExpectedIdentities, MycStateMetadataError> {
     let identity = |pointer: &str| {

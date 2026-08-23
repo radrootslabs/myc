@@ -29,6 +29,7 @@ mod runtime_foundation;
 mod runtime_supervision;
 mod state_catalog;
 mod state_completion;
+mod state_config;
 mod state_connection;
 mod state_delivery;
 mod state_discovery;
@@ -162,12 +163,18 @@ pub use state_catalog::{
     MYC_STATE_SCHEMA_VERSION_7_SHA256, MYC_STATE_SCHEMA_VERSION_8_MIGRATION_SHA256,
     MYC_STATE_SCHEMA_VERSION_8_OBJECT_COUNT, MYC_STATE_SCHEMA_VERSION_8_SHA256,
     MYC_STATE_SCHEMA_VERSION_9_MIGRATION_SHA256, MYC_STATE_SCHEMA_VERSION_9_OBJECT_COUNT,
-    MYC_STATE_SCHEMA_VERSION_9_SHA256, MycStateCatalogError, MycStateCatalogErrorKind,
-    myc_migration_catalog, myc_schema_catalog, validate_myc_state_catalogs,
+    MYC_STATE_SCHEMA_VERSION_9_SHA256, MYC_STATE_SCHEMA_VERSION_10_MIGRATION_SHA256,
+    MYC_STATE_SCHEMA_VERSION_10_OBJECT_COUNT, MYC_STATE_SCHEMA_VERSION_10_SHA256,
+    MycStateCatalogError, MycStateCatalogErrorKind, myc_migration_catalog, myc_schema_catalog,
+    validate_myc_state_catalogs,
 };
 pub use state_completion::{
     MycNip46CommitAdmission, MycNip46CommitError, MycNip46CommitErrorKind, MycNip46CommitRecord,
     MycNip46CommitRequest, MycNip46SessionEffect,
+};
+pub use state_config::{
+    MYC_CONFIG_BINDING_MAX_GENERATIONS, MycConfigApplyError, MycConfigApplyErrorKind,
+    MycConfigApplyOutcome,
 };
 pub use state_connection::{
     MYC_AUTHORIZATION_CHALLENGE_URL_MAX_BYTES, MYC_CONNECTION_PERMISSION_MAX_COUNT,

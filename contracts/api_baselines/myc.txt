@@ -137,6 +137,16 @@ pub myc::MycCommandV1::Identity(myc::MycIdentityCommandV1)
 pub myc::MycCommandV1::Run
 pub myc::MycCommandV1::State(myc::MycStateCommandV1)
 pub myc::MycCommandV1::Status
+pub enum myc::MycConfigApplyErrorKind
+pub myc::MycConfigApplyErrorKind::Binding
+pub myc::MycConfigApplyErrorKind::CommitOutcomeUnknown
+pub myc::MycConfigApplyErrorKind::InvalidInput
+pub myc::MycConfigApplyErrorKind::InvalidMode
+pub myc::MycConfigApplyErrorKind::PolicyConflict
+pub myc::MycConfigApplyErrorKind::ResourceExhausted
+pub myc::MycConfigApplyErrorKind::Transaction
+impl myc::MycConfigApplyErrorKind
+pub const fn myc::MycConfigApplyErrorKind::code(self) -> &'static str
 pub enum myc::MycConfigCommandV1
 pub myc::MycConfigCommandV1::Init
 pub myc::MycConfigCommandV1::Schema
@@ -920,6 +930,22 @@ impl core::fmt::Debug for myc::MycCliV1Error
 pub fn myc::MycCliV1Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for myc::MycCliV1Error
 pub fn myc::MycCliV1Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycConfigApplyError
+impl myc::MycConfigApplyError
+pub const fn myc::MycConfigApplyError::code(self) -> &'static str
+pub const fn myc::MycConfigApplyError::kind(self) -> myc::MycConfigApplyErrorKind
+impl core::error::Error for myc::MycConfigApplyError
+impl core::fmt::Debug for myc::MycConfigApplyError
+pub fn myc::MycConfigApplyError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycConfigApplyError
+pub fn myc::MycConfigApplyError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycConfigApplyOutcome
+impl myc::MycConfigApplyOutcome
+pub const fn myc::MycConfigApplyOutcome::generation(self) -> u16
+pub const fn myc::MycConfigApplyOutcome::revoked_challenge_count(self) -> u64
+pub const fn myc::MycConfigApplyOutcome::revoked_connection_count(self) -> u64
+impl core::fmt::Debug for myc::MycConfigApplyOutcome
+pub fn myc::MycConfigApplyOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycConfigDocumentV1
 impl myc::MycConfigDocumentV1
 pub const fn myc::MycConfigDocumentV1::effective(&self) -> &myc::MycEffectiveConfigV1
@@ -1847,6 +1873,8 @@ pub async fn myc::MycStateRepository<'_>::read_connection_decision(&self, myc::M
 impl myc::MycStateRepository<'_>
 pub async fn myc::MycStateRepository<'_>::admit_signer_request(&self, &myc::MycSignerRequest) -> core::result::Result<myc::MycSignerRequestAdmission, myc::MycStateRepositoryError>
 impl myc::MycStateRepository<'_>
+pub async fn myc::MycStateRepository<'_>::apply_configuration(&self, &myc::MycConfigDocumentV1, &myc::MycConfigDocumentV1, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<myc::MycConfigApplyOutcome, myc::MycConfigApplyError>
+impl myc::MycStateRepository<'_>
 pub async fn myc::MycStateRepository<'_>::claim_delivery_target(&self, myc::MycDeliveryJobId, &myc::MycDeliveryRelayId, myc::MycDeliveryAttemptNonce, myc::MycDeliveryTimeUnixMs) -> core::result::Result<myc::MycDeliveryClaim, myc::MycStateRepositoryError>
 pub async fn myc::MycStateRepository<'_>::mark_delivery_attempt_submitted(&self, myc::MycDeliveryJobId, &myc::MycDeliveryRelayId, myc::MycDeliveryAttemptId, myc::MycDeliveryTimeUnixMs) -> core::result::Result<myc::MycDeliveryAttemptRecord, myc::MycStateRepositoryError>
 pub async fn myc::MycStateRepository<'_>::read_delivery_attempts(&self, myc::MycDeliveryJobId, &myc::MycDeliveryRelayId) -> core::result::Result<alloc::boxed::Box<[myc::MycDeliveryAttemptRecord]>, myc::MycStateRepositoryError>
@@ -2005,6 +2033,7 @@ pub const myc::MYC_AUDIT_PAGE_MAX_ITEMS: u16
 pub const myc::MYC_AUDIT_RETENTION_MAX_MS: u64
 pub const myc::MYC_AUTHORIZATION_CHALLENGE_URL_MAX_BYTES: usize
 pub const myc::MYC_COMPACTION_MAX_ROWS: u16
+pub const myc::MYC_CONFIG_BINDING_MAX_GENERATIONS: u16
 pub const myc::MYC_CONFIG_DOCUMENT_MAX_UTF8_BYTES: usize
 pub const myc::MYC_CONFIG_SCHEMA: &str
 pub const myc::MYC_CONFIG_SCHEMA_VERSION: u32
@@ -2060,6 +2089,9 @@ pub const myc::MYC_STATE_APPLICATION_ID: u32
 pub const myc::MYC_STATE_BASE_SCHEMA_VERSION: u32
 pub const myc::MYC_STATE_SCHEMA_CATALOG_SHA256: [u8; 32]
 pub const myc::MYC_STATE_SCHEMA_VERSION: u32
+pub const myc::MYC_STATE_SCHEMA_VERSION_10_MIGRATION_SHA256: [u8; 32]
+pub const myc::MYC_STATE_SCHEMA_VERSION_10_OBJECT_COUNT: u32
+pub const myc::MYC_STATE_SCHEMA_VERSION_10_SHA256: [u8; 32]
 pub const myc::MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT: u32
 pub const myc::MYC_STATE_SCHEMA_VERSION_1_SHA256: [u8; 32]
 pub const myc::MYC_STATE_SCHEMA_VERSION_2_MIGRATION_SHA256: [u8; 32]
