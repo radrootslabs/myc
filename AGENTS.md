@@ -194,6 +194,15 @@
   root, arbitrary member name, Nix/NixOS/OCI input or output, signing key,
   parent-owned human document, private harness, protected material, or
   publication/deployment authority.
+- Step 161 owns the closed executable qualification matrix in
+  `contracts/services_hardening/process_qualification.v1.json`. Keep its
+  process deadlines, parallelism, soak count, crash fixture, output bound,
+  actual-process corpus, and component evidence exact. Crash injection is an
+  external test-process termination only; do not add a production failpoint,
+  hidden command, environment selector, detached test worker, or public test
+  API. Failed backup and restore work must retain collision/recovery evidence,
+  preserve the live database, and recover only through the governed next
+  process open.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

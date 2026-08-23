@@ -1,0 +1,79 @@
+{
+  "schema": "radroots.myc.process-qualification.v1",
+  "contract_version": 1,
+  "step": 161,
+  "service": "myc",
+  "binary": "myc",
+  "source_lock": {
+    "schema": "radroots.service.source-lock.v2",
+    "lib_revision": "7d7b454b4c9ed86569671993bd03ca868b676665"
+  },
+  "bounds": {
+    "process_deadline_ms": 30000,
+    "poll_interval_ms": 2,
+    "parallel_inspection_processes": 8,
+    "soak_iterations": 32,
+    "crash_fixture_bytes": 67108864,
+    "maximum_captured_output_bytes": 8192
+  },
+  "actual_process_corpus": [
+    "offline_state_and_diagnostics",
+    "parallel_inspection_saturation",
+    "bounded_reopen_soak",
+    "backup_copy_sigkill_collision",
+    "pre_marker_restore_sigkill_refusal",
+    "durable_restore_recovery",
+    "required_dependency_outage",
+    "secret_and_path_redaction"
+  ],
+  "component_corpus": {
+    "myc_atomicity": [
+      "request_admission_is_atomic_idempotent_conflict_aware_and_restart_stable",
+      "delivery_jobs_are_config_bound_idempotent_restart_safe_and_unknown_aware",
+      "backup_integrity_and_offline_restore_obey_one_exact_myc_authority"
+    ],
+    "backlog_and_saturation": [
+      "concurrent_identical_admission_creates_one_request_and_bounded_replay_evidence",
+      "configured_denial_precedes_saturated_unknown_client_rate_windows",
+      "challenge_creation_and_authorization_use_distinct_durable_rate_budgets"
+    ],
+    "recovery_and_crash": [
+      "restart_recovery_is_bounded_jittered_and_idempotent",
+      "terminal_unknown_is_not_relabelled_as_failure_and_sql_guards_preserve_evidence",
+      "early_success_and_panic_are_fatal_and_join_their_cancelled_peer"
+    ],
+    "property_and_adversarial": [
+      "duplicate_replay_conflict_and_distinct_relations_are_total",
+      "event_object_is_closed_duplicate_free_nonnull_and_exactly_consumed",
+      "exact_open_rejects_migration_history_drift_without_repair"
+    ]
+  },
+  "source_locked_shared_sqlite_corpus": [
+    "every_initialization_durability_edge_fails_once_and_rolls_back",
+    "transaction_durability_edges_preserve_exact_commit_semantics",
+    "backup_durability_edges_fail_once_clean_exact_stage_and_recover",
+    "close_durability_edges_are_once_only_retryable_or_terminal",
+    "every_marker_and_restore_durability_edge_is_wired_once",
+    "sigkill_restore_boundaries_recover_exact_topologies_and_preserve_permissions"
+  ],
+  "invariants": {
+    "actual_executable_required": true,
+    "production_failpoint_surface": false,
+    "test_environment_selector": false,
+    "detached_test_worker": false,
+    "live_database_unchanged_by_failed_backup": true,
+    "orphan_restore_evidence_fails_closed": true,
+    "durable_restore_evidence_reconciled_on_writable_reopen": true,
+    "captured_output_bounded": true,
+    "diagnostics_path_secret_free": true
+  },
+  "deferred": [
+    "rcld_promotion",
+    "parent_pin_alignment",
+    "nix",
+    "oci",
+    "signing",
+    "publication",
+    "deployment"
+  ]
+}

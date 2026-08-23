@@ -483,6 +483,27 @@ restore authority. Cancellation, explicit close, and cleanup behavior remain
 owned by the source-locked shared SQLx host; Myc maps every public failure to a
 stable source-free classification.
 
+## Executable qualification
+
+The Step 161 process qualification is frozen by
+`contracts/services_hardening/process_qualification.v1.json`. It runs the
+actual `myc` executable under fixed deadlines, bounded captured output, eight
+concurrent inspection processes, 32 deterministic reopen iterations, and one
+64 MiB crash fixture. External process termination exercises interrupted
+backup and pre-marker restore boundaries without adding a production
+failpoint, hidden command, environment selector, feature, or detached test
+worker. An interrupted backup preserves the live database and leaves explicit
+collision evidence. An orphan restore stage prevents admission until an
+operator removes the owned test fixture, while a durable replacement marker is
+reconciled only by the next governed writable process open.
+
+The executable corpus composes with the exact Myc component-level atomicity,
+backlog, saturation, recovery, property, and adversarial tests and the
+source-locked shared SQLx initialization, transaction, backup, close, marker,
+restore, and `SIGKILL` failpoint corpus named by that contract. Qualification
+adds no runtime authority and makes no RCLD promotion, parent-alignment, Nix,
+OCI, signing, publication, or deployment claim.
+
 ## NIP-46 runtime contract
 
 Myc listens for encrypted kind-24133 requests on the exact configured relay

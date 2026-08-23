@@ -61,6 +61,8 @@ const NIP46_RESPONSE_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_response_commit.v1.json");
 const DELIVERY_RECOVERY_EXPORT_CONTRACT: &str =
     include_str!("../contracts/services_hardening/delivery_recovery_export.v1.json");
+const PROCESS_QUALIFICATION_CONTRACT: &str =
+    include_str!("../contracts/services_hardening/process_qualification.v1.json");
 const SOURCES: &[&str] = &[
     include_str!("../src/admin_v1.rs"),
     include_str!("../src/cli_bootstrap.rs"),
@@ -76,6 +78,7 @@ const SOURCES: &[&str] = &[
     include_str!("../src/nip46_replay.rs"),
     include_str!("../src/nip46_verification.rs"),
     include_str!("../src/nip46_work.rs"),
+    include_str!("../src/nip46_wave_080_b.rs"),
     include_str!("../src/operations_v1.rs"),
     include_str!("../src/process_v1.rs"),
     include_str!("../src/process_v1_unsupported.rs"),
@@ -197,8 +200,38 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
         "The production `run` path owns the exact five-role bounded graph",
         "Required relay subscriptions and provider handshakes complete before\nReady",
         "one configured absolute graceful-shutdown deadline",
+        "## Executable qualification",
+        "eight\nconcurrent inspection processes, 32 deterministic reopen iterations, and one\n64 MiB crash fixture",
+        "without adding a production\nfailpoint, hidden command, environment selector, feature, or detached test\nworker",
     ] {
         assert!(README.contains(required), "README is missing `{required}`");
+    }
+}
+
+#[test]
+fn step161_qualification_is_machine_bound_without_a_production_test_surface() {
+    let contract: serde_json::Value =
+        serde_json::from_str(PROCESS_QUALIFICATION_CONTRACT).expect("qualification contract");
+    assert_eq!(contract["schema"], "radroots.myc.process-qualification.v1");
+    assert_eq!(contract["step"], 161);
+    assert_eq!(contract["invariants"]["actual_executable_required"], true);
+    assert_eq!(
+        contract["invariants"]["production_failpoint_surface"],
+        false
+    );
+    assert_eq!(contract["invariants"]["test_environment_selector"], false);
+    for source in SOURCES.iter().copied().chain([ROOT, MAIN]) {
+        for forbidden in [
+            "MYC_TEST_",
+            "MYC_FAILPOINT",
+            "process_qualification_failpoint",
+            "qualification-only-command",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "production source contains `{forbidden}`"
+            );
+        }
     }
 }
 
