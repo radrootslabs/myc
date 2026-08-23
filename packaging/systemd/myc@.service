@@ -1,0 +1,37 @@
+[Unit]
+Description=Radroots Myc signer instance %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=myc
+Group=myc
+UMask=0077
+ExecStart=/usr/bin/myc --profile service-host --instance %i run
+Restart=on-failure
+RestartSec=5s
+ConfigDirectory=radroots/services/myc/%i
+ConfigDirectoryMode=0700
+StateDirectory=radroots/services/myc/%i
+StateDirectoryMode=0700
+CacheDirectory=radroots/services/myc/%i
+CacheDirectoryMode=0700
+LogsDirectory=radroots/services/myc/%i
+LogsDirectoryMode=0700
+RuntimeDirectory=radroots/services/myc/%i
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

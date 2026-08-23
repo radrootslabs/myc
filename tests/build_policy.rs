@@ -86,6 +86,7 @@ fn release_acceptance_checks_both_feature_profiles() {
     assert!(RELEASE_ACCEPTANCE.contains(
         "cargo check --locked --all-targets --no-default-features --features service-host\n"
     ));
+    assert!(RELEASE_ACCEPTANCE.contains("cargo test --locked -p myc_xtask\n"));
     assert!(!RELEASE_ACCEPTANCE.contains("nix "));
 }
 

@@ -4,11 +4,13 @@ use std::collections::BTreeSet;
 
 use serde_json::json;
 
-const CONTRACT: &str = include_str!("../contracts/services_hardening/native_release.v1.json");
+const CONTRACT: &str = include_str!("../contracts/services_hardening/native_release.v2.json");
 const MANIFEST: &str = include_str!("../Cargo.toml");
 const LOCK: &str = include_str!("../Cargo.lock");
 const FLAKE: &str = include_str!("../flake.nix");
 const FLAKE_LOCK: &str = include_str!("../flake.lock");
+const CARGO_CONFIG: &str = include_str!("../.cargo/config.toml");
+const SYSTEMD_UNIT: &str = include_str!("../packaging/systemd/myc@.service");
 
 const LIB_REVISION: &str = "7d7b454b4c9ed86569671993bd03ca868b676665";
 const DEFERRED_NIX_LIB_REVISION: &str = "b44119fbac5985be8127ad1bf56d2950e6399427";
@@ -21,8 +23,13 @@ fn native_release_contract_and_manifest_metadata_are_exact() {
         contract,
         json!({
             "schema": "radroots.myc.native-release",
-            "schema_version": 1,
-            "contract_version": 1,
+            "schema_version": 2,
+            "contract_version": 2,
+            "predecessor": {
+                "schema_version": 1,
+                "filename": "native_release.v1.json",
+                "transition": "forward_only_replace"
+            },
             "service": "myc",
             "package": {
                 "name": "myc",
@@ -30,6 +37,21 @@ fn native_release_contract_and_manifest_metadata_are_exact() {
                 "version": "0.1.0",
                 "repository": "https://github.com/radrootslabs/myc",
                 "publish_to_crates_io": false
+            },
+            "generator": {
+                "command": "cargo xtask native-release",
+                "modes": ["check", "write"],
+                "required_arguments": [
+                    "mode", "target", "binary", "output", "source_date_epoch"
+                ],
+                "source_date_epoch_range": "1..=4294967295",
+                "clean_exact_head": true,
+                "target_binary_validation": "executable_elf64_little_endian_exact_machine",
+                "canonical_json": "compact_utf8_json_with_one_final_lf",
+                "deterministic_archives": true,
+                "output_directory_mode": "0755",
+                "output_file_mode": "0644",
+                "durability": "sync_files_then_output_directory_then_parent"
             },
             "toolchain": {
                 "rust_version": "1.97.1",
@@ -47,7 +69,6 @@ fn native_release_contract_and_manifest_metadata_are_exact() {
             "source_lock": {
                 "filename": "radroots.service.source-lock.v2.toml",
                 "schema": "radroots.service.source-lock.v2",
-                "generator": "cargo xtask service-source-lock",
                 "lib_repository": LIB_REPOSITORY,
                 "architecture": "radroots.crates.release.v2"
             },
@@ -62,22 +83,39 @@ fn native_release_contract_and_manifest_metadata_are_exact() {
                 { "target": "aarch64-unknown-linux-gnu", "posture": "target" },
                 { "target": "x86_64-unknown-linux-gnu", "posture": "target" }
             ],
-            "step_139_outputs": [
-                "cargo_package_metadata",
-                "release_profile",
-                "dependency_source_trust",
-                "service_source_lock"
+            "output_inventory": [
+                "LICENSE",
+                "SHA256SUMS",
+                "THIRD-PARTY-NOTICES.txt",
+                "artifact-manifest.v1.json",
+                "binary.tar.gz",
+                "config.example.toml",
+                "config.schema.json",
+                "provenance-input.v1.json",
+                "radroots.service.source-lock.v2.toml",
+                "sbom.cdx.json",
+                "service-source.tar.gz",
+                "systemd.service"
             ],
-            "deferred_to_step_160": [
-                "native_binary_archive",
-                "service_source_archive",
-                "systemd_material",
-                "sbom",
-                "provenance",
-                "notices",
-                "checksums",
-                "signing_inputs"
+            "signing_inputs": [
+                "SHA256SUMS",
+                "artifact-manifest.v1.json",
+                "provenance-input.v1.json"
             ],
+            "provenance_posture": "deterministic_unsigned_slsa_v1_input_external_keys_only",
+            "sbom_format": "cyclonedx_json_1_5_locked_cargo_graph",
+            "source_archive": "locked_offline_cargo_build_with_vendored_dependencies",
+            "checksum_format": "sha256_lower_hex_two_spaces_path_lf_sorted_by_path",
+            "protected_material_included": false,
+            "maximums": {
+                "text_input_bytes": 1048576,
+                "generated_document_bytes": 16777216,
+                "cargo_metadata_bytes": 33554432,
+                "binary_bytes": 536870912,
+                "source_archive_bytes": 1073741824,
+                "packages": 8192,
+                "tracked_files": 4096
+            },
             "deferred_through_rcld_rshr_170": [
                 "nix_evaluation",
                 "nix_build",
@@ -85,6 +123,13 @@ fn native_release_contract_and_manifest_metadata_are_exact() {
                 "oci_artifact"
             ],
             "forbidden": [
+                "nix_input",
+                "nixos_module_output",
+                "oci_input",
+                "oci_output",
+                "protected_material",
+                "parent_owned_human_docs",
+                "private_harness",
                 "local_or_path_lib_dependency",
                 "floating_or_branch_lib_dependency",
                 "mixed_lib_revision",
@@ -139,6 +184,21 @@ fn native_release_contract_and_manifest_metadata_are_exact() {
             panic = "unwind"
         })
     );
+    assert_eq!(
+        CARGO_CONFIG,
+        "[alias]\nxtask = \"run --locked -p myc_xtask --\"\n"
+    );
+    for required in [
+        "ExecStart=/usr/bin/myc --profile service-host --instance %i run",
+        "ConfigDirectory=radroots/services/myc/%i",
+        "StateDirectory=radroots/services/myc/%i",
+        "RuntimeDirectory=radroots/services/myc/%i",
+        "UMask=0077",
+        "NoNewPrivileges=yes",
+        "ProtectSystem=strict",
+    ] {
+        assert!(SYSTEMD_UNIT.contains(required), "missing `{required}`");
+    }
 }
 
 #[test]
@@ -223,11 +283,20 @@ fn every_radroots_dependency_is_exactly_source_locked() {
 }
 
 #[test]
-fn removed_and_deferred_release_surfaces_cannot_be_smuggled_into_step_139() {
+fn native_release_surfaces_remain_generated_outside_the_source_tree() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     assert!(!root.join("radroots.lib.source-lock.v1.toml").exists());
     assert!(!root.join("radroots.service.source-lock.v1.toml").exists());
     assert!(root.join("radroots.service.source-lock.v2.toml").is_file());
+    assert!(
+        !root
+            .join("contracts/services_hardening/native_release.v1.json")
+            .exists()
+    );
+    assert!(
+        root.join("contracts/services_hardening/native_release.v2.json")
+            .is_file()
+    );
     for forbidden in [
         ".github",
         "target",
@@ -245,4 +314,6 @@ fn removed_and_deferred_release_surfaces_cannot_be_smuggled_into_step_139() {
     }
     assert!(!CONTRACT.contains("qualified"));
     assert!(!CONTRACT.contains("production_ready"));
+    assert!(!CONTRACT.contains("oci-image"));
+    assert!(!CONTRACT.contains("nixos-module"));
 }

@@ -182,8 +182,18 @@
   The executable must not provision deployment directory trees, derive runtime
   limits from host CPUs, read secret arguments or environment variables, open
   an existing live database before validating a restore manifest, publish from
-  doctor, or return success for the deferred daemon `run` graph. Unit 15 alone
+  doctor, or return success without the Unit 15 daemon `run` graph. Unit 15
   owns that graph, process signals, readiness/reconnect, and phase-aware drain.
+- Step 160 owns the standalone native release-artifact boundary in
+  `contracts/services_hardening/native_release.v2.json` and `cargo xtask
+  native-release`. Keep its exact two Linux targets, clean committed source,
+  caller-supplied binary, positive deterministic epoch, bounded generated
+  inventory, vendored offline source archive, source lock, CycloneDX SBOM,
+  notices, checksums, unsigned provenance, and fixed systemd template closed.
+  Outputs remain external to the source tree. Do not accept a caller service
+  root, arbitrary member name, Nix/NixOS/OCI input or output, signing key,
+  parent-owned human document, private harness, protected material, or
+  publication/deployment authority.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

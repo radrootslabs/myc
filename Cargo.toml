@@ -12,6 +12,8 @@ publish = false
 
 [workspace]
 resolver = "3"
+members = [".", "tools/xtask"]
+default-members = ["."]
 
 [workspace.metadata.radroots.service_source_lock]
 service = "myc"

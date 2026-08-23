@@ -1,0 +1,123 @@
+{
+  "schema": "radroots.myc.native-release",
+  "schema_version": 2,
+  "contract_version": 2,
+  "predecessor": {
+    "schema_version": 1,
+    "filename": "native_release.v1.json",
+    "transition": "forward_only_replace"
+  },
+  "service": "myc",
+  "package": {
+    "name": "myc",
+    "binary": "myc",
+    "version": "0.1.0",
+    "repository": "https://github.com/radrootslabs/myc",
+    "publish_to_crates_io": false
+  },
+  "generator": {
+    "command": "cargo xtask native-release",
+    "modes": ["check", "write"],
+    "required_arguments": [
+      "mode",
+      "target",
+      "binary",
+      "output",
+      "source_date_epoch"
+    ],
+    "source_date_epoch_range": "1..=4294967295",
+    "clean_exact_head": true,
+    "target_binary_validation": "executable_elf64_little_endian_exact_machine",
+    "canonical_json": "compact_utf8_json_with_one_final_lf",
+    "deterministic_archives": true,
+    "output_directory_mode": "0755",
+    "output_file_mode": "0644",
+    "durability": "sync_files_then_output_directory_then_parent"
+  },
+  "toolchain": {
+    "rust_version": "1.97.1",
+    "edition": "2024",
+    "resolver": "3",
+    "host_feature_profile": "service-host"
+  },
+  "release_profile": {
+    "lto": "thin",
+    "codegen_units": 1,
+    "overflow_checks": true,
+    "strip": "symbols",
+    "panic": "unwind"
+  },
+  "source_lock": {
+    "filename": "radroots.service.source-lock.v2.toml",
+    "schema": "radroots.service.source-lock.v2",
+    "lib_repository": "https://github.com/radrootslabs/lib",
+    "architecture": "radroots.crates.release.v2"
+  },
+  "contract_versions": {
+    "config": 1,
+    "state": 11,
+    "admin": 1,
+    "status": 1,
+    "provider": 1
+  },
+  "native_targets": [
+    { "target": "aarch64-unknown-linux-gnu", "posture": "target" },
+    { "target": "x86_64-unknown-linux-gnu", "posture": "target" }
+  ],
+  "output_inventory": [
+    "LICENSE",
+    "SHA256SUMS",
+    "THIRD-PARTY-NOTICES.txt",
+    "artifact-manifest.v1.json",
+    "binary.tar.gz",
+    "config.example.toml",
+    "config.schema.json",
+    "provenance-input.v1.json",
+    "radroots.service.source-lock.v2.toml",
+    "sbom.cdx.json",
+    "service-source.tar.gz",
+    "systemd.service"
+  ],
+  "signing_inputs": [
+    "SHA256SUMS",
+    "artifact-manifest.v1.json",
+    "provenance-input.v1.json"
+  ],
+  "provenance_posture": "deterministic_unsigned_slsa_v1_input_external_keys_only",
+  "sbom_format": "cyclonedx_json_1_5_locked_cargo_graph",
+  "source_archive": "locked_offline_cargo_build_with_vendored_dependencies",
+  "checksum_format": "sha256_lower_hex_two_spaces_path_lf_sorted_by_path",
+  "protected_material_included": false,
+  "maximums": {
+    "text_input_bytes": 1048576,
+    "generated_document_bytes": 16777216,
+    "cargo_metadata_bytes": 33554432,
+    "binary_bytes": 536870912,
+    "source_archive_bytes": 1073741824,
+    "packages": 8192,
+    "tracked_files": 4096
+  },
+  "deferred_through_rcld_rshr_170": [
+    "nix_evaluation",
+    "nix_build",
+    "nixos_module_qualification",
+    "oci_artifact"
+  ],
+  "forbidden": [
+    "nix_input",
+    "nixos_module_output",
+    "oci_input",
+    "oci_output",
+    "protected_material",
+    "parent_owned_human_docs",
+    "private_harness",
+    "local_or_path_lib_dependency",
+    "floating_or_branch_lib_dependency",
+    "mixed_lib_revision",
+    "crates_io_publication",
+    "signing",
+    "tagging",
+    "release_publication",
+    "deployment"
+  ]
+}

@@ -34,15 +34,23 @@ let _publisher = MycStatusPublisher {};
 let _snapshot = MycStatusSnapshot {};
 ```
 
-The native package and dependency-trust metadata is frozen by
-`contracts/services_hardening/native_release.v1.json`. Linux x86_64 and
-aarch64 are declared release targets, not qualified artifacts. The canonical
-service source lock binds the exact active public Lib cohort, Cargo lock,
-verified source archive, toolchain, feature profile, and service contract
-versions. Deferred flake source data is independently digest-bound and may
-select an older reachable Lib revision; it does not control native builds or
-claim Nix qualification. Nix, OCI, signing, tags, publication, and deployment
-remain deferred and unclaimed.
+The native package, artifact, and dependency-trust boundary is frozen by
+`contracts/services_hardening/native_release.v2.json`. Linux x86_64 and
+aarch64 are the only admitted native artifact targets. `cargo xtask
+native-release` consumes an exact prebuilt target binary from a clean Git head
+and deterministically writes or checks the complete binary/source archive,
+systemd, configuration, source-lock, SBOM, notices, checksum, manifest, and
+unsigned provenance inventory outside the source tree. The source archive
+vendors the exact locked Cargo graph and proves an offline metadata read before
+packaging. Signing credentials and parent-owned human documentation are never
+inputs.
+
+The canonical service source lock binds the exact active public Lib cohort,
+Cargo lock, verified Lib source archive, toolchain, feature profile, and
+service contract versions. Deferred flake source data is independently
+digest-bound and may select an older reachable Lib revision; it does not
+control native artifacts or claim Nix qualification. Nix, NixOS material, OCI,
+signing, tags, publication, and deployment remain deferred and unclaimed.
 
 ## Hardened v1 configuration contract
 
@@ -514,6 +522,14 @@ crate through extbuild:
 ```text
 cargo extbuild doctor
 cargo extbuild run -- ./scripts/release-acceptance.sh
+```
+
+After building one of the two admitted Linux targets, create and then
+byte-check an external release directory with explicit deterministic evidence:
+
+```text
+cargo extbuild run -- cargo xtask native-release --mode write --target <aarch64-unknown-linux-gnu|x86_64-unknown-linux-gnu> --binary <absolute-binary> --output <absolute-new-directory> --source-date-epoch <positive-u32-seconds>
+cargo extbuild run -- cargo xtask native-release --mode check --target <same-target> --binary <same-absolute-binary> --output <same-absolute-directory> --source-date-epoch <same-seconds>
 ```
 
 Through RCLD-RSHR-170, Nix evaluation, builds, packages, NixOS modules, and
