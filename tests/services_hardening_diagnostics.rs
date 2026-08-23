@@ -128,8 +128,12 @@ fn binary_writes_only_fixed_json_diagnostics_to_stderr() {
     );
     assert!(!invalid_stderr.contains(canary));
 
+    let repo_local = tempfile::tempdir().expect("repo-local root");
     let unavailable = Command::new(env!("CARGO_BIN_EXE_myc"))
-        .args(["--profile", "service-host", "--instance", "primary", "run"])
+        .args(["--profile", "repo-local", "--instance", "primary"])
+        .arg("--repo-local-root")
+        .arg(repo_local.path())
+        .arg("run")
         .output()
         .expect("admitted invocation");
     assert_eq!(unavailable.status.code(), Some(3));

@@ -692,7 +692,7 @@ where
     Ok(MycAdminRouter { inner: router })
 }
 
-fn admin_transport_limits(
+pub(crate) fn admin_transport_limits(
     configuration: &crate::MycConfigDocumentV1,
 ) -> Result<AdminTransportLimits, MycAdminServerError> {
     let admin = configuration
@@ -710,6 +710,16 @@ fn admin_transport_limits(
         query_items: admin_u32(admin, "/query_items")?,
     };
     AdminTransportLimits::new(values).map_err(|_| invalid_admin_configuration())
+}
+
+pub(crate) fn admit_admin_response_value(
+    route: MycAdminRoute,
+    value: &Value,
+) -> Result<Box<[u8]>, MycAdminDocumentError> {
+    let bytes = serde_json::to_vec(value)
+        .map_err(|_| MycAdminDocumentError::new(MycAdminDocumentErrorKind::Malformed))?;
+    MycAdminResponseDocument::from_canonical_bytes(route, &bytes)
+        .map(|document| document.canonical_bytes)
 }
 
 fn admin_u64(value: &Value, pointer: &str) -> Result<u64, MycAdminServerError> {

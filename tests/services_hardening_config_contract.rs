@@ -360,7 +360,7 @@ fn schema_identity_structure_and_machine_policy_are_exact() {
 
     let mut found_defaults = BTreeMap::new();
     defaults(&schema, "", &mut found_defaults);
-    assert_eq!(found_defaults.len(), 39);
+    assert_eq!(found_defaults.len(), 41);
     for source in found_defaults.keys().map(|pointer| {
         schema.pointer(pointer).unwrap()["x-radroots-default-source"]
             .as_str()
@@ -379,6 +379,26 @@ fn schema_identity_structure_and_machine_policy_are_exact() {
 #[test]
 fn lib_derived_limits_and_defaults_are_literal_frozen() {
     let schema = schema();
+    assert_eq!(
+        schema["$defs"]["runtime_limits"]["properties"]["worker_threads"],
+        json!({
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 32,
+            "default": 4,
+            "x-radroots-default-source": "engineering_safety",
+        })
+    );
+    assert_eq!(
+        schema["$defs"]["runtime_limits"]["properties"]["blocking_threads"],
+        json!({
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32,
+            "default": 8,
+            "x-radroots-default-source": "engineering_safety",
+        })
+    );
     assert_eq!(
         schema["$defs"]["operations_limits"]["properties"]["header_bytes"]["minimum"],
         8_192

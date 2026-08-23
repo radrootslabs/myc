@@ -185,6 +185,22 @@ impl fmt::Debug for MycConfigApplyOutcome {
 }
 
 impl MycStateRepository<'_> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub(crate) async fn current_configuration_generation(
+        &self,
+    ) -> Result<u16, MycConfigApplyError> {
+        self.host()
+            .transaction(|transaction| {
+                Box::pin(async move {
+                    read_latest_header(transaction)
+                        .await
+                        .map(|(generation, _)| generation)
+                })
+            })
+            .await
+            .map_err(map_apply_transaction_error)
+    }
+
     /// Atomically applies one complete candidate configuration while offline.
     ///
     /// The current document must match the latest durable binding. The candidate

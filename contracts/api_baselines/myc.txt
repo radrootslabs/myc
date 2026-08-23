@@ -146,12 +146,16 @@ pub myc::MycCliOfflineOperationV1::IdentityExclusive
 pub myc::MycCliOfflineOperationV1::IdentityReadOnly
 pub myc::MycCliOfflineOperationV1::StateExclusive
 pub myc::MycCliOfflineOperationV1::StateReadOnly
+pub enum myc::MycCliOutputModeV1
+pub myc::MycCliOutputModeV1::Human
+pub myc::MycCliOutputModeV1::Json
 pub enum myc::MycCliPrimaryAuthorityV1
 pub myc::MycCliPrimaryAuthorityV1::Daemon
 pub myc::MycCliPrimaryAuthorityV1::LiveUnixAdmin
 pub myc::MycCliPrimaryAuthorityV1::Offline
 pub enum myc::MycCliV1ErrorKind
 pub myc::MycCliV1ErrorKind::InvalidArguments
+pub myc::MycCliV1ErrorKind::InvalidCommandInput
 pub myc::MycCliV1ErrorKind::InvalidConfigPath
 pub myc::MycCliV1ErrorKind::InvalidInstance
 pub myc::MycCliV1ErrorKind::InvalidRepoLocalRoot
@@ -163,6 +167,8 @@ pub myc::MycCommandV1::Identity(myc::MycIdentityCommandV1)
 pub myc::MycCommandV1::Run
 pub myc::MycCommandV1::State(myc::MycStateCommandV1)
 pub myc::MycCommandV1::Status
+impl core::fmt::Debug for myc::MycCommandV1
+pub fn myc::MycCommandV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum myc::MycConfigApplyErrorKind
 pub myc::MycConfigApplyErrorKind::Binding
 pub myc::MycConfigApplyErrorKind::CommitOutcomeUnknown
@@ -174,10 +180,21 @@ pub myc::MycConfigApplyErrorKind::Transaction
 impl myc::MycConfigApplyErrorKind
 pub const fn myc::MycConfigApplyErrorKind::code(self) -> &'static str
 pub enum myc::MycConfigCommandV1
+pub myc::MycConfigCommandV1::Apply(myc::MycConfigApplyArgsV1)
 pub myc::MycConfigCommandV1::Init
 pub myc::MycConfigCommandV1::Schema
 pub myc::MycConfigCommandV1::Show
 pub myc::MycConfigCommandV1::Validate
+pub enum myc::MycConfigLoadErrorKind
+pub myc::MycConfigLoadErrorKind::AlreadyExists
+pub myc::MycConfigLoadErrorKind::InsecureArtifact
+pub myc::MycConfigLoadErrorKind::InsecureParent
+pub myc::MycConfigLoadErrorKind::InvalidDocument
+pub myc::MycConfigLoadErrorKind::InvalidPath
+pub myc::MycConfigLoadErrorKind::Io
+pub myc::MycConfigLoadErrorKind::Missing
+pub myc::MycConfigLoadErrorKind::TooLarge
+pub myc::MycConfigLoadErrorKind::UnsupportedPlatform
 pub enum myc::MycConfigProfile
 pub myc::MycConfigProfile::Production
 pub myc::MycConfigProfile::RepoLocal
@@ -409,9 +426,9 @@ pub myc::MycGovernanceStateErrorKind::InvalidRelayId
 impl myc::MycGovernanceStateErrorKind
 pub const fn myc::MycGovernanceStateErrorKind::code(self) -> &'static str
 pub enum myc::MycIdentityCommandV1
-pub myc::MycIdentityCommandV1::ExportPublic
-pub myc::MycIdentityCommandV1::Init
-pub myc::MycIdentityCommandV1::Status
+pub myc::MycIdentityCommandV1::ExportPublic(myc::MycIdentityCommandArgsV1)
+pub myc::MycIdentityCommandV1::Init(myc::MycIdentityCommandArgsV1)
+pub myc::MycIdentityCommandV1::Status(myc::MycIdentityCommandArgsV1)
 pub enum myc::MycIntegrityStateV1
 pub myc::MycIntegrityStateV1::Failed
 pub myc::MycIntegrityStateV1::VerificationRequired
@@ -718,10 +735,10 @@ pub myc::MycStateCatalogErrorKind::SchemaCatalog
 impl myc::MycStateCatalogErrorKind
 pub const fn myc::MycStateCatalogErrorKind::code(self) -> &'static str
 pub enum myc::MycStateCommandV1
-pub myc::MycStateCommandV1::Backup
+pub myc::MycStateCommandV1::Backup(myc::MycStateBackupArgsV1)
 pub myc::MycStateCommandV1::Init
 pub myc::MycStateCommandV1::Migrate
-pub myc::MycStateCommandV1::Restore
+pub myc::MycStateCommandV1::Restore(myc::MycStateRestoreArgsV1)
 pub myc::MycStateCommandV1::Status
 pub myc::MycStateCommandV1::Verify
 pub enum myc::MycStateHostErrorKind
@@ -984,9 +1001,10 @@ impl core::fmt::Debug for myc::MycCliExecutionPlanV1
 pub fn myc::MycCliExecutionPlanV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycCliInvocationV1
 impl myc::MycCliInvocationV1
-pub const fn myc::MycCliInvocationV1::command(&self) -> myc::MycCommandV1
+pub const fn myc::MycCliInvocationV1::command(&self) -> &myc::MycCommandV1
 pub fn myc::MycCliInvocationV1::config_path(&self) -> core::option::Option<&std::path::Path>
 pub fn myc::MycCliInvocationV1::instance(&self) -> &radroots_runtime_paths::identifier::InstanceId
+pub const fn myc::MycCliInvocationV1::output_mode(&self) -> myc::MycCliOutputModeV1
 pub const fn myc::MycCliInvocationV1::profile(&self) -> myc::MycBootstrapProfileV1
 pub fn myc::MycCliInvocationV1::repo_local_root(&self) -> core::option::Option<&std::path::Path>
 impl core::fmt::Debug for myc::MycCliInvocationV1
@@ -999,6 +1017,11 @@ impl core::fmt::Debug for myc::MycCliV1Error
 pub fn myc::MycCliV1Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for myc::MycCliV1Error
 pub fn myc::MycCliV1Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycConfigApplyArgsV1
+impl myc::MycConfigApplyArgsV1
+pub fn myc::MycConfigApplyArgsV1::candidate_config(&self) -> &std::path::Path
+impl core::fmt::Debug for myc::MycConfigApplyArgsV1
+pub fn myc::MycConfigApplyArgsV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycConfigApplyError
 impl myc::MycConfigApplyError
 pub const fn myc::MycConfigApplyError::code(self) -> &'static str
@@ -1021,10 +1044,19 @@ pub const fn myc::MycConfigDocumentV1::effective(&self) -> &myc::MycEffectiveCon
 pub const fn myc::MycConfigDocumentV1::profile(&self) -> myc::MycConfigProfile
 pub const fn myc::MycConfigDocumentV1::provider_contract(&self) -> &myc::MycProviderContract
 pub fn myc::MycConfigDocumentV1::relay_count(&self) -> usize
+pub const fn myc::MycConfigDocumentV1::runtime_thread_limits(&self) -> myc::MycRuntimeThreadLimitsV1
 pub const fn myc::MycConfigDocumentV1::schema(&self) -> &'static str
 pub const fn myc::MycConfigDocumentV1::schema_version(&self) -> u32
 impl core::fmt::Debug for myc::MycConfigDocumentV1
 pub fn myc::MycConfigDocumentV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycConfigLoadError
+impl myc::MycConfigLoadError
+pub const fn myc::MycConfigLoadError::kind(self) -> myc::MycConfigLoadErrorKind
+impl core::error::Error for myc::MycConfigLoadError
+impl core::fmt::Debug for myc::MycConfigLoadError
+pub fn myc::MycConfigLoadError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycConfigLoadError
+pub fn myc::MycConfigLoadError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycConfigV1Error
 impl myc::MycConfigV1Error
 pub const fn myc::MycConfigV1Error::kind(self) -> myc::MycConfigV1ErrorKind
@@ -1361,6 +1393,9 @@ impl core::fmt::Debug for myc::MycGovernanceStateError
 pub fn myc::MycGovernanceStateError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for myc::MycGovernanceStateError
 pub fn myc::MycGovernanceStateError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycIdentityCommandArgsV1
+impl myc::MycIdentityCommandArgsV1
+pub const fn myc::MycIdentityCommandArgsV1::role(self) -> myc::MycProviderRole
 pub struct myc::MycIdentityHealthV1
 impl myc::MycIdentityHealthV1
 pub const fn myc::MycIdentityHealthV1::is_available(&self) -> bool
@@ -1825,6 +1860,10 @@ impl core::fmt::Debug for myc::MycRuntimeSupervisionError
 pub fn myc::MycRuntimeSupervisionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for myc::MycRuntimeSupervisionError
 pub fn myc::MycRuntimeSupervisionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycRuntimeThreadLimitsV1
+impl myc::MycRuntimeThreadLimitsV1
+pub const fn myc::MycRuntimeThreadLimitsV1::blocking_threads(self) -> usize
+pub const fn myc::MycRuntimeThreadLimitsV1::worker_threads(self) -> usize
 pub struct myc::MycSignerCorrelationId(_)
 impl myc::MycSignerCorrelationId
 pub const fn myc::MycSignerCorrelationId::as_bytes(&self) -> &[u8; 32]
@@ -1873,6 +1912,13 @@ pub fn myc::MycSignerRequestRecord::fmt(&self, &mut core::fmt::Formatter<'_>) ->
 pub struct myc::MycStagedStateRestore
 impl core::fmt::Debug for myc::MycStagedStateRestore
 pub fn myc::MycStagedStateRestore::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStateBackupArgsV1
+impl myc::MycStateBackupArgsV1
+pub const fn myc::MycStateBackupArgsV1::expected_generation(&self) -> u64
+pub fn myc::MycStateBackupArgsV1::operation_id(&self) -> &str
+pub fn myc::MycStateBackupArgsV1::target(&self) -> &std::path::Path
+impl core::fmt::Debug for myc::MycStateBackupArgsV1
+pub fn myc::MycStateBackupArgsV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycStateCatalogError
 impl myc::MycStateCatalogError
 pub const fn myc::MycStateCatalogError::code(self) -> &'static str
@@ -1983,6 +2029,14 @@ impl core::fmt::Debug for myc::MycStateRepositoryError
 pub fn myc::MycStateRepositoryError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for myc::MycStateRepositoryError
 pub fn myc::MycStateRepositoryError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycStateRestoreArgsV1
+impl myc::MycStateRestoreArgsV1
+pub fn myc::MycStateRestoreArgsV1::bundle(&self) -> &std::path::Path
+pub fn myc::MycStateRestoreArgsV1::manifest(&self) -> &std::path::Path
+pub const fn myc::MycStateRestoreArgsV1::manifest_sha256(&self) -> radroots_service_sqlite::backup::manifest::BackupManifestSha256
+pub const fn myc::MycStateRestoreArgsV1::maximum_state_bytes(&self) -> core::num::nonzero::NonZeroU64
+impl core::fmt::Debug for myc::MycStateRestoreArgsV1
+pub fn myc::MycStateRestoreArgsV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycStatusBuildInfoV1
 impl myc::MycStatusBuildInfoV1
 pub fn myc::MycStatusBuildInfoV1::new(myc::MycStatusBuildMode, core::option::Option<&str>, core::option::Option<&str>, core::option::Option<&str>, core::option::Option<&str>, core::option::Option<&str>, core::option::Option<&str>) -> core::result::Result<Self, myc::MycStatusError>
@@ -2216,8 +2270,12 @@ pub fn myc::admit_myc_nip46_event(myc::MycNip46AdmissionLimits, &[u8]) -> core::
 pub fn myc::admit_myc_nip46_request(myc::MycNip46AdmissionLimits, &[u8]) -> core::result::Result<myc::MycBoundedNip46Request, myc::MycNip46AdmissionError>
 pub fn myc::bind_myc_nip46_replay(myc::MycVerifiedNip46Event, myc::MycVerifiedNip46Request) -> core::result::Result<myc::MycReplayBoundNip46Request, myc::MycSignerRequestError>
 pub fn myc::build_myc_admin_router<H>(alloc::sync::Arc<H>) -> core::result::Result<myc::MycAdminRouter, myc::MycAdminRouterError> where H: myc::MycAdminHandler
+pub fn myc::execute_myc_cli_v1(myc::MycCliInvocationV1) -> myc::MycProcessResult
 pub async fn myc::finalize_myc_state_restore(myc::MycStagedStateRestore) -> core::result::Result<(), myc::MycStateMaintenanceError>
+pub fn myc::initialize_myc_config_document(&myc::MycRuntimeContext, &[u8]) -> core::result::Result<myc::MycConfigDocumentV1, myc::MycConfigLoadError>
 pub async fn myc::initialize_myc_state(&myc::MycRuntimeContext, &myc::MycStateMetadata, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<(), myc::MycStateHostError>
+pub fn myc::load_myc_config_candidate(&myc::MycRuntimeContext, &std::path::Path) -> core::result::Result<myc::MycConfigDocumentV1, myc::MycConfigLoadError>
+pub fn myc::load_myc_config_document(&myc::MycRuntimeContext) -> core::result::Result<myc::MycConfigDocumentV1, myc::MycConfigLoadError>
 pub const fn myc::myc_doctor_check_definitions() -> &'static [myc::MycDoctorCheckDefinition; 13]
 pub fn myc::myc_migration_catalog() -> core::result::Result<radroots_service_sqlite::migration::MigrationCatalog, myc::MycStateCatalogError>
 pub fn myc::myc_schema_catalog() -> core::result::Result<radroots_service_sqlite::integrity::catalog::SchemaCatalog, myc::MycStateCatalogError>
@@ -2225,7 +2283,9 @@ pub fn myc::myc_status_cache(radroots_runtime_paths::identifier::InstanceId, myc
 pub fn myc::open_myc_encrypted_identity(&myc::MycProviderBinding, &myc::MycWrappingCredential) -> core::result::Result<myc::MycDecryptedIdentity, myc::MycEncryptedIdentityEnvelopeError>
 pub async fn myc::open_myc_runtime_foundation(myc::MycRuntimeContext, myc::MycConfigDocumentV1, myc::MycStateMetadata, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<myc::MycRuntimeFoundation, myc::MycRuntimeFoundationError>
 pub async fn myc::open_myc_state_inspection(&myc::MycRuntimeContext, &myc::MycStateMetadata) -> core::result::Result<myc::MycStateHost, myc::MycStateHostError>
+pub async fn myc::open_myc_state_inspection_from_config(&myc::MycRuntimeContext, &myc::MycConfigDocumentV1) -> core::result::Result<myc::MycStateHost, myc::MycStateHostError>
 pub async fn myc::open_myc_state_read_write(&myc::MycRuntimeContext, &myc::MycStateMetadata, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<myc::MycStateHost, myc::MycStateHostError>
+pub async fn myc::open_myc_state_read_write_from_config(&myc::MycRuntimeContext, &myc::MycConfigDocumentV1, radroots_service_sqlite::migration::MigrationAppliedAtUnixSeconds, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<myc::MycStateHost, myc::MycStateHostError>
 pub fn myc::parse_myc_cli_v1_from<I, T>(I) -> core::result::Result<myc::MycCliInvocationV1, myc::MycCliV1Error> where I: core::iter::traits::collect::IntoIterator<Item = T>, T: core::convert::Into<std::ffi::os_str::OsString> + core::clone::Clone
 pub fn myc::parse_myc_config_v1(&[u8], myc::MycConfigProfile) -> core::result::Result<myc::MycConfigDocumentV1, myc::MycConfigV1Error>
 pub const fn myc::plan_myc_cli_v1(&myc::MycCliInvocationV1) -> myc::MycCliExecutionPlanV1

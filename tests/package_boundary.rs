@@ -29,6 +29,10 @@ const DIAGNOSTICS_V1: &str = include_str!("../src/diagnostics_v1.rs");
 const DIAGNOSTICS_CONTRACT: &str =
     include_str!("../contracts/services_hardening/diagnostics.v1.json");
 const MAIN: &str = include_str!("../src/main.rs");
+const PROCESS_V1: &str = include_str!("../src/process_v1.rs");
+const PROCESS_V1_UNSUPPORTED: &str = include_str!("../src/process_v1_unsupported.rs");
+const CONFIG_LOADER: &str = include_str!("../src/config_loader.rs");
+const SYSTEM_DOCTOR: &str = include_str!("../src/system_doctor.rs");
 const STATUS_V1: &str = include_str!("../src/status_v1.rs");
 const RUNTIME_SUPERVISION: &str = include_str!("../src/runtime_supervision.rs");
 const RUNTIME_SUPERVISION_CONTRACT: &str =
@@ -56,7 +60,9 @@ const DELIVERY_RECOVERY_EXPORT_CONTRACT: &str =
     include_str!("../contracts/services_hardening/delivery_recovery_export.v1.json");
 const SOURCES: &[&str] = &[
     include_str!("../src/admin_v1.rs"),
+    include_str!("../src/cli_bootstrap.rs"),
     include_str!("../src/cli_v1.rs"),
+    include_str!("../src/config_loader.rs"),
     include_str!("../src/config_v1.rs"),
     include_str!("../src/control_plane_wave_090_a.rs"),
     include_str!("../src/delivery_worker.rs"),
@@ -68,6 +74,8 @@ const SOURCES: &[&str] = &[
     include_str!("../src/nip46_verification.rs"),
     include_str!("../src/nip46_work.rs"),
     include_str!("../src/operations_v1.rs"),
+    include_str!("../src/process_v1.rs"),
+    include_str!("../src/process_v1_unsupported.rs"),
     include_str!("../src/provider_contract.rs"),
     include_str!("../src/provider_credential.rs"),
     include_str!("../src/provider_envelope.rs"),
@@ -78,6 +86,7 @@ const SOURCES: &[&str] = &[
     include_str!("../src/runtime_foundation.rs"),
     include_str!("../src/runtime_supervision.rs"),
     include_str!("../src/status_v1.rs"),
+    include_str!("../src/system_doctor.rs"),
     include_str!("../src/transport_nostr_adapter.rs"),
     include_str!("../src/state_catalog.rs"),
     include_str!("../src/state_admin.rs"),
@@ -105,7 +114,9 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([
             "admin_v1",
+            "cli_bootstrap",
             "cli_v1",
+            "config_loader",
             "config_v1",
             "control_plane_wave_090_a",
             "delivery_worker",
@@ -119,6 +130,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "nip46_wave_080_a",
             "nip46_wave_080_b",
             "operations_v1",
+            "process_v1",
             "provider_contract",
             "provider_credential",
             "provider_envelope",
@@ -129,6 +141,7 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
             "runtime_foundation",
             "runtime_supervision",
             "status_v1",
+            "system_doctor",
             "transport_nostr_adapter",
             "state_catalog",
             "state_admin",
@@ -167,7 +180,12 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
         "The journal stores no request body, path,\ncorrelation ID, credential, bundle path, or secret",
         "The Step 159 provider and delivery boundary is sealed inside the crate",
         "persists Submitted immediately before execution",
-        "Runtime task-graph wiring and startup handshakes remain the next\nordered Step 159 unit",
+        "The selected absolute config path is opened no-follow through its retained\nparent descriptor",
+        "One binary-owned Tokio runtime is created from the validated fixed thread\nlimits",
+        "Restore derives expected backup identity\nfrom the trusted manifest digest",
+        "The production adapter composes secure path and disk inspection",
+        "It never publishes a relay event",
+        "runtime task-graph wiring and startup\nhandshakes remain the next ordered Step 159 unit",
     ] {
         assert!(README.contains(required), "README is missing `{required}`");
     }
@@ -181,6 +199,18 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub enum myc::MycCliOfflineOperationV1",
         "pub enum myc::MycCliAdminOperationV1",
         "pub const fn myc::plan_myc_cli_v1",
+        "pub enum myc::MycCliOutputModeV1",
+        "pub struct myc::MycConfigApplyArgsV1",
+        "pub struct myc::MycStateBackupArgsV1",
+        "pub struct myc::MycStateRestoreArgsV1",
+        "pub struct myc::MycIdentityCommandArgsV1",
+        "pub struct myc::MycRuntimeThreadLimitsV1",
+        "pub struct myc::MycConfigLoadError",
+        "pub enum myc::MycConfigLoadErrorKind",
+        "pub fn myc::execute_myc_cli_v1",
+        "pub fn myc::initialize_myc_config_document",
+        "pub fn myc::load_myc_config_candidate",
+        "pub fn myc::load_myc_config_document",
         "pub struct myc::MycDoctorReport",
         "pub struct myc::MycLogRecord",
         "pub enum myc::MycLogEvent",
@@ -302,7 +332,9 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
 
     for module in [
         "admin_v1",
+        "cli_bootstrap",
         "cli_v1",
+        "config_loader",
         "config_v1",
         "control_plane_wave_090_a",
         "delivery_worker",
@@ -316,6 +348,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "nip46_wave_080_a",
         "nip46_wave_080_b",
         "operations_v1",
+        "process_v1",
         "provider_contract",
         "provider_credential",
         "provider_envelope",
@@ -326,6 +359,7 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "runtime_foundation",
         "runtime_supervision",
         "status_v1",
+        "system_doctor",
         "transport_nostr_adapter",
         "state_catalog",
         "state_admin",
@@ -935,7 +969,7 @@ fn step150_admin_adapter_is_closed_typed_and_transport_bounded() {
         "Raw shared-host routers and JSON values never cross the public",
         "operation_id_conflict",
         "Unit 13\nseals that handler boundary inside the production `MycAdminServer`",
-        "Unit 15\nalone owns task spawning, provider/relay wiring, readiness, reconnect, and\nphase-aware shutdown",
+        "Unit 15 alone owns task\nspawning, provider/relay wiring, readiness, reconnect, and phase-aware\nshutdown",
     ] {
         assert!(README.contains(required), "README is missing `{required}`");
     }
@@ -981,6 +1015,122 @@ fn step159_unit13_control_surfaces_are_sealed_and_machine_bound() {
         assert!(
             !ADMIN_V1.contains(forbidden),
             "Unit 13 exposes forbidden `{forbidden}`"
+        );
+    }
+}
+
+#[test]
+fn step159_unit14_process_bootstrap_is_secure_bounded_and_daemon_deferred() {
+    let process = PROCESS_V1
+        .split("#[cfg(test)]")
+        .next()
+        .expect("production process source");
+    let system_doctor = SYSTEM_DOCTOR
+        .split("#[cfg(test)]")
+        .next()
+        .expect("production doctor source");
+    assert_eq!(MAIN.matches("parse_myc_cli_v1_from").count(), 1);
+    assert_eq!(MAIN.matches("execute_myc_cli_v1").count(), 1);
+    for required in [
+        "plan_myc_cli_v1(&invocation)",
+        "Builder::new_multi_thread()",
+        "worker_threads(limits.worker_threads())",
+        "max_blocking_threads(limits.blocking_threads())",
+        "ServiceBackupManifest::from_canonical_bytes",
+        "parsed.digest() != arguments.manifest_sha256()",
+        "read_secure_bounded_file(path, maximum)",
+        "emit_exact_bytes(manifest.canonical_bytes())",
+    ] {
+        assert!(
+            process.contains(required),
+            "Unit 14 process boundary is missing `{required}`"
+        );
+    }
+    assert_eq!(process.matches("Builder::new_multi_thread()").count(), 1);
+    for forbidden in [
+        "available_parallelism",
+        "std::process::exit",
+        "path(\"MYC_",
+        "tokio::spawn",
+        "tokio::task::spawn",
+    ] {
+        assert!(
+            !process.contains(forbidden),
+            "Unit 14 process boundary gained `{forbidden}`"
+        );
+    }
+
+    for required in [
+        "OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK",
+        "OFlags::WRONLY",
+        "OFlags::CREATE",
+        "OFlags::EXCL",
+        "Mode::RUSR | Mode::WUSR",
+        "normalize_link_count(status.st_nlink) != 1",
+        "status.st_uid != geteuid().as_raw()",
+        "mode & 0o022 != 0",
+        "file.sync_all()",
+        "parent.sync_all()",
+        "open_parent(&selected.parent)",
+    ] {
+        assert!(
+            CONFIG_LOADER.contains(required),
+            "Unit 14 config loader is missing `{required}`"
+        );
+    }
+    for forbidden in ["canonicalize(", "create_dir_all", "from_current_process"] {
+        assert!(
+            !CONFIG_LOADER.contains(forbidden),
+            "Unit 14 config loader gained `{forbidden}`"
+        );
+    }
+
+    for required in [
+        "MycDoctorCheckId::PathsPermissions",
+        "MycDoctorCheckId::WriterLock",
+        "MycDoctorCheckId::SqliteSchema",
+        "MycDoctorCheckId::SqliteFreeSpace",
+        "MycDoctorCheckId::SqliteIntegrity",
+        "MycDoctorCheckId::OutboxInvariants",
+        "MycDoctorCheckId::IdentityBinding",
+        "MycDoctorCheckId::SignerProvider",
+        "MycDoctorCheckId::AdminBindPolicy",
+        "MycDoctorCheckId::OperationsBindPolicy",
+        "MycDoctorCheckId::NetworkPolicy",
+        "MycDoctorCheckId::RequiredRelays",
+        "MycDoctorCheckId::ClockSkew",
+        "MycDoctorObservation::Skipped",
+        "probe_required_relays",
+    ] {
+        assert!(
+            system_doctor.contains(required),
+            "Unit 14 doctor adapter is missing `{required}`"
+        );
+    }
+    for forbidden in ["publish(", "format!(\"{error", "to_string()", "source()"] {
+        assert!(
+            !system_doctor.contains(forbidden),
+            "Unit 14 doctor adapter gained `{forbidden}`"
+        );
+    }
+
+    for required in [
+        "MycProcessResult::ServiceOrDependencyUnavailable",
+        "MycProcessResult::InputOrConfiguration",
+    ] {
+        assert!(PROCESS_V1_UNSUPPORTED.contains(required));
+    }
+    for forbidden in [
+        "std::fs",
+        "sqlx::",
+        "AdminClient",
+        "tokio::",
+        "MycStateHost",
+        "MycProviderExecutor",
+    ] {
+        assert!(
+            !PROCESS_V1_UNSUPPORTED.contains(forbidden),
+            "unsupported process executor gained `{forbidden}`"
         );
     }
 }
@@ -1072,11 +1222,12 @@ fn public_errors_remain_crate_owned_redacted_and_source_free() {
         .lines()
         .filter(|line| line.starts_with("pub struct myc::") && line.ends_with("Error"))
         .count();
-    assert_eq!(public_error_count, 35);
+    assert_eq!(public_error_count, 36);
     assert!(PUBLIC_API.contains("pub struct myc::MycDoctorError"));
     assert!(PUBLIC_API.contains("pub struct myc::MycConfigApplyError"));
     assert!(PUBLIC_API.contains("pub struct myc::MycAdminOperationError"));
     assert!(PUBLIC_API.contains("pub struct myc::MycAdminServerError"));
+    assert!(PUBLIC_API.contains("pub struct myc::MycConfigLoadError"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycRuntimeFoundation {"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycStateHost {"));
 }
@@ -1211,7 +1362,10 @@ fn step159_provider_delivery_is_sealed_exact_and_durability_ordered() {
     );
     for required in [
         "spawn_blocking",
-        "let _ = worker.await",
+        "OwnedBlockingTask",
+        "worker.join(MycProviderExecutionErrorKind::Open).await",
+        "handle.abort()",
+        "handle.is_finished()",
         "verify_encrypted_provider_response",
         "MycLocalSignerClient",
     ] {

@@ -223,12 +223,78 @@
     "live_direct_sqlite_access": false,
     "live_mutation_offline_fallback": false,
     "read_only_offline_fallback_requires_free_daemon_writer_lock": true,
+    "bootstrap": {
+      "output_modes": ["human", "json"],
+      "default_output_mode": "human",
+      "stdout": "results_only",
+      "stderr": "diagnostics_only",
+      "config_init": {
+        "source": "bounded_nonsecret_toml_stdin",
+        "persistence": "create_new_selected_path_mode_0600_file_and_parent_sync"
+      },
+      "config_loader": {
+        "path": "selected_absolute_explicit_or_canonical_default",
+        "maximum_utf8_bytes": 1048576,
+        "no_follow": true,
+        "regular_file": true,
+        "single_link": true,
+        "effective_user_owner": true,
+        "group_or_other_write": false,
+        "revalidate_after_read": ["parent_device_inode", "file_device_inode", "file_length"]
+      },
+      "config_apply": {
+        "candidate_argument": "--candidate-config_absolute_path",
+        "current_source": "selected_config_path",
+        "mutates_config_files": false
+      },
+      "identity": {
+        "role_argument": "--role_transport_user_discovery",
+        "init_provider": "configured_encrypted_file_only",
+        "init_secret_source": "stdin_fixed_binary_v1_117_bytes"
+      },
+      "state_init": {
+        "source_generation": "system_entropy_nonzero_32_bytes",
+        "created_at": "system_wall_clock",
+        "existing_state_open": "sealed_intent_discovers_actual_metadata"
+      },
+      "runtime": {
+        "owner": "myc_binary",
+        "count_per_process": 1,
+        "worker_threads_default": 4,
+        "worker_threads_range": [2, 32],
+        "blocking_threads_default": 8,
+        "blocking_threads_range": [1, 32],
+        "cpu_derived_defaults": false
+      },
+      "backup": {
+        "operation_id_argument": "--operation-id",
+        "target_argument": "--target-new-absolute-directory",
+        "expected_generation_argument": "--expected-generation",
+        "confirmation_argument": "--confirm",
+        "offline_stdout": "exact_canonical_manifest_bytes_no_trailing_newline"
+      },
+      "restore": {
+        "manifest_argument": "--manifest-absolute-file",
+        "manifest_digest_argument": "--manifest-sha256",
+        "bundle_argument": "--bundle-absolute-directory",
+        "maximum_state_bytes_argument": "--maximum-state-bytes",
+        "confirmation_argument": "--confirm",
+        "expected_identity_source": "trusted_digest_bound_manifest_before_live_database_open"
+      },
+      "run": {
+        "config_source": "secure_selected_path_loader",
+        "runtime_owner": "myc_binary",
+        "graph_owner": "myc-runtime-graph-shutdown"
+      },
+      "unsupported_command_success": false
+    },
     "commands": [
       { "command": "run", "primary_authority": "daemon" },
       { "command": "config init", "primary_authority": "offline", "offline_operation": "config" },
       { "command": "config validate", "primary_authority": "offline", "offline_operation": "config" },
       { "command": "config show", "primary_authority": "offline", "offline_operation": "config" },
       { "command": "config schema", "primary_authority": "offline", "offline_operation": "config" },
+      { "command": "config apply", "primary_authority": "offline", "offline_operation": "config" },
       { "command": "state init", "primary_authority": "offline", "offline_operation": "state_exclusive" },
       { "command": "state status", "primary_authority": "live_unix_admin", "admin_route": "/v1/state/status", "offline_operation": "state_read_only", "daemon_unavailable_offline_fallback": true },
       { "command": "state backup", "primary_authority": "live_unix_admin", "admin_route": "/v1/state/backup", "offline_operation": "state_read_only", "daemon_unavailable_offline_fallback": true },

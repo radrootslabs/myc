@@ -3,7 +3,10 @@
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod admin_v1;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod cli_bootstrap;
 mod cli_v1;
+mod config_loader;
 mod config_v1;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod control_plane_wave_090_a;
@@ -20,6 +23,11 @@ mod nip46_wave_080_a;
 mod nip46_wave_080_b;
 mod nip46_work;
 mod operations_v1;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod process_v1;
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[path = "process_v1_unsupported.rs"]
+mod process_v1;
 mod provider_contract;
 mod provider_credential;
 mod provider_envelope;
@@ -46,6 +54,8 @@ mod state_repository;
 mod state_request;
 mod state_response;
 mod status_v1;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod system_doctor;
 mod transport_nostr_adapter;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -58,14 +68,19 @@ pub use admin_v1::{
 };
 pub use cli_v1::{
     MycBootstrapProfileV1, MycCliAdminOperationV1, MycCliExecutionPlanV1, MycCliInvocationV1,
-    MycCliOfflineOperationV1, MycCliPrimaryAuthorityV1, MycCliV1Error, MycCliV1ErrorKind,
-    MycCommandV1, MycConfigCommandV1, MycIdentityCommandV1, MycStateCommandV1,
-    parse_myc_cli_v1_from, plan_myc_cli_v1,
+    MycCliOfflineOperationV1, MycCliOutputModeV1, MycCliPrimaryAuthorityV1, MycCliV1Error,
+    MycCliV1ErrorKind, MycCommandV1, MycConfigApplyArgsV1, MycConfigCommandV1,
+    MycIdentityCommandArgsV1, MycIdentityCommandV1, MycStateBackupArgsV1, MycStateCommandV1,
+    MycStateRestoreArgsV1, parse_myc_cli_v1_from, plan_myc_cli_v1,
+};
+pub use config_loader::{
+    MycConfigLoadError, MycConfigLoadErrorKind, initialize_myc_config_document,
+    load_myc_config_candidate, load_myc_config_document,
 };
 pub use config_v1::{
     MYC_CONFIG_DOCUMENT_MAX_UTF8_BYTES, MYC_CONFIG_SCHEMA, MYC_CONFIG_SCHEMA_VERSION,
     MycConfigDocumentV1, MycConfigProfile, MycConfigV1Error, MycConfigV1ErrorKind,
-    MycConfigValueSource, MycEffectiveConfigV1, parse_myc_config_v1,
+    MycConfigValueSource, MycEffectiveConfigV1, MycRuntimeThreadLimitsV1, parse_myc_config_v1,
 };
 pub use diagnostics_v1::{
     MYC_DIAGNOSTICS_CONTRACT_VERSION, MYC_LOG_RECORD_MAX_UTF8_BYTES, MycLogEvent, MycLogLevel,
@@ -103,6 +118,7 @@ pub use operations_v1::{
     MycBoundOperationsServer, MycOperationsCancellationToken, MycOperationsError,
     MycOperationsErrorKind, MycOperationsServer,
 };
+pub use process_v1::execute_myc_cli_v1;
 pub use provider_contract::{
     MYC_PROVIDER_CONCURRENCY_MAX, MYC_PROVIDER_CONTRACT_VERSION, MYC_PROVIDER_INPUT_MAX_BYTES,
     MYC_PROVIDER_OUTPUT_MAX_BYTES, MYC_PROVIDER_REQUEST_DEADLINE_MAX_MS,
@@ -231,7 +247,8 @@ pub use state_governance::{
 };
 pub use state_host::{
     MycStateHost, MycStateHostError, MycStateHostErrorKind, MycStateHostMode, initialize_myc_state,
-    open_myc_state_inspection, open_myc_state_read_write,
+    open_myc_state_inspection, open_myc_state_inspection_from_config, open_myc_state_read_write,
+    open_myc_state_read_write_from_config,
 };
 pub use state_maintenance::{
     MycStagedStateRestore, MycStateMaintenanceError, MycStateMaintenanceErrorKind,

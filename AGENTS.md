@@ -174,6 +174,16 @@
   secure CLI/config bootstrap and concrete doctor probes; Unit 15 alone owns
   server task spawning, provider/relay wiring, readiness, reconnect, and
   shutdown.
+- Step 159 unit 14 owns the one-pass process executor, descriptor-bound config
+  loading and create-new persistence, fixed zeroizing identity-provisioning
+  input, actual existing-state metadata discovery, explicit backup/restore
+  inputs, one binary-owned configured Tokio runtime, and concrete bounded
+  doctor probes. Keep result bytes on stdout and fixed diagnostics on stderr.
+  The executable must not provision deployment directory trees, derive runtime
+  limits from host CPUs, read secret arguments or environment variables, open
+  an existing live database before validating a restore manifest, publish from
+  doctor, or return success for the deferred daemon `run` graph. Unit 15 alone
+  owns that graph, process signals, readiness/reconnect, and phase-aware drain.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

@@ -3,10 +3,13 @@
 use std::error::Error;
 use std::ffi::OsString;
 use std::fmt;
+use std::num::NonZeroU64;
 use std::path::{Component, Path, PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use radroots_runtime_paths::InstanceId;
+use radroots_service_host::AdminOperationId;
+use radroots_service_sqlite::BackupManifestSha256;
 
 /// The exact bootstrap profile selected by the operator.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
@@ -17,8 +20,17 @@ pub enum MycBootstrapProfileV1 {
     RepoLocal,
 }
 
+/// The only two governed command-result encodings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MycCliOutputModeV1 {
+    #[default]
+    Human,
+    Json,
+}
+
 /// The exact governed top-level Myc command inventory.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub enum MycCommandV1 {
     Run,
     Config(MycConfigCommandV1),
@@ -29,31 +41,150 @@ pub enum MycCommandV1 {
 }
 
 /// Governed configuration commands.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub enum MycConfigCommandV1 {
     Init,
     Validate,
     Show,
     Schema,
+    Apply(MycConfigApplyArgsV1),
 }
 
 /// Governed state commands.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub enum MycStateCommandV1 {
     Init,
     Status,
-    Backup,
-    Restore,
+    Backup(MycStateBackupArgsV1),
+    Restore(MycStateRestoreArgsV1),
     Verify,
     Migrate,
 }
 
 /// Governed identity commands.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub enum MycIdentityCommandV1 {
-    Init,
-    Status,
-    ExportPublic,
+    Init(MycIdentityCommandArgsV1),
+    Status(MycIdentityCommandArgsV1),
+    ExportPublic(MycIdentityCommandArgsV1),
+}
+
+/// Exact offline configuration-apply input.
+#[derive(PartialEq, Eq)]
+pub struct MycConfigApplyArgsV1 {
+    candidate_config: PathBuf,
+}
+
+impl MycConfigApplyArgsV1 {
+    #[must_use]
+    pub fn candidate_config(&self) -> &Path {
+        &self.candidate_config
+    }
+}
+
+impl fmt::Debug for MycConfigApplyArgsV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("MycConfigApplyArgsV1([redacted])")
+    }
+}
+
+/// Exact online-or-offline state-backup input.
+#[derive(PartialEq, Eq)]
+pub struct MycStateBackupArgsV1 {
+    operation_id: Box<str>,
+    target: PathBuf,
+    expected_generation: u64,
+}
+
+impl MycStateBackupArgsV1 {
+    #[must_use]
+    pub fn operation_id(&self) -> &str {
+        &self.operation_id
+    }
+
+    #[must_use]
+    pub fn target(&self) -> &Path {
+        &self.target
+    }
+
+    #[must_use]
+    pub const fn expected_generation(&self) -> u64 {
+        self.expected_generation
+    }
+}
+
+impl fmt::Debug for MycStateBackupArgsV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MycStateBackupArgsV1")
+            .field("operation_id", &"[redacted]")
+            .field("target", &"[redacted]")
+            .field("expected_generation", &self.expected_generation)
+            .finish()
+    }
+}
+
+/// Exact offline restore-verification input.
+#[derive(PartialEq, Eq)]
+pub struct MycStateRestoreArgsV1 {
+    manifest: PathBuf,
+    manifest_sha256: BackupManifestSha256,
+    bundle: PathBuf,
+    maximum_state_bytes: NonZeroU64,
+}
+
+impl MycStateRestoreArgsV1 {
+    #[must_use]
+    pub fn manifest(&self) -> &Path {
+        &self.manifest
+    }
+
+    #[must_use]
+    pub const fn manifest_sha256(&self) -> BackupManifestSha256 {
+        self.manifest_sha256
+    }
+
+    #[must_use]
+    pub fn bundle(&self) -> &Path {
+        &self.bundle
+    }
+
+    #[must_use]
+    pub const fn maximum_state_bytes(&self) -> NonZeroU64 {
+        self.maximum_state_bytes
+    }
+}
+
+impl fmt::Debug for MycStateRestoreArgsV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("MycStateRestoreArgsV1([redacted])")
+    }
+}
+
+/// Role input required by every identity command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MycIdentityCommandArgsV1 {
+    role: crate::MycProviderRole,
+}
+
+impl MycIdentityCommandArgsV1 {
+    #[must_use]
+    pub const fn role(self) -> crate::MycProviderRole {
+        self.role
+    }
+}
+
+impl fmt::Debug for MycCommandV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Run => "MycCommandV1::Run",
+            Self::Config(_) => "MycCommandV1::Config([redacted])",
+            Self::State(_) => "MycCommandV1::State([redacted])",
+            Self::Identity(_) => "MycCommandV1::Identity([redacted])",
+            Self::Status => "MycCommandV1::Status",
+            Self::Doctor => "MycCommandV1::Doctor",
+        })
+    }
 }
 
 /// The only three process authorities selected by the hardened CLI.
@@ -174,6 +305,7 @@ pub enum MycCliV1ErrorKind {
     InvalidRepoLocalRoot,
     UnexpectedRepoLocalRoot,
     InvalidConfigPath,
+    InvalidCommandInput,
 }
 
 impl MycCliV1ErrorKind {
@@ -186,6 +318,7 @@ impl MycCliV1ErrorKind {
                 "repo-local root is forbidden outside the repo-local profile"
             }
             Self::InvalidConfigPath => "configuration path must be absolute without traversal",
+            Self::InvalidCommandInput => "command input is invalid",
         }
     }
 }
@@ -231,6 +364,7 @@ pub struct MycCliInvocationV1 {
     instance: InstanceId,
     repo_local_root: Option<PathBuf>,
     config_path: Option<PathBuf>,
+    output_mode: MycCliOutputModeV1,
     command: MycCommandV1,
 }
 
@@ -259,10 +393,16 @@ impl MycCliInvocationV1 {
         self.config_path.as_deref()
     }
 
+    /// Returns the exact result encoding selected once at admission.
+    #[must_use]
+    pub const fn output_mode(&self) -> MycCliOutputModeV1 {
+        self.output_mode
+    }
+
     /// Returns the exact governed command selection.
     #[must_use]
-    pub const fn command(&self) -> MycCommandV1 {
-        self.command
+    pub const fn command(&self) -> &MycCommandV1 {
+        &self.command
     }
 }
 
@@ -280,6 +420,7 @@ impl fmt::Debug for MycCliInvocationV1 {
                 "config_path",
                 &self.config_path.as_ref().map(|_| "[redacted]"),
             )
+            .field("output_mode", &self.output_mode)
             .field("command", &self.command)
             .finish()
     }
@@ -317,7 +458,8 @@ where
         instance,
         repo_local_root: parsed.repo_local_root,
         config_path: parsed.config,
-        command: parsed.command.into(),
+        output_mode: parsed.output.into(),
+        command: admit_command(parsed.command)?,
     })
 }
 
@@ -328,11 +470,11 @@ where
 /// arguments. In particular, no live command receives direct SQLite authority.
 #[must_use]
 pub const fn plan_myc_cli_v1(invocation: &MycCliInvocationV1) -> MycCliExecutionPlanV1 {
-    match invocation.command {
+    match &invocation.command {
         MycCommandV1::Run => daemon_plan(),
         MycCommandV1::Config(_) => offline_plan(MycCliOfflineOperationV1::Config),
         MycCommandV1::State(MycStateCommandV1::Init)
-        | MycCommandV1::State(MycStateCommandV1::Restore)
+        | MycCommandV1::State(MycStateCommandV1::Restore(_))
         | MycCommandV1::State(MycStateCommandV1::Verify)
         | MycCommandV1::State(MycStateCommandV1::Migrate) => {
             offline_plan(MycCliOfflineOperationV1::StateExclusive)
@@ -341,18 +483,18 @@ pub const fn plan_myc_cli_v1(invocation: &MycCliInvocationV1) -> MycCliExecution
             MycCliAdminOperationV1::StateStatus,
             MycCliOfflineOperationV1::StateReadOnly,
         ),
-        MycCommandV1::State(MycStateCommandV1::Backup) => read_only_admin_plan(
+        MycCommandV1::State(MycStateCommandV1::Backup(_)) => read_only_admin_plan(
             MycCliAdminOperationV1::StateBackup,
             MycCliOfflineOperationV1::StateReadOnly,
         ),
-        MycCommandV1::Identity(MycIdentityCommandV1::Init) => {
+        MycCommandV1::Identity(MycIdentityCommandV1::Init(_)) => {
             offline_plan(MycCliOfflineOperationV1::IdentityExclusive)
         }
-        MycCommandV1::Identity(MycIdentityCommandV1::Status) => read_only_admin_plan(
+        MycCommandV1::Identity(MycIdentityCommandV1::Status(_)) => read_only_admin_plan(
             MycCliAdminOperationV1::IdentityStatus,
             MycCliOfflineOperationV1::IdentityReadOnly,
         ),
-        MycCommandV1::Identity(MycIdentityCommandV1::ExportPublic) => read_only_admin_plan(
+        MycCommandV1::Identity(MycIdentityCommandV1::ExportPublic(_)) => read_only_admin_plan(
             MycCliAdminOperationV1::IdentityPublic,
             MycCliOfflineOperationV1::IdentityReadOnly,
         ),
@@ -421,6 +563,9 @@ fn validate_bootstrap_paths(
 fn valid_absolute_path(path: &Path, require_non_root: bool) -> bool {
     path.is_absolute()
         && (!require_non_root || path.parent().is_some())
+        && path
+            .to_str()
+            .is_some_and(|value| !value.is_empty() && value.len() <= 4_096)
         && !path
             .components()
             .any(|component| matches!(component, Component::ParentDir))
@@ -437,6 +582,8 @@ struct RawMycCliV1 {
     repo_local_root: Option<PathBuf>,
     #[arg(long, global = true)]
     config: Option<PathBuf>,
+    #[arg(long, global = true, value_enum, default_value_t = RawOutputMode::Human)]
+    output: RawOutputMode,
     #[command(subcommand)]
     command: RawCommand,
 }
@@ -446,6 +593,22 @@ enum RawProfile {
     ServiceHost,
     Interactive,
     RepoLocal,
+}
+
+#[derive(Clone, Copy, Default, ValueEnum)]
+enum RawOutputMode {
+    #[default]
+    Human,
+    Json,
+}
+
+impl From<RawOutputMode> for MycCliOutputModeV1 {
+    fn from(value: RawOutputMode) -> Self {
+        match value {
+            RawOutputMode::Human => Self::Human,
+            RawOutputMode::Json => Self::Json,
+        }
+    }
 }
 
 impl From<RawProfile> for MycBootstrapProfileV1 {
@@ -477,76 +640,164 @@ enum RawCommand {
     Doctor,
 }
 
-impl From<RawCommand> for MycCommandV1 {
-    fn from(value: RawCommand) -> Self {
-        match value {
-            RawCommand::Run => Self::Run,
-            RawCommand::Config { command } => Self::Config(command.into()),
-            RawCommand::State { command } => Self::State(command.into()),
-            RawCommand::Identity { command } => Self::Identity(command.into()),
-            RawCommand::Status => Self::Status,
-            RawCommand::Doctor => Self::Doctor,
-        }
-    }
-}
-
 #[derive(Subcommand)]
 enum RawConfigCommand {
     Init,
     Validate,
     Show,
     Schema,
-}
-
-impl From<RawConfigCommand> for MycConfigCommandV1 {
-    fn from(value: RawConfigCommand) -> Self {
-        match value {
-            RawConfigCommand::Init => Self::Init,
-            RawConfigCommand::Validate => Self::Validate,
-            RawConfigCommand::Show => Self::Show,
-            RawConfigCommand::Schema => Self::Schema,
-        }
-    }
+    Apply {
+        #[arg(long = "candidate-config")]
+        candidate_config: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
 enum RawStateCommand {
     Init,
     Status,
-    Backup,
-    Restore,
+    Backup {
+        #[arg(long = "operation-id")]
+        operation_id: String,
+        #[arg(long)]
+        target: PathBuf,
+        #[arg(long = "expected-generation")]
+        expected_generation: u64,
+        #[arg(long, required = true)]
+        confirm: bool,
+    },
+    Restore {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long = "manifest-sha256")]
+        manifest_sha256: String,
+        #[arg(long)]
+        bundle: PathBuf,
+        #[arg(long = "maximum-state-bytes")]
+        maximum_state_bytes: u64,
+        #[arg(long, required = true)]
+        confirm: bool,
+    },
     Verify,
     Migrate,
 }
 
-impl From<RawStateCommand> for MycStateCommandV1 {
-    fn from(value: RawStateCommand) -> Self {
-        match value {
-            RawStateCommand::Init => Self::Init,
-            RawStateCommand::Status => Self::Status,
-            RawStateCommand::Backup => Self::Backup,
-            RawStateCommand::Restore => Self::Restore,
-            RawStateCommand::Verify => Self::Verify,
-            RawStateCommand::Migrate => Self::Migrate,
-        }
-    }
-}
-
 #[derive(Subcommand)]
 enum RawIdentityCommand {
-    Init,
-    Status,
-    ExportPublic,
+    Init {
+        #[arg(long, value_enum)]
+        role: RawIdentityRole,
+    },
+    Status {
+        #[arg(long, value_enum)]
+        role: RawIdentityRole,
+    },
+    ExportPublic {
+        #[arg(long, value_enum)]
+        role: RawIdentityRole,
+    },
 }
 
-impl From<RawIdentityCommand> for MycIdentityCommandV1 {
-    fn from(value: RawIdentityCommand) -> Self {
+#[derive(Clone, Copy, ValueEnum)]
+enum RawIdentityRole {
+    Transport,
+    User,
+    Discovery,
+}
+
+impl From<RawIdentityRole> for crate::MycProviderRole {
+    fn from(value: RawIdentityRole) -> Self {
         match value {
-            RawIdentityCommand::Init => Self::Init,
-            RawIdentityCommand::Status => Self::Status,
-            RawIdentityCommand::ExportPublic => Self::ExportPublic,
+            RawIdentityRole::Transport => Self::Transport,
+            RawIdentityRole::User => Self::User,
+            RawIdentityRole::Discovery => Self::Discovery,
         }
     }
+}
+
+fn admit_command(command: RawCommand) -> Result<MycCommandV1, MycCliV1Error> {
+    let invalid = || MycCliV1Error::new(MycCliV1ErrorKind::InvalidCommandInput);
+    Ok(match command {
+        RawCommand::Run => MycCommandV1::Run,
+        RawCommand::Config { command } => MycCommandV1::Config(match command {
+            RawConfigCommand::Init => MycConfigCommandV1::Init,
+            RawConfigCommand::Validate => MycConfigCommandV1::Validate,
+            RawConfigCommand::Show => MycConfigCommandV1::Show,
+            RawConfigCommand::Schema => MycConfigCommandV1::Schema,
+            RawConfigCommand::Apply { candidate_config } => {
+                if !valid_absolute_path(&candidate_config, true) {
+                    return Err(invalid());
+                }
+                MycConfigCommandV1::Apply(MycConfigApplyArgsV1 { candidate_config })
+            }
+        }),
+        RawCommand::State { command } => MycCommandV1::State(match command {
+            RawStateCommand::Init => MycStateCommandV1::Init,
+            RawStateCommand::Status => MycStateCommandV1::Status,
+            RawStateCommand::Backup {
+                operation_id,
+                target,
+                expected_generation,
+                confirm,
+            } => {
+                if !confirm || !valid_absolute_path(&target, true) {
+                    return Err(invalid());
+                }
+                let operation_id = AdminOperationId::new(operation_id).map_err(|_| invalid())?;
+                MycStateCommandV1::Backup(MycStateBackupArgsV1 {
+                    operation_id: operation_id.as_str().into(),
+                    target,
+                    expected_generation,
+                })
+            }
+            RawStateCommand::Restore {
+                manifest,
+                manifest_sha256,
+                bundle,
+                maximum_state_bytes,
+                confirm,
+            } => {
+                if !confirm
+                    || !valid_absolute_path(&manifest, true)
+                    || !valid_absolute_path(&bundle, true)
+                {
+                    return Err(invalid());
+                }
+                if manifest_sha256.len() != 64
+                    || manifest_sha256
+                        .bytes()
+                        .any(|byte| !matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+                {
+                    return Err(invalid());
+                }
+                let mut digest = [0_u8; 32];
+                hex::decode_to_slice(manifest_sha256, &mut digest).map_err(|_| invalid())?;
+                let maximum_state_bytes =
+                    NonZeroU64::new(maximum_state_bytes).ok_or_else(invalid)?;
+                MycStateCommandV1::Restore(MycStateRestoreArgsV1 {
+                    manifest,
+                    manifest_sha256: BackupManifestSha256::from_bytes(digest),
+                    bundle,
+                    maximum_state_bytes,
+                })
+            }
+            RawStateCommand::Verify => MycStateCommandV1::Verify,
+            RawStateCommand::Migrate => MycStateCommandV1::Migrate,
+        }),
+        RawCommand::Identity { command } => MycCommandV1::Identity(match command {
+            RawIdentityCommand::Init { role } => {
+                MycIdentityCommandV1::Init(MycIdentityCommandArgsV1 { role: role.into() })
+            }
+            RawIdentityCommand::Status { role } => {
+                MycIdentityCommandV1::Status(MycIdentityCommandArgsV1 { role: role.into() })
+            }
+            RawIdentityCommand::ExportPublic { role } => {
+                MycIdentityCommandV1::ExportPublic(MycIdentityCommandArgsV1 { role: role.into() })
+            }
+        }),
+        RawCommand::Status => MycCommandV1::Status,
+        RawCommand::Doctor => MycCommandV1::Doctor,
+    })
 }
 
 #[cfg(test)]
@@ -562,64 +813,93 @@ mod tests {
     #[test]
     fn exact_command_inventory_parses() {
         let vectors = [
-            (&["run"][..], MycCommandV1::Run),
+            (&["run"][..], "run"),
+            (&["config", "init"][..], "config_init"),
+            (&["config", "validate"][..], "config_validate"),
+            (&["config", "show"][..], "config_show"),
+            (&["config", "schema"][..], "config_schema"),
             (
-                &["config", "init"][..],
-                MycCommandV1::Config(MycConfigCommandV1::Init),
+                &["config", "apply", "--candidate-config", "/candidate.toml"][..],
+                "config_apply",
+            ),
+            (&["state", "init"][..], "state_init"),
+            (&["state", "status"][..], "state_status"),
+            (
+                &[
+                    "state",
+                    "backup",
+                    "--operation-id",
+                    "backup-01",
+                    "--target",
+                    "/backup/new",
+                    "--expected-generation",
+                    "7",
+                    "--confirm",
+                ][..],
+                "state_backup",
             ),
             (
-                &["config", "validate"][..],
-                MycCommandV1::Config(MycConfigCommandV1::Validate),
+                &[
+                    "state",
+                    "restore",
+                    "--manifest",
+                    "/backup/manifest.json",
+                    "--manifest-sha256",
+                    "1111111111111111111111111111111111111111111111111111111111111111",
+                    "--bundle",
+                    "/backup/bundle",
+                    "--maximum-state-bytes",
+                    "1048576",
+                    "--confirm",
+                ][..],
+                "state_restore",
+            ),
+            (&["state", "verify"][..], "state_verify"),
+            (&["state", "migrate"][..], "state_migrate"),
+            (
+                &["identity", "init", "--role", "transport"][..],
+                "identity_init",
             ),
             (
-                &["config", "show"][..],
-                MycCommandV1::Config(MycConfigCommandV1::Show),
+                &["identity", "status", "--role", "user"][..],
+                "identity_status",
             ),
             (
-                &["config", "schema"][..],
-                MycCommandV1::Config(MycConfigCommandV1::Schema),
+                &["identity", "export-public", "--role", "discovery"][..],
+                "identity_export_public",
             ),
-            (
-                &["state", "init"][..],
-                MycCommandV1::State(MycStateCommandV1::Init),
-            ),
-            (
-                &["state", "status"][..],
-                MycCommandV1::State(MycStateCommandV1::Status),
-            ),
-            (
-                &["state", "backup"][..],
-                MycCommandV1::State(MycStateCommandV1::Backup),
-            ),
-            (
-                &["state", "restore"][..],
-                MycCommandV1::State(MycStateCommandV1::Restore),
-            ),
-            (
-                &["state", "verify"][..],
-                MycCommandV1::State(MycStateCommandV1::Verify),
-            ),
-            (
-                &["state", "migrate"][..],
-                MycCommandV1::State(MycStateCommandV1::Migrate),
-            ),
-            (
-                &["identity", "init"][..],
-                MycCommandV1::Identity(MycIdentityCommandV1::Init),
-            ),
-            (
-                &["identity", "status"][..],
-                MycCommandV1::Identity(MycIdentityCommandV1::Status),
-            ),
-            (
-                &["identity", "export-public"][..],
-                MycCommandV1::Identity(MycIdentityCommandV1::ExportPublic),
-            ),
-            (&["status"][..], MycCommandV1::Status),
-            (&["doctor"][..], MycCommandV1::Doctor),
+            (&["status"][..], "status"),
+            (&["doctor"][..], "doctor"),
         ];
         for (arguments, expected) in vectors {
-            assert_eq!(parse(arguments).expect("command").command(), expected);
+            assert_eq!(
+                command_name(parse(arguments).expect("command").command()),
+                expected
+            );
+        }
+    }
+
+    fn command_name(command: &MycCommandV1) -> &'static str {
+        match command {
+            MycCommandV1::Run => "run",
+            MycCommandV1::Config(MycConfigCommandV1::Init) => "config_init",
+            MycCommandV1::Config(MycConfigCommandV1::Validate) => "config_validate",
+            MycCommandV1::Config(MycConfigCommandV1::Show) => "config_show",
+            MycCommandV1::Config(MycConfigCommandV1::Schema) => "config_schema",
+            MycCommandV1::Config(MycConfigCommandV1::Apply(_)) => "config_apply",
+            MycCommandV1::State(MycStateCommandV1::Init) => "state_init",
+            MycCommandV1::State(MycStateCommandV1::Status) => "state_status",
+            MycCommandV1::State(MycStateCommandV1::Backup(_)) => "state_backup",
+            MycCommandV1::State(MycStateCommandV1::Restore(_)) => "state_restore",
+            MycCommandV1::State(MycStateCommandV1::Verify) => "state_verify",
+            MycCommandV1::State(MycStateCommandV1::Migrate) => "state_migrate",
+            MycCommandV1::Identity(MycIdentityCommandV1::Init(_)) => "identity_init",
+            MycCommandV1::Identity(MycIdentityCommandV1::Status(_)) => "identity_status",
+            MycCommandV1::Identity(MycIdentityCommandV1::ExportPublic(_)) => {
+                "identity_export_public"
+            }
+            MycCommandV1::Status => "status",
+            MycCommandV1::Doctor => "doctor",
         }
     }
 
@@ -772,6 +1052,38 @@ mod tests {
             ])
             .expect_err("invalid config path");
             assert_eq!(error.kind(), MycCliV1ErrorKind::InvalidConfigPath);
+        }
+    }
+
+    #[test]
+    fn restore_digest_is_exact_lowercase_hex_before_decode() {
+        for digest in [
+            "1".repeat(63),
+            "1".repeat(65),
+            "A".repeat(64),
+            "g".repeat(64),
+            "1".repeat(1_048_576),
+        ] {
+            let error = parse_myc_cli_v1_from([
+                "myc",
+                "--profile",
+                "service-host",
+                "--instance",
+                "primary",
+                "state",
+                "restore",
+                "--manifest",
+                "/backup/manifest.json",
+                "--manifest-sha256",
+                digest.as_str(),
+                "--bundle",
+                "/backup/bundle",
+                "--maximum-state-bytes",
+                "1048576",
+                "--confirm",
+            ])
+            .expect_err("invalid digest");
+            assert_eq!(error.kind(), MycCliV1ErrorKind::InvalidCommandInput);
         }
     }
 

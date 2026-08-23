@@ -566,7 +566,6 @@ pub(crate) enum WireProviderResult {
 pub(crate) struct ProtectedWireHex(Zeroizing<String>);
 
 impl ProtectedWireHex {
-    #[cfg(any(test, target_os = "linux", target_os = "macos"))]
     pub(crate) fn from_bytes(bytes: &[u8]) -> Self {
         Self(Zeroizing::new(hex::encode(bytes)))
     }

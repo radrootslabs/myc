@@ -7,17 +7,18 @@ use std::{
 };
 
 use radroots_service_sqlite::{
-    BackupCreatedAtUnixMs, IntegrityCheckedAtUnixMs, MigrationApplicationOutcome,
-    MigrationAppliedAtUnixSeconds, MigrationBuildIdentity, OpenMode, ServiceBackupManifest,
-    ServiceSqliteConnectionOptions, ServiceSqliteHost, ServiceSqliteIntegrityReport,
-    ServiceSqlitePaths, initialize_database,
+    BackupCreatedAtUnixMs, ExistingServiceDatabaseIntent, IntegrityCheckedAtUnixMs,
+    MigrationApplicationOutcome, MigrationAppliedAtUnixSeconds, MigrationBuildIdentity, OpenMode,
+    ServiceBackupManifest, ServiceSqliteApplicationId, ServiceSqliteConnectionOptions,
+    ServiceSqliteHost, ServiceSqliteIntegrityReport, ServiceSqlitePaths, initialize_database,
 };
 use sqlx::{ConnectOptions, Connection, SqliteConnection, sqlite::SqliteConnectOptions};
 
 use crate::{
-    MYC_STATE_BASE_SCHEMA_VERSION, MYC_STATE_SCHEMA_VERSION, MycRuntimeContext,
-    MycStateMaintenanceError, MycStateMaintenanceErrorKind, MycStateMetadata, MycStateRepository,
-    myc_migration_catalog, myc_schema_catalog, validate_myc_state_catalogs,
+    MYC_STATE_APPLICATION_ID, MYC_STATE_BASE_SCHEMA_VERSION, MYC_STATE_SCHEMA_VERSION,
+    MycConfigDocumentV1, MycRuntimeContext, MycStateMaintenanceError, MycStateMaintenanceErrorKind,
+    MycStateMetadata, MycStateRepository, myc_migration_catalog, myc_schema_catalog,
+    validate_myc_state_catalogs,
 };
 
 /// Stable lifecycle mode of one opened Myc state host.
@@ -252,12 +253,10 @@ pub async fn initialize_myc_state(
         metadata: metadata.clone(),
     };
     if !exact_initialization_outcome(outcome) {
-        let _ = state.close().await;
-        return Err(MycStateHostError::new(MycStateHostErrorKind::Catalog));
+        return Err(close_error(&state.host, MycStateHostErrorKind::Catalog).await);
     }
     if state.repository().bind_or_verify().await.is_err() {
-        let _ = state.close().await;
-        return Err(MycStateHostError::new(MycStateHostErrorKind::Repository));
+        return Err(close_error(&state.host, MycStateHostErrorKind::Repository).await);
     }
     state
         .close()
@@ -294,8 +293,7 @@ pub async fn open_myc_state_read_write(
     .await
     .map_err(|_| MycStateHostError::new(MycStateHostErrorKind::ReadWriteOpen))?;
     if !exact_existing_outcome(outcome) {
-        let _ = host.close().await;
-        return Err(MycStateHostError::new(MycStateHostErrorKind::Catalog));
+        return Err(close_error(&host, MycStateHostErrorKind::Catalog).await);
     }
     let state = MycStateHost {
         host,
@@ -303,8 +301,58 @@ pub async fn open_myc_state_read_write(
         metadata: metadata.clone(),
     };
     if state.repository().bind_or_verify().await.is_err() {
-        let _ = state.close().await;
-        return Err(MycStateHostError::new(MycStateHostErrorKind::Repository));
+        return Err(close_error(&state.host, MycStateHostErrorKind::Repository).await);
+    }
+    Ok(state)
+}
+
+/// Opens existing state from a sealed intent and discovers actual source metadata.
+///
+/// The caller supplies configuration policy but no source generation or
+/// creation-time guess. Those values are discovered from the same retained
+/// authority that is returned in the host.
+pub async fn open_myc_state_read_write_from_config(
+    runtime: &MycRuntimeContext,
+    configuration: &MycConfigDocumentV1,
+    applied_at: MigrationAppliedAtUnixSeconds,
+    build: &MigrationBuildIdentity,
+) -> Result<MycStateHost, MycStateHostError> {
+    let paths = state_paths(runtime)?;
+    let (migrations, schema) = catalogs()?;
+    let intent = existing_intent(&paths)?;
+    let (opened, outcome) = ServiceSqliteHost::open_read_write_existing_with_intent(
+        &paths,
+        &intent,
+        &migrations,
+        &schema,
+        ServiceSqliteConnectionOptions::reviewed(),
+        applied_at,
+        build,
+        &[],
+    )
+    .await
+    .map_err(|_| MycStateHostError::new(MycStateHostErrorKind::ReadWriteOpen))?;
+    if !exact_existing_outcome(outcome) {
+        let (host, _) = opened.into_parts();
+        return Err(close_error(&host, MycStateHostErrorKind::Catalog).await);
+    }
+    let (host, actual) = opened.into_parts();
+    let metadata = match MycStateMetadata::from_existing_database(runtime, configuration, &actual) {
+        Ok(metadata) => metadata,
+        Err(_) => {
+            return Err(close_error(&host, MycStateHostErrorKind::InvalidEvidence).await);
+        }
+    };
+    if require_migration_build(&metadata, build).is_err() {
+        return Err(close_error(&host, MycStateHostErrorKind::InvalidEvidence).await);
+    }
+    let state = MycStateHost {
+        host,
+        mode: MycStateHostMode::ReadWriteExisting,
+        metadata,
+    };
+    if state.repository().bind_or_verify().await.is_err() {
+        return Err(close_error(&state.host, MycStateHostErrorKind::Repository).await);
     }
     Ok(state)
 }
@@ -333,10 +381,69 @@ pub async fn open_myc_state_inspection(
         metadata: metadata.clone(),
     };
     if state.repository().verify_binding().await.is_err() {
-        let _ = state.close().await;
-        return Err(MycStateHostError::new(MycStateHostErrorKind::Repository));
+        return Err(close_error(&state.host, MycStateHostErrorKind::Repository).await);
     }
     Ok(state)
+}
+
+/// Opens existing inspection state from a sealed intent and actual metadata.
+pub async fn open_myc_state_inspection_from_config(
+    runtime: &MycRuntimeContext,
+    configuration: &MycConfigDocumentV1,
+) -> Result<MycStateHost, MycStateHostError> {
+    let paths = state_paths(runtime)?;
+    let (migrations, schema) = catalogs()?;
+    let intent = existing_intent(&paths)?;
+    let opened = ServiceSqliteHost::open_read_only_inspection_with_intent(
+        &paths,
+        &intent,
+        &migrations,
+        &schema,
+        ServiceSqliteConnectionOptions::reviewed(),
+    )
+    .await
+    .map_err(|_| MycStateHostError::new(MycStateHostErrorKind::InspectionOpen))?;
+    let (host, actual) = opened.into_parts();
+    let metadata = match MycStateMetadata::from_existing_database(runtime, configuration, &actual) {
+        Ok(metadata) => metadata,
+        Err(_) => {
+            return Err(close_error(&host, MycStateHostErrorKind::InvalidEvidence).await);
+        }
+    };
+    let state = MycStateHost {
+        host,
+        mode: MycStateHostMode::ReadOnlyInspection,
+        metadata,
+    };
+    if state.repository().verify_binding().await.is_err() {
+        return Err(close_error(&state.host, MycStateHostErrorKind::Repository).await);
+    }
+    Ok(state)
+}
+
+async fn close_error(
+    host: &ServiceSqliteHost,
+    fallback: MycStateHostErrorKind,
+) -> MycStateHostError {
+    if host.close().await.is_err() {
+        MycStateHostError::new(MycStateHostErrorKind::Close)
+    } else {
+        MycStateHostError::new(fallback)
+    }
+}
+
+fn existing_intent(
+    paths: &ServiceSqlitePaths,
+) -> Result<ExistingServiceDatabaseIntent, MycStateHostError> {
+    let schema = core::num::NonZeroU32::new(MYC_STATE_SCHEMA_VERSION)
+        .ok_or_else(|| MycStateHostError::new(MycStateHostErrorKind::InvalidEvidence))?;
+    let application = ServiceSqliteApplicationId::new(MYC_STATE_APPLICATION_ID)
+        .map_err(|_| MycStateHostError::new(MycStateHostErrorKind::InvalidEvidence))?;
+    Ok(ExistingServiceDatabaseIntent::new(
+        paths,
+        schema,
+        application,
+    ))
 }
 
 pub(crate) fn state_paths(

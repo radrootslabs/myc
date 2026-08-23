@@ -14,6 +14,11 @@ use crate::provider_contract::MycProviderContract;
 
 const CONFIG_SCHEMA: &str = include_str!("../contracts/services_hardening/config.v1.schema.json");
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) const fn config_schema_document() -> &'static str {
+    CONFIG_SCHEMA
+}
+
 /// Exact schema identity for the production Myc configuration document.
 pub const MYC_CONFIG_SCHEMA: &str = "radroots.myc.config";
 
@@ -155,6 +160,26 @@ pub struct MycConfigDocumentV1 {
     normalized: Value,
     effective: MycEffectiveConfigV1,
     provider_contract: MycProviderContract,
+    runtime_thread_limits: MycRuntimeThreadLimitsV1,
+}
+
+/// Validated thread counts for the sole binary-owned Tokio runtime.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MycRuntimeThreadLimitsV1 {
+    worker_threads: usize,
+    blocking_threads: usize,
+}
+
+impl MycRuntimeThreadLimitsV1 {
+    #[must_use]
+    pub const fn worker_threads(self) -> usize {
+        self.worker_threads
+    }
+
+    #[must_use]
+    pub const fn blocking_threads(self) -> usize {
+        self.blocking_threads
+    }
 }
 
 impl MycConfigDocumentV1 {
@@ -195,6 +220,12 @@ impl MycConfigDocumentV1 {
     #[must_use]
     pub const fn provider_contract(&self) -> &MycProviderContract {
         &self.provider_contract
+    }
+
+    /// Returns the validated limits for the sole binary-owned Tokio runtime.
+    #[must_use]
+    pub const fn runtime_thread_limits(&self) -> MycRuntimeThreadLimitsV1 {
+        self.runtime_thread_limits
     }
 
     pub(crate) const fn normalized(&self) -> &Value {
@@ -246,11 +277,24 @@ pub fn parse_myc_config_v1(
     let effective = build_effective(&normalized, &original)?;
     let provider_contract = MycProviderContract::from_normalized(&normalized)
         .map_err(|_| error(MycConfigV1ErrorKind::InvalidRelationship))?;
+    let runtime_thread_limits = MycRuntimeThreadLimitsV1 {
+        worker_threads: usize::try_from(integer(
+            &normalized,
+            "/resource_limits/runtime/worker_threads",
+        )?)
+        .map_err(|_| error(MycConfigV1ErrorKind::InvalidRelationship))?,
+        blocking_threads: usize::try_from(integer(
+            &normalized,
+            "/resource_limits/runtime/blocking_threads",
+        )?)
+        .map_err(|_| error(MycConfigV1ErrorKind::InvalidRelationship))?,
+    };
     Ok(MycConfigDocumentV1 {
         profile,
         normalized,
         effective,
         provider_contract,
+        runtime_thread_limits,
     })
 }
 
@@ -508,6 +552,16 @@ const DEFAULTS: &[DefaultEntry] = &[
         "/resource_limits/metrics/render_utf8_bytes",
         1_048_576,
         MycConfigValueSource::RadrootsServiceHost,
+    ),
+    default(
+        "/resource_limits/runtime/worker_threads",
+        4,
+        MycConfigValueSource::EngineeringSafety,
+    ),
+    default(
+        "/resource_limits/runtime/blocking_threads",
+        8,
+        MycConfigValueSource::EngineeringSafety,
     ),
 ];
 
@@ -1281,7 +1335,7 @@ mod tests {
 
     #[test]
     fn defaults_have_exact_sources_and_explicit_values_override_them() {
-        assert_eq!(DEFAULTS.len(), 39);
+        assert_eq!(DEFAULTS.len(), 41);
         let mut table = EXAMPLE.parse::<toml::Table>().expect("example TOML");
         for entry in DEFAULTS {
             remove_toml_path(&mut table, entry.path);

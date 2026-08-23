@@ -32,6 +32,13 @@ pub struct MycTaskCancellation {
 }
 
 impl MycTaskCancellation {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub(crate) fn uncancelled() -> Self {
+        Self {
+            inner: CancellationToken::new(),
+        }
+    }
+
     /// Returns whether coordinated cancellation has already been requested.
     #[must_use]
     pub fn is_cancelled(&self) -> bool {
@@ -43,7 +50,7 @@ impl MycTaskCancellation {
         self.inner.cancelled().await;
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
     pub(crate) fn test_pair() -> (Self, CancellationToken) {
         let token = CancellationToken::new();
         (

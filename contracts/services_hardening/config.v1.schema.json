@@ -402,6 +402,14 @@
         "render_utf8_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576, "default": 1048576, "x-radroots-default-source": "radroots_service_host" }
       }
     },
+    "runtime_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "worker_threads": { "type": "integer", "minimum": 2, "maximum": 32, "default": 4, "x-radroots-default-source": "engineering_safety" },
+        "blocking_threads": { "type": "integer", "minimum": 1, "maximum": 32, "default": 8, "x-radroots-default-source": "engineering_safety" }
+      }
+    },
     "resource_limits": {
       "type": "object",
       "additionalProperties": false,
@@ -409,7 +417,8 @@
         "admin": { "$ref": "#/$defs/admin_limits" },
         "events": { "$ref": "#/$defs/event_limits" },
         "queues": { "$ref": "#/$defs/queue_limits" },
-        "metrics": { "$ref": "#/$defs/metrics_limits" }
+        "metrics": { "$ref": "#/$defs/metrics_limits" },
+        "runtime": { "$ref": "#/$defs/runtime_limits" }
       }
     },
     "discovery_metadata": {

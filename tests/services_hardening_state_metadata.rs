@@ -89,7 +89,7 @@ fn exact_database_configuration_identity_and_policy_bindings_are_frozen() {
     assert_eq!(versions.status(), MYC_SIGNER_STATUS_CONTRACT_VERSION);
     assert_eq!(
         hex::encode(metadata.configuration_digest().as_bytes()),
-        "5fd8ecb8d526ed8cc2d5af8963838ea9a3707a74d0da6ed7c97851a4d6760a44"
+        "56942af2ea11124114cae734dacdac75efd22c5476af6fe970e1d586d439b630"
     );
 }
 
@@ -103,7 +103,11 @@ fn digest_uses_fully_defaulted_values_and_changes_with_normalized_policy() {
         .replace("level = \"info\"\n", "")
         .replace("format = \"json\"\n", "")
         .replace("busy_timeout_ms = 5000\n", "")
-        .replace("max_connections = 8\n", "");
+        .replace("max_connections = 8\n", "")
+        .replace(
+            "[resource_limits.runtime]\nworker_threads = 4\nblocking_threads = 8\n\n",
+            "",
+        );
     let implicit = state_metadata(&runtime, &implicit_source).expect("implicit defaults");
     assert_eq!(
         explicit.configuration_digest(),

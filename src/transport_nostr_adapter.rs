@@ -10,10 +10,11 @@ use std::{collections::BTreeMap, error::Error};
 
 use radroots_event_codec::Codec;
 use radroots_transport::{
-    Target, TargetSet,
-    outcome::DeliveryOutcomeKind,
+    EventSource, FetchRequest, Target, TargetSet,
+    outcome::{DeliveryOutcomeKind, FetchTargetState},
     policy::{SatisfactionClass, SatisfactionPolicy, TargetPolicy},
     sink::{DeliveryPayload, DeliveryRequest, DeliveryTargetReceipt},
+    source::{FetchBounds, FetchSelector},
 };
 use radroots_transport_nostr::{
     Config, NostrTransport, PreparedDelivery, RelayAccess, RelayEndpoint, RelayProfile,
@@ -207,6 +208,132 @@ impl MycNostrDeliveryAdapter {
         }
         Ok(Self { targets })
     }
+
+    pub(crate) async fn probe_required_relays(
+        configuration: &MycConfigDocumentV1,
+        deadline_unix_ms: u64,
+    ) -> Result<(), MycRelayAdapterError> {
+        let relays = configuration
+            .normalized()
+            .pointer("/relays")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| adapter_error(MycRelayAdapterErrorKind::Configuration))?;
+        let connect_timeout =
+            configuration_integer(configuration, "/transport/connect_deadline_ms")?;
+        let request_timeout = configuration_integer(
+            configuration,
+            "/transport/publish_retry/attempt_deadline_ms",
+        )?;
+        let mut public = Vec::new();
+        let mut public_targets = Vec::new();
+        let mut local = Vec::new();
+        let mut local_targets = Vec::new();
+        for relay in relays.iter().filter(|relay| {
+            relay
+                .pointer("/required")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+        }) {
+            let url = relay
+                .pointer("/url")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| adapter_error(MycRelayAdapterErrorKind::Configuration))?;
+            let target = Target::nostr_relay(url)
+                .map_err(|_| adapter_error(MycRelayAdapterErrorKind::Target))?;
+            let (kind, policy) = if url.starts_with("wss://") {
+                (RelayProfileKind::Public, RelayUrlPolicy::Public)
+            } else if configuration.profile() == MycConfigProfile::RepoLocal
+                && url.starts_with("ws://")
+            {
+                (RelayProfileKind::Simulator, RelayUrlPolicy::Local)
+            } else {
+                return Err(adapter_error(MycRelayAdapterErrorKind::Configuration));
+            };
+            let endpoint = RelayEndpoint::new(url, policy, RelayAccess::ReadOnly)
+                .map_err(|_| adapter_error(MycRelayAdapterErrorKind::Configuration))?;
+            match kind {
+                RelayProfileKind::Public => {
+                    public.push(endpoint);
+                    public_targets.push(target);
+                }
+                RelayProfileKind::Simulator => {
+                    local.push(endpoint);
+                    local_targets.push(target);
+                }
+                RelayProfileKind::Device => {
+                    return Err(adapter_error(MycRelayAdapterErrorKind::Configuration));
+                }
+                _ => return Err(adapter_error(MycRelayAdapterErrorKind::Configuration)),
+            }
+        }
+        if public_targets.is_empty() && local_targets.is_empty() {
+            return Err(adapter_error(MycRelayAdapterErrorKind::Configuration));
+        }
+        probe_group(
+            RelayProfileKind::Public,
+            public,
+            public_targets,
+            connect_timeout,
+            request_timeout,
+            deadline_unix_ms,
+            "myc-doctor-public",
+        )
+        .await?;
+        probe_group(
+            RelayProfileKind::Simulator,
+            local,
+            local_targets,
+            connect_timeout,
+            request_timeout,
+            deadline_unix_ms,
+            "myc-doctor-local",
+        )
+        .await
+    }
+}
+
+async fn probe_group(
+    kind: RelayProfileKind,
+    endpoints: Vec<RelayEndpoint>,
+    targets: Vec<Target>,
+    connect_timeout: u64,
+    request_timeout: u64,
+    deadline_unix_ms: u64,
+    request_id: &'static str,
+) -> Result<(), MycRelayAdapterError> {
+    if targets.is_empty() {
+        return Ok(());
+    }
+    let transport = build_transport(kind, endpoints, connect_timeout, request_timeout)?
+        .ok_or_else(|| adapter_error(MycRelayAdapterErrorKind::Configuration))?;
+    let target_set =
+        TargetSet::new(targets).map_err(|_| adapter_error(MycRelayAdapterErrorKind::Target))?;
+    let selector = FetchSelector::all()
+        .with_since_unix_seconds(u64::MAX)
+        .map_err(|_| adapter_error(MycRelayAdapterErrorKind::Configuration))?;
+    let request = FetchRequest::new(
+        request_id,
+        target_set,
+        FetchBounds::new(1, deadline_unix_ms)
+            .map_err(|_| adapter_error(MycRelayAdapterErrorKind::Configuration))?,
+    )
+    .map_err(|_| adapter_error(MycRelayAdapterErrorKind::Configuration))?
+    .with_selector(selector);
+    let page = transport
+        .fetch(request)
+        .await
+        .map_err(|_| adapter_error(MycRelayAdapterErrorKind::Execution))?;
+    if page.target_outcomes().is_empty()
+        || page.target_outcomes().iter().any(|outcome| {
+            !matches!(
+                outcome.state(),
+                FetchTargetState::Complete | FetchTargetState::Partial
+            )
+        })
+    {
+        return Err(adapter_error(MycRelayAdapterErrorKind::Execution));
+    }
+    Ok(())
 }
 
 impl MycRelayAdapter for MycNostrDeliveryAdapter {

@@ -212,6 +212,24 @@ impl fmt::Debug for MycDeliveryRecoveryReport {
 }
 
 impl MycStateRepository<'_> {
+    /// Verifies the bounded global outbox relationships without mutation.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    pub(crate) async fn verify_delivery_invariants(&self) -> Result<(), MycStateRepositoryError> {
+        let expected = PersistedMetadata::from(self.expected());
+        let outbox_maximum = self.expected().outbox_maximum();
+        self.host()
+            .transaction(move |transaction| {
+                Box::pin(async move {
+                    require_expected_metadata(transaction, &expected)
+                        .await
+                        .map_err(RecoveryOperationError::from)?;
+                    verify_global_invariants(transaction, outbox_maximum).await
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
+    }
+
     /// Recovers startup delivery state in fixed bounded transactions without relay I/O.
     ///
     /// The later runtime owner must pause admission while invoking this method.

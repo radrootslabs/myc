@@ -59,13 +59,36 @@ requires explicit `--profile <service-host|interactive|repo-local>` and
 `--instance <validated-instance-id>` selectors, requires an absolute
 `--repo-local-root` only for `repo-local`, and accepts only an optional absolute
 `--config` path. Its exact command inventory is `run`; `config
-init|validate|show|schema`; `state init|status|backup|restore|verify|migrate`;
+init|validate|show|schema|apply`; `state init|status|backup|restore|verify|migrate`;
 `identity init|status|export-public`; `status`; and `doctor`. Identity rotation
 is an offline create-new/config-apply lifecycle and is intentionally absent
 from the live CLI and Unix-admin inventories.
-The process binary uses only this parser. Hardened command execution remains
-fail-closed until its ordered runtime-dispatch steps are complete; no prototype
-command is used as a fallback.
+The process binary uses only this parser and consumes its sealed execution plan
+exactly once. Every non-daemon command now reaches its governed config, state,
+identity, Unix-admin, or doctor authority. `run` remains explicitly unavailable
+until the next ordered unit installs the authoritative daemon graph; no admitted
+but unimplemented command can return success and no prototype command is used
+as a fallback.
+
+The selected absolute config path is opened no-follow through its retained
+parent descriptor. The loader requires a regular, single-link,
+effective-user-owned file with no group/other-write permission, caps bytes
+before parsing, and revalidates device, inode, length, and parent identity after
+the read. Config initialization consumes bounded non-secret TOML from stdin and
+uses create-new `0600` persistence plus file and parent synchronization. Secret
+identity provisioning is a separate fixed 117-byte zeroizing stdin document;
+secret arguments, environment values, JSON strings, and trailing bytes are not
+accepted.
+
+One binary-owned Tokio runtime is created from the validated fixed thread
+limits for each asynchronous command process; there is no CPU-derived default
+or library-owned runtime. Existing-state commands discover actual metadata
+through the retained shared intent. Offline backup writes the exact canonical
+manifest bytes to stdout without a trailing newline, so direct redirection
+preserves the bytes bound by its digest. Restore derives expected backup identity
+from the trusted manifest digest rather than requiring the damaged live
+database to open, and exclusive commands retain the writer-authority boundary.
+Deployment directory provisioning remains outside the service executable.
 
 The parsed invocation is projected once into a sealed execution plan. `run`
 selects daemon authority; config, exclusive state/identity provisioning, and
@@ -85,6 +108,11 @@ fixed summaries and remediation codes. Raw errors, paths, relay URLs,
 credentials, public keys, and arbitrary detail strings cannot enter the report.
 A pass requires every machine-listed scope facet. Probe futures own their work,
 must stop safely when dropped at deadline, and may not detach later mutation.
+The production adapter composes secure path and disk inspection, writer-lock
+and SQLite authorities, exact schema and outbox checks, provider opening and
+Describe verification, validated bind/network policy, and bounded required-
+relay reads. It never publishes a relay event. Clock skew remains the sole
+optional `Skipped` check until a trusted time source is governed.
 
 The service status boundary uses the shared service-host lifecycle contract
 behind one Myc-owned non-clone publisher and cloneable passive readers. Each
@@ -121,8 +149,8 @@ codes. It accepts no caller text, path, SQL, raw cause, identity, relay URL,
 credential, secret, or decrypted content. Every public Myc error remains a
 crate-owned source-free classification, so ordinary `Display`, `Debug`, and
 whole-chain traversal cannot bypass redaction. Current binary dispatch reports
-invalid input as exit 2 and the intentionally unavailable later executor as
-exit 3. The Myc runtime now owns one sealed, bounded critical-task graph over
+invalid input as exit 2 and the intentionally unavailable daemon graph as exit
+3. The Myc runtime now owns one sealed, bounded critical-task graph over
 the shared supervisor: task error, panic, join failure, unexpected cancellation,
 or success before cancellation cancels peers, joins every task, and maps to the
 fixed unexpected-internal process result. Tasks receive only a cooperative
@@ -156,8 +184,8 @@ ledger, retains exclusive writer authority, applies the exact Myc schema-v2
 through schema-v11 migrations, binds the normalized configuration, expected
 identity roles, and policy versions through a sealed typed repository, and
 explicitly closes the host before reporting success. Existing writable open can
-resume any exact v1 through v9 prefix; read-only inspection requires the current
-catalog and exact latest Myc binding.
+resume any exact v1 through v10 prefix or admit the current v11 catalog;
+read-only inspection requires the current catalog and exact latest Myc binding.
 
 Schema v10 adds an append-only configuration-binding history capped at exactly
 1,024 generations. Generation 1 is seeded only after the v10 migration commits,
@@ -201,8 +229,9 @@ persists Submitted immediately before execution. Accepted, rejected,
 transport-failed, and unknown acknowledgements remain distinct; cancellation
 or lost acknowledgement after Submitted is durably unknown, and retries never
 alter the committed bytes. Provider or relay work never occurs inside a SQLite
-transaction. Runtime task-graph wiring and startup handshakes remain the next
-ordered Step 159 unit.
+transaction. Unit 14's secure command executor uses these exact provider and
+read-only relay probe boundaries; runtime task-graph wiring and startup
+handshakes remain the next ordered Step 159 unit.
 
 Schema v8 adds immutable NIP-46 operation-completion evidence. The Step 147
 integration checkpoint binds each durable request to its stable operation and
@@ -260,10 +289,10 @@ canonical permissioned `admin.sock` through the shared host authority. The raw
 router, listener, entropy source, and cancellation token remain private. The
 existing sole status publisher feeds both detailed local status and the
 optional passive three-route TCP operations server, while doctor continues to
-accept only its exact injected 13-check probe inventory. Unit 14 owns secure
-CLI/config bootstrap and the concrete doctor probe implementations; Unit 15
-alone owns task spawning, provider/relay wiring, readiness, reconnect, and
-phase-aware shutdown.
+accept only its exact injected 13-check probe inventory. Unit 14 supplies the
+secure CLI/config bootstrap and concrete doctor probes. Unit 15 alone owns task
+spawning, provider/relay wiring, readiness, reconnect, and phase-aware
+shutdown.
 
 The transport capability and admitted request remain non-forgeable outside
 the crate:

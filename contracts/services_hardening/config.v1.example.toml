@@ -140,6 +140,10 @@ samples = 512
 labels_per_sample = 8
 render_utf8_bytes = 1048576
 
+[resource_limits.runtime]
+worker_threads = 4
+blocking_threads = 8
+
 [discovery]
 enabled = true
 domain = "myc.example.test"

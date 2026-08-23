@@ -12,16 +12,19 @@ use nostr::{
     JsonUtil as _, Keys, PublicKey, SecretKey, UnsignedEvent,
     nips::{nip04, nip44},
 };
+use sha2::{Digest as _, Sha256};
 
 use crate::provider_local_signer::{ProtectedWireHex, WireCapability, WireProviderResult};
 use crate::provider_verification::verify_encrypted_provider_response;
 use crate::{
     MYC_LOCAL_SIGNER_TRANSPORT_CONTRACT_VERSION, MYC_PROVIDER_INPUT_MAX_BYTES, MycConfigDocumentV1,
     MycDecryptedIdentity, MycLocalSignerClient, MycProviderBinding, MycProviderCapability,
-    MycProviderKind, MycProviderOperation, MycProviderResponseObservedAtUnixMs, MycProviderRole,
-    MycRuntimeContext, MycTaskCancellation, MycVerifiedProviderResponse,
-    open_myc_encrypted_identity, resolve_myc_wrapping_credential,
+    MycProviderCorrelationId, MycProviderDeadlineUnixMs, MycProviderKind, MycProviderOperation,
+    MycProviderOperationId, MycProviderOperationInput, MycProviderResponseObservedAtUnixMs,
+    MycProviderRole, MycRuntimeContext, MycTaskCancellation, MycVerifiedProviderResponse,
 };
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use crate::{open_myc_encrypted_identity, resolve_myc_wrapping_credential};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MycProviderExecutionErrorKind {
@@ -63,6 +66,42 @@ impl Error for MycProviderExecutionError {}
 
 const fn execution_error(kind: MycProviderExecutionErrorKind) -> MycProviderExecutionError {
     MycProviderExecutionError { kind }
+}
+
+struct OwnedBlockingTask<T> {
+    handle: Option<tokio::task::JoinHandle<T>>,
+}
+
+impl<T: Send + 'static> OwnedBlockingTask<T> {
+    fn spawn(task: impl FnOnce() -> T + Send + 'static) -> Self {
+        Self {
+            handle: Some(tokio::task::spawn_blocking(task)),
+        }
+    }
+
+    async fn join(
+        &mut self,
+        failure: MycProviderExecutionErrorKind,
+    ) -> Result<T, MycProviderExecutionError> {
+        let result = match self.handle.as_mut() {
+            Some(handle) => handle.await,
+            None => return Err(execution_error(failure)),
+        };
+        self.handle.take();
+        result.map_err(|_| execution_error(failure))
+    }
+}
+
+impl<T> Drop for OwnedBlockingTask<T> {
+    fn drop(&mut self) {
+        let Some(handle) = self.handle.take() else {
+            return;
+        };
+        handle.abort();
+        while !handle.is_finished() {
+            std::thread::park_timeout(core::time::Duration::from_millis(1));
+        }
+    }
 }
 
 enum ExecutableProvider {
@@ -117,7 +156,7 @@ impl MycProviderExecutor {
                         let runtime = runtime.clone();
                         let binding = binding.clone();
                         let worker_binding = binding.clone();
-                        let mut worker = tokio::task::spawn_blocking(move || {
+                        let mut worker = OwnedBlockingTask::spawn(move || {
                             let credential =
                                 resolve_myc_wrapping_credential(&runtime, &worker_binding)
                                     .map_err(|_| ())?;
@@ -125,11 +164,10 @@ impl MycProviderExecutor {
                                 .map_err(|_| ())
                         });
                         let identity = tokio::select! {
-                            result = &mut worker => result
-                                .map_err(|_| execution_error(MycProviderExecutionErrorKind::Open))?
+                            result = worker.join(MycProviderExecutionErrorKind::Open) => result?
                                 .map_err(|_| execution_error(MycProviderExecutionErrorKind::Open))?,
                             () = cancellation.cancelled() => {
-                                let _ = worker.await;
+                                let _ = worker.join(MycProviderExecutionErrorKind::Open).await;
                                 return Err(execution_error(MycProviderExecutionErrorKind::Cancelled));
                             }
                         };
@@ -175,14 +213,13 @@ impl MycProviderExecutor {
             ExecutableProvider::EncryptedFile { binding, identity } => {
                 let binding = binding.clone();
                 let identity = Arc::clone(identity);
-                let mut worker = tokio::task::spawn_blocking(move || {
+                let mut worker = OwnedBlockingTask::spawn(move || {
                     let result = execute_encrypted(&identity, &operation)?;
                     Ok::<_, MycProviderExecutionError>((operation, result))
                 });
                 tokio::select! {
-                    joined = &mut worker => {
-                        let (operation, result) = joined
-                            .map_err(|_| execution_error(MycProviderExecutionErrorKind::Operation))??;
+                    joined = worker.join(MycProviderExecutionErrorKind::Operation) => {
+                        let (operation, result) = joined??;
                         verify_encrypted_provider_response(&binding, &operation, observed_at, result)
                             .map_err(|_| execution_error(MycProviderExecutionErrorKind::Verification))
                     }
@@ -190,7 +227,7 @@ impl MycProviderExecutor {
                         // A blocking cryptographic call cannot be abandoned. Join it before
                         // returning cancellation so no protected operation is detached.
                         // The result is deliberately discarded and never becomes domain authority.
-                        let _ = worker.await;
+                        let _ = worker.join(MycProviderExecutionErrorKind::Operation).await;
                         Err(execution_error(MycProviderExecutionErrorKind::Cancelled))
                     }
                 }
@@ -216,6 +253,66 @@ impl MycProviderExecutor {
             .iter()
             .any(|provider| provider.role() == role)
     }
+
+    pub(crate) async fn probe_all(
+        &self,
+        observed_at_unix_ms: u64,
+        seed: [u8; 32],
+        cancellation: &MycTaskCancellation,
+    ) -> Result<(), MycProviderExecutionError> {
+        let observed_at = MycProviderResponseObservedAtUnixMs::new(observed_at_unix_ms)
+            .map_err(|_| execution_error(MycProviderExecutionErrorKind::Binding))?;
+        for (index, provider) in self.providers.iter().enumerate() {
+            let role = provider.role();
+            let binding = match provider {
+                ExecutableProvider::EncryptedFile { binding, .. }
+                | ExecutableProvider::LocalSigner { binding, .. } => binding,
+            };
+            let timeout = binding
+                .local_signer_limits()
+                .map_or(15_000, |limits| limits.request_deadline_ms());
+            let deadline = observed_at_unix_ms
+                .checked_add(timeout)
+                .and_then(|value| MycProviderDeadlineUnixMs::new(value).ok())
+                .ok_or_else(|| execution_error(MycProviderExecutionErrorKind::Binding))?;
+            let index = u32::try_from(index)
+                .map_err(|_| execution_error(MycProviderExecutionErrorKind::Binding))?;
+            let operation = MycProviderOperation::new(
+                binding,
+                MycProviderOperationId::from_bytes(probe_identifier(
+                    b"operation",
+                    &seed,
+                    index,
+                    role,
+                )),
+                MycProviderCorrelationId::from_bytes(probe_identifier(
+                    b"correlation",
+                    &seed,
+                    index,
+                    role,
+                )),
+                deadline,
+                MycProviderOperationInput::describe(),
+            )
+            .map_err(|_| execution_error(MycProviderExecutionErrorKind::Binding))?;
+            let response = self.execute(operation, observed_at, cancellation).await?;
+            if response.role() != role || response.capability() != MycProviderCapability::Describe {
+                return Err(execution_error(MycProviderExecutionErrorKind::Verification));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn probe_identifier(kind: &[u8], seed: &[u8; 32], index: u32, role: MycProviderRole) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"radroots.myc.provider_probe.v1\0");
+    hasher.update(u64::try_from(kind.len()).unwrap_or(u64::MAX).to_be_bytes());
+    hasher.update(kind);
+    hasher.update(seed);
+    hasher.update(index.to_be_bytes());
+    hasher.update(role.as_str().as_bytes());
+    hasher.finalize().into()
 }
 
 impl fmt::Debug for MycProviderExecutor {
@@ -498,5 +595,61 @@ mod tests {
             assert!(error.source().is_none());
             assert!(!format!("{error} {error:?}").contains("protected"));
         }
+    }
+
+    #[test]
+    fn provider_probe_identifiers_are_domain_seed_index_and_role_bound() {
+        let seed = [7_u8; 32];
+        let operation = probe_identifier(b"operation", &seed, 0, MycProviderRole::Transport);
+        assert_eq!(
+            operation,
+            probe_identifier(b"operation", &seed, 0, MycProviderRole::Transport)
+        );
+        assert_ne!(
+            operation,
+            probe_identifier(b"correlation", &seed, 0, MycProviderRole::Transport)
+        );
+        assert_ne!(
+            operation,
+            probe_identifier(b"operation", &[8_u8; 32], 0, MycProviderRole::Transport)
+        );
+        assert_ne!(
+            operation,
+            probe_identifier(b"operation", &seed, 1, MycProviderRole::Transport)
+        );
+        assert_ne!(
+            operation,
+            probe_identifier(b"operation", &seed, 0, MycProviderRole::User)
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dropping_blocking_provider_work_drains_it_before_returning() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        };
+
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let completed = Arc::new(AtomicBool::new(false));
+        let worker_completed = Arc::clone(&completed);
+        let task = OwnedBlockingTask::spawn(move || {
+            entered_tx.send(()).expect("entered signal");
+            release_rx.recv().expect("release signal");
+            worker_completed.store(true, Ordering::SeqCst);
+        });
+        entered_rx.recv().expect("worker entered");
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(core::time::Duration::from_millis(25));
+            release_tx.send(()).expect("release worker");
+        });
+
+        drop(task);
+
+        releaser.join().expect("releaser joined");
+        assert!(completed.load(Ordering::SeqCst));
     }
 }

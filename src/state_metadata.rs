@@ -259,6 +259,31 @@ impl MycStateMetadata {
         })
     }
 
+    pub(crate) fn from_existing_database(
+        runtime: &MycRuntimeContext,
+        configuration: &MycConfigDocumentV1,
+        actual: &ServiceDatabaseMetadata,
+    ) -> Result<Self, MycStateMetadataError> {
+        let expected_application = ServiceSqliteApplicationId::new(MYC_STATE_APPLICATION_ID)
+            .map_err(|_| MycStateMetadataError::new(MycStateMetadataErrorKind::Invariant))?;
+        if actual.service() != runtime.context().service()
+            || actual.instance() != runtime.context().instance()
+            || actual.application_id() != expected_application
+            || actual.state_schema_version().get() < MYC_STATE_BASE_SCHEMA_VERSION
+            || actual.state_schema_version().get() > MYC_STATE_SCHEMA_VERSION
+        {
+            return Err(MycStateMetadataError::new(
+                MycStateMetadataErrorKind::Database,
+            ));
+        }
+        Self::new(
+            runtime,
+            configuration,
+            actual.source_generation(),
+            actual.created_at_unix_ms(),
+        )
+    }
+
     /// Returns the immutable shared schema-v1 initialization metadata.
     #[must_use]
     pub const fn initial_database_metadata(&self) -> &ServiceDatabaseMetadata {
