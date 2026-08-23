@@ -102,8 +102,10 @@
   code may commit a completion only through the atomic exact-response method;
   a retained completion without its immutable response and initial delivery
   state is inconsistent evidence and must never be repaired implicitly.
-- Step 150 implements the exact 21-route and 35-model Myc Unix-admin adapter.
-  Keep the shared Lib router private; reject model drift, unknown/duplicate/null
+- Step 150 introduced the historical 21-route and 35-model Myc Unix-admin
+  adapter. Step 159 unit 13 owns its final 19-route and 32-model form by
+  removing live identity rekey and replacement. Keep the shared Lib router
+  private; reject model drift, unknown/duplicate/null
   fields, noncanonical response bytes, invalid path/query values, and unsafe
   errors at the adapter boundary. Domain handlers must bind authenticated
   cursors to route/filter/snapshot identity and must retain exact operation-ID
@@ -113,7 +115,9 @@
   must select exactly daemon, offline, or permissioned Unix-admin authority;
   only the explicitly contracted read-only status, backup, and public-identity
   operations may fall back after proving the daemon writer lock is free.
-  Rekey, replace, and every other live mutation have no direct-state fallback.
+  Identity rekey and replacement are offline create-new/config-apply
+  operations and have no live command or route. Every retained live mutation
+  has no direct-state fallback.
   Do not reparse process arguments or let a live CLI plan obtain SQLite,
   provider, relay, task, signal, or runtime authority.
 - Step 153 freezes one ordered 13-check doctor engine. Check adapters retain
@@ -159,8 +163,17 @@
   acknowledgement to UnknownAcknowledgement, and retries only the exact
   committed signed bytes. Never hold a SQLite transaction across provider or
   relay work, detach protected blocking work, expose the executor/client, or
-  create one task per relay. Unit 13 alone wires these components into the
+  create one task per relay. Unit 15 alone wires these components into the
   fixed runtime graph and startup handshake.
+- Step 159 unit 13 owns the final 19-route/32-model production Unix-admin
+  server around the exact handler boundary, the configured transport-limit
+  projection, the canonical permissioned `admin.sock` binding, and the
+  machine-bound composition facts for the existing sole status publisher,
+  passive three-route operations server, and injected 13-check doctor. Keep
+  shared routers, listeners, entropy, and cancellation private. Unit 14 owns
+  secure CLI/config bootstrap and concrete doctor probes; Unit 15 alone owns
+  server task spawning, provider/relay wiring, readiness, reconnect, and
+  shutdown.
 - Treat checked-in source, tests, and prototype behavior as implementation
   evidence, not permission to preserve behavior that the active requirement
   removes.

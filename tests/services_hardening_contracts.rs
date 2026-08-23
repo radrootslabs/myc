@@ -93,8 +93,6 @@ fn admin_inventory_is_closed_unique_and_model_complete() {
             "GET|/v1/status|radroots.myc.status.get.v1|empty|service_status_v1|false",
             "GET|/v1/config/effective|radroots.myc.config.effective.get.v1|empty|effective_config_v1|false",
             "GET|/v1/identity/status|radroots.myc.identity.status.get.v1|identity_status_query_v1|identity_status_v1|false",
-            "POST|/v1/identity/rekey|radroots.myc.identity.rekey.v1|identity_rekey_request_v1|identity_mutation_receipt_v1|true",
-            "POST|/v1/identity/replace|radroots.myc.identity.replace.v1|identity_replace_request_v1|identity_mutation_receipt_v1|true",
             "GET|/v1/identity/public|radroots.myc.identity.public.get.v1|identity_public_query_v1|identity_public_v1|false",
             "GET|/v1/state/status|radroots.myc.state.status.get.v1|empty|state_status_v1|false",
             "POST|/v1/state/backup|radroots.myc.state.backup.create.v1|state_backup_request_v1|state_backup_receipt_v1|true",
@@ -278,17 +276,16 @@ fn admin_inventory_is_closed_unique_and_model_complete() {
         ]
     );
     assert_eq!(
-        value["admin"]["identity_contract"]["replace_provider_variants"],
+        value["admin"]["identity_contract"],
         serde_json::json!({
-            "discriminator": "provider",
-            "encrypted_file": {
-                "required_fields": ["provider", "envelope_path", "credential_reference", "expected_public_key"],
-                "provider_value": "encrypted_file"
-            },
-            "local_signer": {
-                "required_fields": ["provider", "socket_path", "request_deadline_ms", "request_max_bytes", "response_max_bytes", "concurrency", "expected_public_key"],
-                "provider_value": "local_signer"
-            }
+            "roles": [
+                { "id": "transport", "required": true, "disabled_allowed": false, "providers": ["encrypted_file", "local_signer"] },
+                { "id": "user", "required": true, "disabled_allowed": false, "providers": ["encrypted_file", "local_signer"] },
+                { "id": "discovery", "required": false, "disabled_allowed": true, "providers": ["encrypted_file", "local_signer"] }
+            ],
+            "live_mutation": false,
+            "rotation_mode": "offline_create_new_then_config_apply",
+            "in_place_overwrite": false
         })
     );
     assert_eq!(
@@ -328,7 +325,7 @@ fn admin_inventory_is_closed_unique_and_model_complete() {
     assert_eq!(mutation_operations, committed_effects);
     assert_eq!(
         decision_sections_digest(&value),
-        "55890c43b1ad17e897e20afe1df72941589b3d6df554bc3c81731aefe1c55d58"
+        "4967401cbb7b777aa78e19e91c75fae9d1245a307bf37ea30611d30d8ffeebbd"
     );
 }
 

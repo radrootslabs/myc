@@ -60,21 +60,30 @@ pub myc::MycAdminRoute::DiscoveryRefresh
 pub myc::MycAdminRoute::DiscoveryRender
 pub myc::MycAdminRoute::EffectiveConfig
 pub myc::MycAdminRoute::IdentityPublic
-pub myc::MycAdminRoute::IdentityRekey
-pub myc::MycAdminRoute::IdentityReplace
 pub myc::MycAdminRoute::IdentityStatus
 pub myc::MycAdminRoute::MetricsSnapshot
 pub myc::MycAdminRoute::StateBackup
 pub myc::MycAdminRoute::StateStatus
 pub myc::MycAdminRoute::Status
 impl myc::MycAdminRoute
-pub const myc::MycAdminRoute::ALL: [Self; 21]
+pub const myc::MycAdminRoute::ALL: [Self; 19]
 pub const fn myc::MycAdminRoute::is_mutation(self) -> bool
 pub const fn myc::MycAdminRoute::method(self) -> myc::MycAdminMethod
 pub const fn myc::MycAdminRoute::operation_id(self) -> &'static str
 pub const fn myc::MycAdminRoute::path(self) -> &'static str
 pub const fn myc::MycAdminRoute::request_model(self) -> &'static str
 pub const fn myc::MycAdminRoute::response_model(self) -> &'static str
+pub enum myc::MycAdminServerErrorKind
+pub myc::MycAdminServerErrorKind::Accept
+pub myc::MycAdminServerErrorKind::Bind
+pub myc::MycAdminServerErrorKind::ConnectionTaskPanicked
+pub myc::MycAdminServerErrorKind::InvalidConfiguration
+pub myc::MycAdminServerErrorKind::Listener
+pub myc::MycAdminServerErrorKind::Router
+pub myc::MycAdminServerErrorKind::ServerConfiguration
+pub myc::MycAdminServerErrorKind::WriterAuthority
+impl myc::MycAdminServerErrorKind
+pub const fn myc::MycAdminServerErrorKind::code(self) -> &'static str
 pub enum myc::MycAuditKind
 pub myc::MycAuditKind::ChallengeAuthorization
 pub myc::MycAuditKind::ChallengeCreation
@@ -124,8 +133,6 @@ pub myc::MycBootstrapProfileV1::RepoLocal
 pub myc::MycBootstrapProfileV1::ServiceHost
 pub enum myc::MycCliAdminOperationV1
 pub myc::MycCliAdminOperationV1::IdentityPublic
-pub myc::MycCliAdminOperationV1::IdentityRekey
-pub myc::MycCliAdminOperationV1::IdentityReplace
 pub myc::MycCliAdminOperationV1::IdentityStatus
 pub myc::MycCliAdminOperationV1::StateBackup
 pub myc::MycCliAdminOperationV1::StateStatus
@@ -404,8 +411,6 @@ pub const fn myc::MycGovernanceStateErrorKind::code(self) -> &'static str
 pub enum myc::MycIdentityCommandV1
 pub myc::MycIdentityCommandV1::ExportPublic
 pub myc::MycIdentityCommandV1::Init
-pub myc::MycIdentityCommandV1::Rekey
-pub myc::MycIdentityCommandV1::Replace
 pub myc::MycIdentityCommandV1::Status
 pub enum myc::MycIntegrityStateV1
 pub myc::MycIntegrityStateV1::Failed
@@ -804,6 +809,13 @@ pub enum myc::MycTransportHealthV1
 pub myc::MycTransportHealthV1::Degraded
 pub myc::MycTransportHealthV1::Ready
 pub myc::MycTransportHealthV1::Unavailable
+pub struct myc::MycAdminCancellationToken
+impl myc::MycAdminCancellationToken
+pub fn myc::MycAdminCancellationToken::cancel(&self)
+pub fn myc::MycAdminCancellationToken::is_cancelled(&self) -> bool
+pub fn myc::MycAdminCancellationToken::new() -> Self
+impl core::fmt::Debug for myc::MycAdminCancellationToken
+pub fn myc::MycAdminCancellationToken::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycAdminDocumentError
 impl myc::MycAdminDocumentError
 pub const fn myc::MycAdminDocumentError::kind(self) -> myc::MycAdminDocumentErrorKind
@@ -858,6 +870,21 @@ pub struct myc::MycAdminRouterError
 impl core::error::Error for myc::MycAdminRouterError
 impl core::fmt::Display for myc::MycAdminRouterError
 pub fn myc::MycAdminRouterError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAdminServer
+impl myc::MycAdminServer
+pub async fn myc::MycAdminServer::bind(self, &myc::MycRuntimeContext) -> core::result::Result<myc::MycBoundAdminServer, myc::MycAdminServerError>
+pub fn myc::MycAdminServer::new<H>(&myc::MycConfigDocumentV1, alloc::sync::Arc<H>) -> core::result::Result<Self, myc::MycAdminServerError> where H: myc::MycAdminHandler
+impl core::fmt::Debug for myc::MycAdminServer
+pub fn myc::MycAdminServer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycAdminServerError
+impl myc::MycAdminServerError
+pub const fn myc::MycAdminServerError::code(self) -> &'static str
+pub const fn myc::MycAdminServerError::kind(self) -> myc::MycAdminServerErrorKind
+impl core::error::Error for myc::MycAdminServerError
+impl core::fmt::Debug for myc::MycAdminServerError
+pub fn myc::MycAdminServerError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for myc::MycAdminServerError
+pub fn myc::MycAdminServerError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycAuditCorrelationId(_)
 impl myc::MycAuditCorrelationId
 pub const fn myc::MycAuditCorrelationId::new([u8; 32]) -> Self
@@ -918,6 +945,11 @@ pub fn myc::MycAuthorizationChallengeUrl::as_str(&self) -> &str
 pub fn myc::MycAuthorizationChallengeUrl::new(&str) -> core::result::Result<Self, myc::MycConnectionStateError>
 impl core::fmt::Debug for myc::MycAuthorizationChallengeUrl
 pub fn myc::MycAuthorizationChallengeUrl::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct myc::MycBoundAdminServer
+impl myc::MycBoundAdminServer
+pub async fn myc::MycBoundAdminServer::serve(self, myc::MycAdminCancellationToken) -> core::result::Result<(), myc::MycAdminServerError>
+impl core::fmt::Debug for myc::MycBoundAdminServer
+pub fn myc::MycBoundAdminServer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycBoundOperationsServer
 impl myc::MycBoundOperationsServer
 pub fn myc::MycBoundOperationsServer::local_address(&self) -> core::net::socket_addr::SocketAddr

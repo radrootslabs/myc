@@ -6,6 +6,8 @@ const ROOT: &str = include_str!("../src/lib.rs");
 const README: &str = include_str!("../README");
 const PUBLIC_API: &str = include_str!("../contracts/api_baselines/myc.txt");
 const ADMIN_V1: &str = include_str!("../src/admin_v1.rs");
+const CONTROL_SURFACES_CONTRACT: &str =
+    include_str!("../contracts/services_hardening/control_surfaces.v1.json");
 const NIP46_VERIFICATION: &str = include_str!("../src/nip46_verification.rs");
 const NIP46_AUTHORIZATION: &str = include_str!("../src/nip46_authorization.rs");
 const NIP46_REPLAY: &str = include_str!("../src/nip46_replay.rs");
@@ -211,6 +213,11 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub trait myc::MycAdminHandler",
         "pub struct myc::MycAdminRouter",
         "pub fn myc::build_myc_admin_router",
+        "pub struct myc::MycAdminServer",
+        "pub struct myc::MycBoundAdminServer",
+        "pub struct myc::MycAdminCancellationToken",
+        "pub struct myc::MycAdminServerError",
+        "pub enum myc::MycAdminServerErrorKind",
         "pub struct myc::MycRuntimeContext",
         "pub struct myc::MycRuntimeFoundation",
         "pub struct myc::MycRuntimeReadiness",
@@ -885,8 +892,8 @@ fn step150_admin_adapter_is_closed_typed_and_transport_bounded() {
         "#[cfg(any(target_os = \"linux\", target_os = \"macos\"))]\npub use admin_v1::{"
     ));
     for required in [
-        "pub const ALL: [Self; 21]",
-        "models.len() == 35",
+        "pub const ALL: [Self; 19]",
+        "models.len() == 32",
         "operator_route_inventory_is_exact",
         "AdminMutationRequest<Value>",
         "strict_json(bytes)",
@@ -897,7 +904,7 @@ fn step150_admin_adapter_is_closed_typed_and_transport_bounded() {
         "original committed response",
         "same route, filters, and snapshot",
         "relay submission or delivery is not implied",
-        "all_twenty_one_routes_round_trip_over_the_hardened_unix_boundary",
+        "all_nineteen_routes_round_trip_over_the_hardened_unix_boundary",
     ] {
         assert!(
             ADMIN_V1.contains(required),
@@ -923,13 +930,58 @@ fn step150_admin_adapter_is_closed_typed_and_transport_bounded() {
         );
     }
     for required in [
-        "exact 21-route",
-        "all 35 model",
+        "exact 19-route",
+        "all 32 model",
         "Raw shared-host routers and JSON values never cross the public",
         "operation_id_conflict",
-        "not the later daemon runtime",
+        "Unit 13\nseals that handler boundary inside the production `MycAdminServer`",
+        "Unit 15\nalone owns task spawning, provider/relay wiring, readiness, reconnect, and\nphase-aware shutdown",
     ] {
         assert!(README.contains(required), "README is missing `{required}`");
+    }
+}
+
+#[test]
+fn step159_unit13_control_surfaces_are_sealed_and_machine_bound() {
+    let contract: serde_json::Value =
+        serde_json::from_str(CONTROL_SURFACES_CONTRACT).expect("control-surface contract");
+    assert_eq!(contract["schema"], "radroots.myc.control-surfaces.v1");
+    assert_eq!(contract["step"], 159);
+    assert_eq!(contract["unit"], 13);
+    assert_eq!(contract["admin"]["route_count"], 19);
+    assert_eq!(contract["admin"]["model_count"], 32);
+    assert_eq!(contract["status"]["publisher_count"], 1);
+    assert_eq!(contract["operations"]["active_probe"], false);
+    assert_eq!(contract["doctor"]["check_count"], 13);
+    assert_eq!(
+        contract["deferred"]["authoritative_daemon_task_graph"],
+        "unit_15"
+    );
+    for required in [
+        "AdminServer::with_system_entropy(router.into_inner(), limits)",
+        ".pointer(\"/resource_limits/admin\")",
+        "UnixAdminSocketWriterAuthority::acquire(runtime.context().paths().run())",
+        "UnixAdminSocketBinding::bind(authority, runtime.artifacts().admin_socket())",
+        "pub struct MycAdminServer",
+        "pub struct MycBoundAdminServer",
+        "pub struct MycAdminCancellationToken",
+    ] {
+        assert!(
+            ADMIN_V1.contains(required),
+            "Unit 13 is missing `{required}`"
+        );
+    }
+    for forbidden in [
+        "pub fn into_inner",
+        "pub const fn into_inner",
+        "pub fn listener",
+        "TcpListener",
+        "std::process::exit",
+    ] {
+        assert!(
+            !ADMIN_V1.contains(forbidden),
+            "Unit 13 exposes forbidden `{forbidden}`"
+        );
     }
 }
 
@@ -1020,10 +1072,11 @@ fn public_errors_remain_crate_owned_redacted_and_source_free() {
         .lines()
         .filter(|line| line.starts_with("pub struct myc::") && line.ends_with("Error"))
         .count();
-    assert_eq!(public_error_count, 34);
+    assert_eq!(public_error_count, 35);
     assert!(PUBLIC_API.contains("pub struct myc::MycDoctorError"));
     assert!(PUBLIC_API.contains("pub struct myc::MycConfigApplyError"));
     assert!(PUBLIC_API.contains("pub struct myc::MycAdminOperationError"));
+    assert!(PUBLIC_API.contains("pub struct myc::MycAdminServerError"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycRuntimeFoundation {"));
     assert!(!PUBLIC_API.contains("pub struct myc::MycStateHost {"));
 }

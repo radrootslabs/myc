@@ -1,0 +1,56 @@
+{
+  "schema": "radroots.myc.control-surfaces.v1",
+  "contract_version": 1,
+  "step": 159,
+  "unit": 13,
+  "unit_id": "myc-control-surfaces",
+  "admin": {
+    "transport": "http_1_1_over_permissioned_unix_domain_socket",
+    "route_count": 19,
+    "model_count": 32,
+    "handler_boundary": "MycAdminHandler",
+    "server": "MycAdminServer",
+    "bound_server": "MycBoundAdminServer",
+    "cancellation": "MycAdminCancellationToken",
+    "limits_source": "/resource_limits/admin",
+    "system_entropy": true,
+    "canonical_runtime_directory": true,
+    "canonical_socket_artifact": "admin.sock",
+    "raw_router_or_listener_exposed": false,
+    "live_identity_mutation_routes": false,
+    "identity_rotation": "offline_create_new_then_config_apply"
+  },
+  "status": {
+    "factory": "myc_status_cache",
+    "publisher": "MycStatusPublisher",
+    "publisher_count": 1,
+    "passive_reader": "MycStatusReader",
+    "fresh_probe_on_read": false
+  },
+  "operations": {
+    "server": "MycOperationsServer",
+    "enabled_only_by_validated_configuration": true,
+    "routes": ["/livez", "/readyz", "/metrics"],
+    "reads_same_status_cache": true,
+    "active_probe": false
+  },
+  "doctor": {
+    "runner": "run_myc_doctor",
+    "check_count": 13,
+    "probe_authority_injected": true,
+    "used_as_liveness_or_readiness_probe": false
+  },
+  "security": {
+    "source_free_public_errors": true,
+    "paths_in_display_or_debug": false,
+    "raw_sqlx_or_transport_types_public": false,
+    "tcp_admin_routes": false
+  },
+  "deferred": {
+    "secure_cli_and_config_bootstrap": "unit_14",
+    "production_doctor_probe_implementations": "unit_14",
+    "authoritative_daemon_task_graph": "unit_15",
+    "provider_relay_runtime_wiring": "unit_15",
+    "readiness_reconnect_and_shutdown": "unit_15"
+  }
+}

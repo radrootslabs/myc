@@ -17,8 +17,6 @@
       { "method": "GET", "path": "/v1/status", "operation_id": "radroots.myc.status.get.v1", "request_model": "empty", "response_model": "service_status_v1", "mutation": false },
       { "method": "GET", "path": "/v1/config/effective", "operation_id": "radroots.myc.config.effective.get.v1", "request_model": "empty", "response_model": "effective_config_v1", "mutation": false },
       { "method": "GET", "path": "/v1/identity/status", "operation_id": "radroots.myc.identity.status.get.v1", "request_model": "identity_status_query_v1", "response_model": "identity_status_v1", "mutation": false },
-      { "method": "POST", "path": "/v1/identity/rekey", "operation_id": "radroots.myc.identity.rekey.v1", "request_model": "identity_rekey_request_v1", "response_model": "identity_mutation_receipt_v1", "mutation": true },
-      { "method": "POST", "path": "/v1/identity/replace", "operation_id": "radroots.myc.identity.replace.v1", "request_model": "identity_replace_request_v1", "response_model": "identity_mutation_receipt_v1", "mutation": true },
       { "method": "GET", "path": "/v1/identity/public", "operation_id": "radroots.myc.identity.public.get.v1", "request_model": "identity_public_query_v1", "response_model": "identity_public_v1", "mutation": false },
       { "method": "GET", "path": "/v1/state/status", "operation_id": "radroots.myc.state.status.get.v1", "request_model": "empty", "response_model": "state_status_v1", "mutation": false },
       { "method": "POST", "path": "/v1/state/backup", "operation_id": "radroots.myc.state.backup.create.v1", "request_model": "state_backup_request_v1", "response_model": "state_backup_receipt_v1", "mutation": true },
@@ -54,18 +52,9 @@
         { "id": "user", "required": true, "disabled_allowed": false, "providers": ["encrypted_file", "local_signer"] },
         { "id": "discovery", "required": false, "disabled_allowed": true, "providers": ["encrypted_file", "local_signer"] }
       ],
-      "rekey_provider": "encrypted_file_only",
-      "replace_provider_variants": {
-        "discriminator": "provider",
-        "encrypted_file": {
-          "required_fields": ["provider", "envelope_path", "credential_reference", "expected_public_key"],
-          "provider_value": "encrypted_file"
-        },
-        "local_signer": {
-          "required_fields": ["provider", "socket_path", "request_deadline_ms", "request_max_bytes", "response_max_bytes", "concurrency", "expected_public_key"],
-          "provider_value": "local_signer"
-        }
-      }
+      "live_mutation": false,
+      "rotation_mode": "offline_create_new_then_config_apply",
+      "in_place_overwrite": false
     },
     "types": {
       "myc_literal": { "kind": "literal", "value": "myc" },
@@ -82,18 +71,9 @@
       "sha256_hex": { "kind": "string", "utf8_bytes": 64, "pattern": "^[0-9a-f]{64}$" },
       "public_key_hex": { "kind": "string", "utf8_bytes": 64, "pattern": "^[0-9a-f]{64}$" },
       "absolute_path": { "kind": "string", "minimum_utf8_bytes": 1, "maximum_utf8_bytes": 4096, "pattern": "^/" },
-      "credential_reference": { "kind": "string", "minimum_utf8_bytes": 1, "maximum_utf8_bytes": 256 },
       "confirmation": { "kind": "literal", "value": "confirm" },
       "identity_role": { "kind": "enum", "values": ["transport", "user", "discovery"] },
-      "encrypted_file_provider": { "kind": "literal", "value": "encrypted_file" },
       "identity_provider_kind": { "kind": "enum", "values": ["encrypted_file", "local_signer"] },
-      "identity_provider_replacement": { "kind": "tagged_union", "discriminator": "provider", "variants": ["encrypted_file_replacement", "local_signer_replacement"] },
-      "encrypted_file_replacement": { "kind": "closed_object", "fields": { "provider": "encrypted_file_provider", "envelope_path": "absolute_path", "credential_reference": "credential_reference", "expected_public_key": "public_key_hex" } },
-      "local_signer_replacement": { "kind": "closed_object", "fields": { "provider": "local_signer_provider", "socket_path": "absolute_path", "request_deadline_ms": "deadline_ms", "request_max_bytes": "bounded_io_bytes", "response_max_bytes": "bounded_io_bytes", "concurrency": "bounded_concurrency", "expected_public_key": "public_key_hex" } },
-      "local_signer_provider": { "kind": "literal", "value": "local_signer" },
-      "deadline_ms": { "kind": "integer", "minimum": 1, "maximum": 30000, "unit": "milliseconds" },
-      "bounded_io_bytes": { "kind": "integer", "minimum": 1024, "maximum": 1048576, "unit": "bytes" },
-      "bounded_concurrency": { "kind": "integer", "minimum": 1, "maximum": 64 },
       "service_phase": { "kind": "enum", "values": ["starting", "ready", "degraded", "unready", "stopping", "failed"] },
       "uptime_millis": { "kind": "integer", "minimum": 0, "maximum": 18446744073709551615, "unit": "milliseconds_from_injected_monotonic_clock" },
       "integrity_state": { "kind": "enum", "values": ["verified", "verification_required", "failed"] },
@@ -155,7 +135,7 @@
       "optional_utc_seconds": { "kind": "optional", "representation": "absent_parent_field", "value": "utc_seconds" },
       "connection_summaries": { "kind": "array", "items": "connection_summary", "maximum_items": 200, "ordered": true },
       "connection_summary": { "kind": "closed_object", "fields": { "connection_id": "bounded_id", "client_public_key": "public_key_hex", "state": "connection_state", "permissions": "permission_set", "generation": "u64", "created_at_utc": "utc_seconds", "updated_at_utc": "utc_seconds" } },
-      "request_identity": { "kind": "string", "minimum_utf8_bytes": 1, "maximum_utf8_bytes": 256 },
+      "request_identity": { "kind": "alias", "target": "sha256_hex" },
       "audit_kind": { "kind": "string", "minimum_utf8_bytes": 1, "maximum_utf8_bytes": 64, "pattern": "^[a-z][a-z0-9_]*$" },
       "audit_events": { "kind": "array", "items": "audit_event", "maximum_items": 200, "ordered": true },
       "audit_event": { "kind": "closed_object", "fields": { "audit_id": "bounded_id", "occurred_at_utc": "utc_seconds", "kind": "audit_kind", "outcome": "audit_outcome", "reason_code": "reason_code", "correlation_id": "bounded_id" } },
@@ -172,9 +152,6 @@
       "effective_config_v1": { "fields": { "schema": { "type": "myc_config_schema_literal", "presence": "required" }, "schema_version": { "type": "contract_version_literal", "presence": "required" }, "provenance": { "type": "config_provenance", "presence": "required" }, "redacted_config": { "type": "redacted_config", "presence": "required" }, "config_digest": { "type": "sha256_hex", "presence": "required" } } },
       "identity_status_query_v1": { "fields": { "role": { "type": "identity_role", "presence": "required" } } },
       "identity_status_v1": { "fields": { "role": { "type": "identity_role", "presence": "required" }, "provider": { "type": "identity_provider_kind", "presence": "optional" }, "configured": { "type": "bool", "presence": "required" }, "available": { "type": "bool", "presence": "required" }, "generation": { "type": "u64", "presence": "required" }, "reason_codes": { "type": "reason_codes", "presence": "required" }, "public_key": { "type": "public_key_hex", "presence": "optional" } } },
-      "identity_rekey_request_v1": { "fields": { "role": { "type": "identity_role", "presence": "required" }, "provider": { "type": "encrypted_file_provider", "presence": "required" }, "expected_generation": { "type": "u64", "presence": "required" }, "new_credential_reference": { "type": "credential_reference", "presence": "required" }, "confirmation": { "type": "confirmation", "presence": "required" } } },
-      "identity_replace_request_v1": { "fields": { "role": { "type": "identity_role", "presence": "required" }, "expected_generation": { "type": "u64", "presence": "required" }, "replacement": { "type": "identity_provider_replacement", "presence": "required" }, "confirmation": { "type": "confirmation", "presence": "required" } } },
-      "identity_mutation_receipt_v1": { "fields": { "operation_id": { "type": "operation_id", "presence": "required" }, "role": { "type": "identity_role", "presence": "required" }, "previous_public_key": { "type": "public_key_hex", "presence": "required" }, "current_public_key": { "type": "public_key_hex", "presence": "required" }, "generation": { "type": "u64", "presence": "required" } } },
       "identity_public_query_v1": { "fields": { "role": { "type": "identity_role", "presence": "required" } } },
       "identity_public_v1": { "fields": { "role": { "type": "identity_role", "presence": "required" }, "public_key": { "type": "public_key_hex", "presence": "required" }, "generation": { "type": "u64", "presence": "required" } } },
       "state_status_v1": { "fields": { "schema_version": { "type": "positive_u32", "presence": "required" }, "generation": { "type": "u64", "presence": "required" }, "integrity": { "type": "integrity_state", "presence": "required" }, "writer_lock": { "type": "writer_lock_state", "presence": "required" }, "backup_eligible": { "type": "bool", "presence": "required" }, "reason_codes": { "type": "reason_codes", "presence": "required" } } },
@@ -228,8 +205,6 @@
       "success_visibility": "response_only_after_local_authoritative_commit",
       "relay_submission_or_delivery_required_for_success": false,
       "committed_effects": {
-        "radroots.myc.identity.rekey.v1": "identity_generation_provider_binding_session_invalidation_and_operation_audit",
-        "radroots.myc.identity.replace.v1": "identity_generation_provider_binding_session_invalidation_and_operation_audit",
         "radroots.myc.state.backup.create.v1": "verified_snapshot_manifest_digest_and_operation_audit",
         "radroots.myc.connection.approve.v1": "connection_state_permissions_generation_and_operation_audit",
         "radroots.myc.connection.reject.v1": "connection_state_reason_generation_and_operation_audit",
@@ -262,8 +237,6 @@
       { "command": "state migrate", "primary_authority": "offline", "offline_operation": "state_exclusive" },
       { "command": "identity init", "primary_authority": "offline", "offline_operation": "identity_exclusive" },
       { "command": "identity status", "primary_authority": "live_unix_admin", "admin_route": "/v1/identity/status", "offline_operation": "identity_read_only", "daemon_unavailable_offline_fallback": true },
-      { "command": "identity rekey", "primary_authority": "live_unix_admin", "admin_route": "/v1/identity/rekey" },
-      { "command": "identity replace", "primary_authority": "live_unix_admin", "admin_route": "/v1/identity/replace" },
       { "command": "identity export-public", "primary_authority": "live_unix_admin", "admin_route": "/v1/identity/public", "offline_operation": "identity_read_only", "daemon_unavailable_offline_fallback": true },
       { "command": "status", "primary_authority": "live_unix_admin", "admin_route": "/v1/status", "offline_operation": "state_read_only", "daemon_unavailable_offline_fallback": true },
       { "command": "doctor", "primary_authority": "offline", "offline_operation": "doctor" }

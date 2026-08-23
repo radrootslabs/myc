@@ -80,14 +80,6 @@ fn root_api_freezes_the_exact_command_inventory() {
             MycCommandV1::Identity(MycIdentityCommandV1::Status),
         ),
         (
-            vec!["identity", "rekey"],
-            MycCommandV1::Identity(MycIdentityCommandV1::Rekey),
-        ),
-        (
-            vec!["identity", "replace"],
-            MycCommandV1::Identity(MycIdentityCommandV1::Replace),
-        ),
-        (
             vec!["identity", "export-public"],
             MycCommandV1::Identity(MycIdentityCommandV1::ExportPublic),
         ),
@@ -233,22 +225,6 @@ fn every_command_has_one_exact_nonforgeable_execution_plan() {
             Some("identity_read_only"),
             Some("/v1/identity/status"),
             true,
-        ),
-        (
-            "identity rekey",
-            vec!["identity", "rekey"],
-            "live_unix_admin",
-            None,
-            Some("/v1/identity/rekey"),
-            false,
-        ),
-        (
-            "identity replace",
-            vec!["identity", "replace"],
-            "live_unix_admin",
-            None,
-            Some("/v1/identity/replace"),
-            false,
         ),
         (
             "identity export-public",
@@ -403,8 +379,6 @@ fn admin_path(operation: MycCliAdminOperationV1) -> &'static str {
         MycCliAdminOperationV1::StateStatus => "/v1/state/status",
         MycCliAdminOperationV1::StateBackup => "/v1/state/backup",
         MycCliAdminOperationV1::IdentityStatus => "/v1/identity/status",
-        MycCliAdminOperationV1::IdentityRekey => "/v1/identity/rekey",
-        MycCliAdminOperationV1::IdentityReplace => "/v1/identity/replace",
         MycCliAdminOperationV1::IdentityPublic => "/v1/identity/public",
     }
 }
@@ -427,14 +401,6 @@ fn cli_admin_operations_match_the_governed_route_inventory() {
         (
             MycCliAdminOperationV1::IdentityStatus,
             MycAdminRoute::IdentityStatus,
-        ),
-        (
-            MycCliAdminOperationV1::IdentityRekey,
-            MycAdminRoute::IdentityRekey,
-        ),
-        (
-            MycCliAdminOperationV1::IdentityReplace,
-            MycAdminRoute::IdentityReplace,
         ),
         (
             MycCliAdminOperationV1::IdentityPublic,
@@ -460,7 +426,7 @@ fn execution_plan_debug_retains_no_bootstrap_or_path_values() {
         "--config",
         "/secret/config.toml",
         "identity",
-        "rekey",
+        "export-public",
     ])
     .expect("valid invocation");
     let rendered = format!("{invocation:?} {:?}", plan_myc_cli_v1(&invocation));
@@ -480,6 +446,8 @@ fn root_api_rejects_prototype_and_arbitrary_leaf_arguments_safely() {
         base(&["metrics"]),
         base(&["persistence", "backup"]),
         base(&["identity", "generate"]),
+        base(&["identity", "rekey"]),
+        base(&["identity", "replace"]),
         base(&["run", "--relay-url", "wss://secret.example"]),
     ] {
         let error = parse_myc_cli_v1_from(arguments).expect_err("forbidden CLI shape");

@@ -53,8 +53,6 @@ pub enum MycStateCommandV1 {
 pub enum MycIdentityCommandV1 {
     Init,
     Status,
-    Rekey,
-    Replace,
     ExportPublic,
 }
 
@@ -84,8 +82,6 @@ pub enum MycCliAdminOperationV1 {
     StateStatus,
     StateBackup,
     IdentityStatus,
-    IdentityRekey,
-    IdentityReplace,
     IdentityPublic,
 }
 
@@ -99,8 +95,6 @@ impl MycCliAdminOperationV1 {
             Self::StateStatus => crate::MycAdminRoute::StateStatus,
             Self::StateBackup => crate::MycAdminRoute::StateBackup,
             Self::IdentityStatus => crate::MycAdminRoute::IdentityStatus,
-            Self::IdentityRekey => crate::MycAdminRoute::IdentityRekey,
-            Self::IdentityReplace => crate::MycAdminRoute::IdentityReplace,
             Self::IdentityPublic => crate::MycAdminRoute::IdentityPublic,
         }
     }
@@ -362,12 +356,6 @@ pub const fn plan_myc_cli_v1(invocation: &MycCliInvocationV1) -> MycCliExecution
             MycCliAdminOperationV1::IdentityPublic,
             MycCliOfflineOperationV1::IdentityReadOnly,
         ),
-        MycCommandV1::Identity(MycIdentityCommandV1::Rekey) => {
-            admin_plan(MycCliAdminOperationV1::IdentityRekey)
-        }
-        MycCommandV1::Identity(MycIdentityCommandV1::Replace) => {
-            admin_plan(MycCliAdminOperationV1::IdentityReplace)
-        }
         MycCommandV1::Status => read_only_admin_plan(
             MycCliAdminOperationV1::Status,
             MycCliOfflineOperationV1::StateReadOnly,
@@ -390,15 +378,6 @@ const fn offline_plan(operation: MycCliOfflineOperationV1) -> MycCliExecutionPla
         primary_authority: MycCliPrimaryAuthorityV1::Offline,
         offline_operation: Some(operation),
         admin_operation: None,
-        daemon_unavailable_offline_fallback: false,
-    }
-}
-
-const fn admin_plan(operation: MycCliAdminOperationV1) -> MycCliExecutionPlanV1 {
-    MycCliExecutionPlanV1 {
-        primary_authority: MycCliPrimaryAuthorityV1::LiveUnixAdmin,
-        offline_operation: None,
-        admin_operation: Some(operation),
         daemon_unavailable_offline_fallback: false,
     }
 }
@@ -557,8 +536,6 @@ impl From<RawStateCommand> for MycStateCommandV1 {
 enum RawIdentityCommand {
     Init,
     Status,
-    Rekey,
-    Replace,
     ExportPublic,
 }
 
@@ -567,8 +544,6 @@ impl From<RawIdentityCommand> for MycIdentityCommandV1 {
         match value {
             RawIdentityCommand::Init => Self::Init,
             RawIdentityCommand::Status => Self::Status,
-            RawIdentityCommand::Rekey => Self::Rekey,
-            RawIdentityCommand::Replace => Self::Replace,
             RawIdentityCommand::ExportPublic => Self::ExportPublic,
         }
     }
@@ -635,14 +610,6 @@ mod tests {
             (
                 &["identity", "status"][..],
                 MycCommandV1::Identity(MycIdentityCommandV1::Status),
-            ),
-            (
-                &["identity", "rekey"][..],
-                MycCommandV1::Identity(MycIdentityCommandV1::Rekey),
-            ),
-            (
-                &["identity", "replace"][..],
-                MycCommandV1::Identity(MycIdentityCommandV1::Replace),
             ),
             (
                 &["identity", "export-public"][..],

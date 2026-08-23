@@ -1,6 +1,6 @@
 //! Exact Myc v1 Unix-admin route and model boundary.
 
-use core::{fmt, future::Future, pin::Pin};
+use core::{fmt, future::Future, pin::Pin, time::Duration};
 use std::{
     collections::BTreeSet,
     error::Error,
@@ -12,7 +12,9 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use radroots_service_host::{
     AdminCorrelationId, AdminError, AdminErrorCode, AdminErrorMessage, AdminHttpMethod,
     AdminMutationRequest, AdminOperationId, AdminRequest, AdminRouteFailure,
-    AdminRouteFailureStatus, AdminRouteOutcome, AdminRouter,
+    AdminRouteFailureStatus, AdminRouteOutcome, AdminRouter, AdminServer, AdminServerError,
+    AdminTransportLimitValues, AdminTransportLimits, CancellationToken, UnixAdminSocketBinding,
+    UnixAdminSocketWriterAuthority,
 };
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value};
@@ -37,8 +39,6 @@ pub enum MycAdminRoute {
     Status,
     EffectiveConfig,
     IdentityStatus,
-    IdentityRekey,
-    IdentityReplace,
     IdentityPublic,
     StateStatus,
     StateBackup,
@@ -58,12 +58,10 @@ pub enum MycAdminRoute {
 }
 
 impl MycAdminRoute {
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 19] = [
         Self::Status,
         Self::EffectiveConfig,
         Self::IdentityStatus,
-        Self::IdentityRekey,
-        Self::IdentityReplace,
         Self::IdentityPublic,
         Self::StateStatus,
         Self::StateBackup,
@@ -95,9 +93,7 @@ impl MycAdminRoute {
             | Self::AuditEvents
             | Self::AuditSummary
             | Self::DiscoveryDesired => MycAdminMethod::Get,
-            Self::IdentityRekey
-            | Self::IdentityReplace
-            | Self::StateBackup
+            Self::StateBackup
             | Self::ConnectionApprove
             | Self::ConnectionReject
             | Self::ConnectionRevoke
@@ -115,8 +111,6 @@ impl MycAdminRoute {
             Self::Status => "/v1/status",
             Self::EffectiveConfig => "/v1/config/effective",
             Self::IdentityStatus => "/v1/identity/status",
-            Self::IdentityRekey => "/v1/identity/rekey",
-            Self::IdentityReplace => "/v1/identity/replace",
             Self::IdentityPublic => "/v1/identity/public",
             Self::StateStatus => "/v1/state/status",
             Self::StateBackup => "/v1/state/backup",
@@ -142,8 +136,6 @@ impl MycAdminRoute {
             Self::Status => "radroots.myc.status.get.v1",
             Self::EffectiveConfig => "radroots.myc.config.effective.get.v1",
             Self::IdentityStatus => "radroots.myc.identity.status.get.v1",
-            Self::IdentityRekey => "radroots.myc.identity.rekey.v1",
-            Self::IdentityReplace => "radroots.myc.identity.replace.v1",
             Self::IdentityPublic => "radroots.myc.identity.public.get.v1",
             Self::StateStatus => "radroots.myc.state.status.get.v1",
             Self::StateBackup => "radroots.myc.state.backup.create.v1",
@@ -172,8 +164,6 @@ impl MycAdminRoute {
             | Self::MetricsSnapshot
             | Self::DiscoveryDesired => "empty",
             Self::IdentityStatus => "identity_status_query_v1",
-            Self::IdentityRekey => "identity_rekey_request_v1",
-            Self::IdentityReplace => "identity_replace_request_v1",
             Self::IdentityPublic => "identity_public_query_v1",
             Self::StateBackup => "state_backup_request_v1",
             Self::ConnectionsList => "connections_query_v1",
@@ -196,7 +186,6 @@ impl MycAdminRoute {
             Self::Status => "service_status_v1",
             Self::EffectiveConfig => "effective_config_v1",
             Self::IdentityStatus => "identity_status_v1",
-            Self::IdentityRekey | Self::IdentityReplace => "identity_mutation_receipt_v1",
             Self::IdentityPublic => "identity_public_v1",
             Self::StateStatus => "state_status_v1",
             Self::StateBackup => "state_backup_receipt_v1",
@@ -499,6 +488,189 @@ impl fmt::Debug for MycAdminRouter {
     }
 }
 
+impl MycAdminRouter {
+    fn into_inner(self) -> AdminRouter {
+        self.inner
+    }
+}
+
+/// Cloneable cooperative cancellation for the Myc Unix-admin server.
+#[derive(Clone, Default)]
+pub struct MycAdminCancellationToken {
+    inner: CancellationToken,
+}
+
+impl MycAdminCancellationToken {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Requests cancellation. Repeated requests have no additional effect.
+    pub fn cancel(&self) {
+        self.inner.cancel();
+    }
+
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.inner.is_cancelled()
+    }
+}
+
+impl fmt::Debug for MycAdminCancellationToken {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MycAdminCancellationToken")
+            .field("cancelled", &self.is_cancelled())
+            .finish()
+    }
+}
+
+/// Stable source-free Myc Unix-admin server failure classification.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MycAdminServerErrorKind {
+    InvalidConfiguration,
+    Router,
+    ServerConfiguration,
+    WriterAuthority,
+    Bind,
+    Listener,
+    Accept,
+    ConnectionTaskPanicked,
+}
+
+impl MycAdminServerErrorKind {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::InvalidConfiguration => "admin_configuration_invalid",
+            Self::Router => "admin_router_invalid",
+            Self::ServerConfiguration => "admin_server_configuration_invalid",
+            Self::WriterAuthority => "admin_writer_authority_unavailable",
+            Self::Bind => "admin_bind_failed",
+            Self::Listener => "admin_listener_failed",
+            Self::Accept => "admin_accept_failed",
+            Self::ConnectionTaskPanicked => "admin_connection_task_panicked",
+        }
+    }
+}
+
+/// One redacted source-free Myc Unix-admin server failure.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct MycAdminServerError {
+    kind: MycAdminServerErrorKind,
+}
+
+impl MycAdminServerError {
+    const fn new(kind: MycAdminServerErrorKind) -> Self {
+        Self { kind }
+    }
+
+    #[must_use]
+    pub const fn kind(self) -> MycAdminServerErrorKind {
+        self.kind
+    }
+
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        self.kind.code()
+    }
+}
+
+impl fmt::Debug for MycAdminServerError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MycAdminServerError")
+            .field("kind", &self.kind)
+            .finish()
+    }
+}
+
+impl fmt::Display for MycAdminServerError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Myc Unix-admin server failed")
+    }
+}
+
+impl Error for MycAdminServerError {}
+
+/// Unbound production Myc Unix-admin server.
+///
+/// Construction projects only the already-admitted Myc configuration, seals
+/// the exact route inventory around the supplied domain handler, and uses the
+/// shared host's system entropy. The raw shared router and server never cross
+/// this boundary.
+pub struct MycAdminServer {
+    inner: AdminServer,
+}
+
+impl MycAdminServer {
+    pub fn new<H>(
+        configuration: &crate::MycConfigDocumentV1,
+        handler: Arc<H>,
+    ) -> Result<Self, MycAdminServerError>
+    where
+        H: MycAdminHandler,
+    {
+        let limits = admin_transport_limits(configuration)?;
+        let router = build_myc_admin_router(handler)
+            .map_err(|_| MycAdminServerError::new(MycAdminServerErrorKind::Router))?;
+        let inner = AdminServer::with_system_entropy(router.into_inner(), limits)
+            .map_err(|_| MycAdminServerError::new(MycAdminServerErrorKind::ServerConfiguration))?;
+        Ok(Self { inner })
+    }
+
+    /// Acquires the canonical runtime-directory authority and binds `admin.sock`.
+    ///
+    /// Binding does not spawn a task or begin request admission. Unit 15 owns
+    /// the final supervised server task and its shutdown phase.
+    pub async fn bind(
+        self,
+        runtime: &crate::MycRuntimeContext,
+    ) -> Result<MycBoundAdminServer, MycAdminServerError> {
+        let authority = UnixAdminSocketWriterAuthority::acquire(runtime.context().paths().run())
+            .map_err(|_| MycAdminServerError::new(MycAdminServerErrorKind::WriterAuthority))?;
+        let binding = UnixAdminSocketBinding::bind(authority, runtime.artifacts().admin_socket())
+            .await
+            .map_err(|_| MycAdminServerError::new(MycAdminServerErrorKind::Bind))?;
+        Ok(MycBoundAdminServer {
+            inner: self.inner,
+            binding,
+        })
+    }
+}
+
+impl fmt::Debug for MycAdminServer {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("MycAdminServer([sealed])")
+    }
+}
+
+/// Bound production Myc Unix-admin server.
+pub struct MycBoundAdminServer {
+    inner: AdminServer,
+    binding: UnixAdminSocketBinding,
+}
+
+impl MycBoundAdminServer {
+    /// Serves until supervisor cancellation and then drains bounded connection work.
+    pub async fn serve(
+        self,
+        cancellation: MycAdminCancellationToken,
+    ) -> Result<(), MycAdminServerError> {
+        self.inner
+            .serve(self.binding, cancellation.inner)
+            .await
+            .map_err(map_admin_server_error)
+    }
+}
+
+impl fmt::Debug for MycBoundAdminServer {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("MycBoundAdminServer([sealed])")
+    }
+}
+
 /// Registers the complete closed Myc v1 route inventory on the hardened Lib router.
 pub fn build_myc_admin_router<H>(handler: Arc<H>) -> Result<MycAdminRouter, MycAdminRouterError>
 where
@@ -518,6 +690,52 @@ where
             .map_err(|_| MycAdminRouterError)?;
     }
     Ok(MycAdminRouter { inner: router })
+}
+
+fn admin_transport_limits(
+    configuration: &crate::MycConfigDocumentV1,
+) -> Result<AdminTransportLimits, MycAdminServerError> {
+    let admin = configuration
+        .normalized()
+        .pointer("/resource_limits/admin")
+        .ok_or_else(invalid_admin_configuration)?;
+    let values = AdminTransportLimitValues {
+        header_count: admin_u32(admin, "/header_count")?,
+        header_bytes: admin_u32(admin, "/header_bytes")?,
+        request_body_utf8_bytes: admin_u32(admin, "/request_body_utf8_bytes")?,
+        response_body_utf8_bytes: admin_u32(admin, "/response_body_utf8_bytes")?,
+        concurrent_connections: admin_u32(admin, "/concurrent_connections")?,
+        request_deadline: Duration::from_millis(admin_u64(admin, "/request_deadline_ms")?),
+        idle_timeout: Duration::from_millis(admin_u64(admin, "/idle_timeout_ms")?),
+        query_items: admin_u32(admin, "/query_items")?,
+    };
+    AdminTransportLimits::new(values).map_err(|_| invalid_admin_configuration())
+}
+
+fn admin_u64(value: &Value, pointer: &str) -> Result<u64, MycAdminServerError> {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_u64)
+        .ok_or_else(invalid_admin_configuration)
+}
+
+fn admin_u32(value: &Value, pointer: &str) -> Result<u32, MycAdminServerError> {
+    u32::try_from(admin_u64(value, pointer)?).map_err(|_| invalid_admin_configuration())
+}
+
+const fn invalid_admin_configuration() -> MycAdminServerError {
+    MycAdminServerError::new(MycAdminServerErrorKind::InvalidConfiguration)
+}
+
+const fn map_admin_server_error(error: AdminServerError) -> MycAdminServerError {
+    let kind = match error {
+        AdminServerError::ListenerClone { .. } | AdminServerError::ListenerRegistration { .. } => {
+            MycAdminServerErrorKind::Listener
+        }
+        AdminServerError::Accept { .. } => MycAdminServerErrorKind::Accept,
+        AdminServerError::ConnectionTaskPanicked => MycAdminServerErrorKind::ConnectionTaskPanicked,
+    };
+    MycAdminServerError::new(kind)
 }
 
 async fn dispatch_route<H>(
@@ -773,7 +991,7 @@ fn operator_route_inventory_is_exact() -> bool {
         return false;
     };
     routes.len() == MycAdminRoute::ALL.len()
-        && models.len() == 35
+        && models.len() == 32
         && admin
             .pointer("/model_wire_contract/response_body_max_utf8_bytes")
             .and_then(Value::as_u64)
@@ -1446,7 +1664,7 @@ mod tests {
     #[test]
     fn complete_route_and_model_inventory_matches_the_machine_contract() {
         assert!(operator_route_inventory_is_exact());
-        assert_eq!(MycAdminRoute::ALL.len(), 21);
+        assert_eq!(MycAdminRoute::ALL.len(), 19);
         let referenced = MycAdminRoute::ALL
             .into_iter()
             .flat_map(|route| [route.request_model(), route.response_model()])
@@ -1458,7 +1676,7 @@ mod tests {
             .map(String::as_str)
             .collect::<BTreeSet<_>>();
         assert_eq!(referenced, governed);
-        assert_eq!(governed.len(), 35);
+        assert_eq!(governed.len(), 32);
         for model in governed {
             let value = sample_model(model);
             validate_model(model, &value).expect("minimum exact model");
@@ -1573,41 +1791,36 @@ mod tests {
     fn public_diagnostics_are_source_free_and_content_free() {
         let document = MycAdminDocumentError::new(MycAdminDocumentErrorKind::InvalidModel);
         let handler = MycAdminHandlerError::new(MycAdminHandlerErrorKind::Internal);
+        let server = MycAdminServerError::new(MycAdminServerErrorKind::Bind);
         for rendered in [
             format!("{document}"),
             format!("{document:?}"),
             format!("{handler}"),
             format!("{handler:?}"),
+            format!("{server}"),
+            format!("{server:?}"),
         ] {
             assert!(!rendered.contains("/tmp/protected"));
             assert!(!rendered.contains("credential"));
         }
         assert!(Error::source(&document).is_none());
         assert!(Error::source(&handler).is_none());
+        assert!(Error::source(&server).is_none());
+        assert_eq!(server.code(), "admin_bind_failed");
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     mod native {
         use core::sync::atomic::{AtomicUsize, Ordering};
+        use std::fs;
         use std::sync::Mutex;
 
-        use radroots_service_host::{
-            AdminClient, AdminClientTarget, AdminServer, AdminTransportLimits, CancellationToken,
-            EntropyError, EntropySource, UnixAdminSocketBinding, UnixAdminSocketWriterAuthority,
-        };
+        use radroots_service_host::{AdminClient, AdminClientTarget, AdminTransportLimits};
 
         use super::*;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-        #[derive(Clone, Copy)]
-        struct FixedEntropy;
-
-        impl EntropySource for FixedEntropy {
-            fn fill_bytes(&self, destination: &mut [u8]) -> Result<(), EntropyError> {
-                destination.fill(0x51);
-                Ok(())
-            }
-        }
+        const CONFIG: &str = include_str!("../contracts/services_hardening/config.v1.example.toml");
 
         type FixtureCall = (MycAdminRoute, Option<String>, Box<[u8]>);
 
@@ -1660,11 +1873,38 @@ mod tests {
             }
         }
 
-        fn runtime_directory() -> tempfile::TempDir {
-            tempfile::Builder::new()
+        fn runtime_context() -> (
+            tempfile::TempDir,
+            crate::MycRuntimeContext,
+            crate::MycConfigDocumentV1,
+        ) {
+            let root = tempfile::Builder::new()
                 .prefix("myc-admin-")
                 .tempdir_in("/tmp")
-                .expect("short runtime directory")
+                .expect("short runtime root");
+            let root_path = root.path().to_str().expect("UTF-8 test root");
+            let invocation = crate::parse_myc_cli_v1_from([
+                "myc",
+                "--profile",
+                "repo-local",
+                "--instance",
+                "primary",
+                "--repo-local-root",
+                root_path,
+                "run",
+            ])
+            .expect("test CLI");
+            let resolver = crate::RadrootsPathResolver::new(
+                crate::RadrootsPlatform::Linux,
+                crate::RadrootsHostEnvironment::default(),
+            );
+            let runtime = crate::resolve_myc_runtime_context(&resolver, &invocation)
+                .expect("test runtime context");
+            fs::create_dir_all(runtime.context().paths().run()).expect("runtime directory");
+            let configuration =
+                crate::parse_myc_config_v1(CONFIG.as_bytes(), crate::MycConfigProfile::RepoLocal)
+                    .expect("test configuration");
+            (root, runtime, configuration)
         }
 
         fn target_for(route: MycAdminRoute, request: &Value) -> AdminClientTarget {
@@ -1709,24 +1949,20 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn all_twenty_one_routes_round_trip_over_the_hardened_unix_boundary() {
-            let directory = runtime_directory();
-            let socket = directory.path().join("admin.sock");
-            let authority = UnixAdminSocketWriterAuthority::acquire(directory.path())
-                .expect("writer authority");
-            let binding = UnixAdminSocketBinding::bind(authority, &socket)
-                .await
-                .expect("socket binding");
+        async fn all_nineteen_routes_round_trip_over_the_hardened_unix_boundary() {
+            let (_root, runtime, configuration) = runtime_context();
+            let socket = runtime.artifacts().admin_socket().to_path_buf();
             let handler = Arc::new(FixtureHandler::new());
-            let MycAdminRouter { inner } =
-                build_myc_admin_router(Arc::clone(&handler)).expect("exact router");
-            let server = AdminServer::new(inner, AdminTransportLimits::DEFAULT, FixedEntropy)
-                .expect("admin server");
-            let cancellation = CancellationToken::new();
+            let server = MycAdminServer::new(&configuration, Arc::clone(&handler))
+                .expect("production admin server")
+                .bind(&runtime)
+                .await
+                .expect("canonical admin binding");
+            let cancellation = MycAdminCancellationToken::new();
             let server_cancellation = cancellation.clone();
             let task = tokio::spawn(async move {
                 server
-                    .serve(binding, server_cancellation)
+                    .serve(server_cancellation)
                     .await
                     .expect("serve Myc admin");
             });
@@ -1813,7 +2049,7 @@ mod tests {
 
             {
                 let calls = handler.calls.lock().expect("calls");
-                assert_eq!(calls.len(), 21);
+                assert_eq!(calls.len(), 19);
                 for (index, (route, operation_id, request)) in calls.iter().enumerate() {
                     assert_eq!(*route, MycAdminRoute::ALL[index]);
                     assert_eq!(operation_id.is_some(), route.is_mutation());
@@ -1826,6 +2062,16 @@ mod tests {
             }
             cancellation.cancel();
             task.await.expect("server task");
+            assert!(!socket.exists());
+        }
+
+        #[test]
+        fn production_server_projects_exact_validated_admin_limits() {
+            let (_root, _runtime, configuration) = runtime_context();
+            assert_eq!(
+                admin_transport_limits(&configuration).expect("admin limits"),
+                AdminTransportLimits::DEFAULT
+            );
         }
     }
 }

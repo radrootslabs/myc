@@ -50,10 +50,11 @@ mod transport_nostr_adapter;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub use admin_v1::{
-    MycAdminDocumentError, MycAdminDocumentErrorKind, MycAdminFuture, MycAdminHandler,
-    MycAdminHandlerError, MycAdminHandlerErrorKind, MycAdminMethod, MycAdminRequestDocument,
-    MycAdminResponseDocument, MycAdminRoute, MycAdminRouter, MycAdminRouterError,
-    build_myc_admin_router,
+    MycAdminCancellationToken, MycAdminDocumentError, MycAdminDocumentErrorKind, MycAdminFuture,
+    MycAdminHandler, MycAdminHandlerError, MycAdminHandlerErrorKind, MycAdminMethod,
+    MycAdminRequestDocument, MycAdminResponseDocument, MycAdminRoute, MycAdminRouter,
+    MycAdminRouterError, MycAdminServer, MycAdminServerError, MycAdminServerErrorKind,
+    MycBoundAdminServer, build_myc_admin_router,
 };
 pub use cli_v1::{
     MycBootstrapProfileV1, MycCliAdminOperationV1, MycCliExecutionPlanV1, MycCliInvocationV1,

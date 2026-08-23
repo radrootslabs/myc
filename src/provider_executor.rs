@@ -2,7 +2,7 @@
 
 #![allow(
     dead_code,
-    reason = "Step 159 Unit 12 seals the executor before Unit 13 runtime graph wiring"
+    reason = "Step 159 Unit 12 seals the executor before Unit 15 runtime graph wiring"
 )]
 
 use core::fmt;

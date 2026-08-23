@@ -60,7 +60,9 @@ requires explicit `--profile <service-host|interactive|repo-local>` and
 `--repo-local-root` only for `repo-local`, and accepts only an optional absolute
 `--config` path. Its exact command inventory is `run`; `config
 init|validate|show|schema`; `state init|status|backup|restore|verify|migrate`;
-`identity init|status|rekey|replace|export-public`; `status`; and `doctor`.
+`identity init|status|export-public`; `status`; and `doctor`. Identity rotation
+is an offline create-new/config-apply lifecycle and is intentionally absent
+from the live CLI and Unix-admin inventories.
 The process binary uses only this parser. Hardened command execution remains
 fail-closed until its ordered runtime-dispatch steps are complete; no prototype
 command is used as a fallback.
@@ -70,8 +72,8 @@ selects daemon authority; config, exclusive state/identity provisioning, and
 doctor select offline authority; state/identity/service inspection and live
 mutations select the permissioned Unix-admin authority. Only explicitly
 read-only status, backup, and public-identity operations may fall back when a
-later executor proves the daemon writer lock is free. Rekey and replace never
-fall back to direct state access, and no live plan carries SQLite authority.
+later executor proves the daemon writer lock is free. No live plan carries
+SQLite authority.
 
 The active doctor boundary executes the exact 13-check operator inventory in
 contract order under fixed per-check deadlines. Check implementations retain
@@ -235,8 +237,8 @@ authority. Explicit desired/current offline NIP-05 export re-reads verified
 state, works through read-only inspection, and returns canonical compact
 `names` plus NIP-46 discovery JSON without hosting it.
 
-The implemented v1 Myc administration adapter registers the exact 21-route
-inventory and validates every request and response against all 35 model
+The implemented v1 Myc administration adapter registers the exact 19-route
+inventory and validates every request and response against all 32 model
 references in `contracts/services_hardening/operator_contract.v1.json`. It
 reuses the hardened Lib HTTP/1.1-over-Unix server for original-wire duplicate
 and null rejection, percent-decoded bounded path parameters, peer admission,
@@ -251,9 +253,17 @@ operation ID. A successful mutation means its contract-defined local effect
 and operation audit are committed; it does not claim relay submission or
 delivery. Identical operation-ID reuse must return the original committed
 result, different-byte reuse returns `operation_id_conflict`, and pagination
-cursors remain authenticated to the same route, filters, and snapshot. This
-checkpoint supplies the typed protocol adapter, not the later daemon runtime,
-cached status/metrics producer, CLI dispatch, or TCP operations surface.
+cursors remain authenticated to the same route, filters, and snapshot. Unit 13
+seals that handler boundary inside the production `MycAdminServer`,
+projects the exact admitted admin transport limits, and binds only the
+canonical permissioned `admin.sock` through the shared host authority. The raw
+router, listener, entropy source, and cancellation token remain private. The
+existing sole status publisher feeds both detailed local status and the
+optional passive three-route TCP operations server, while doctor continues to
+accept only its exact injected 13-check probe inventory. Unit 14 owns secure
+CLI/config bootstrap and the concrete doctor probe implementations; Unit 15
+alone owns task spawning, provider/relay wiring, readiness, reconnect, and
+phase-aware shutdown.
 
 The transport capability and admitted request remain non-forgeable outside
 the crate:
