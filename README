@@ -45,6 +45,20 @@ vendors the exact locked Cargo graph and proves an offline metadata read before
 packaging. Signing credentials and parent-owned human documentation are never
 inputs.
 
+The standalone Linux systemd boundary is frozen by
+`contracts/services_hardening/systemd_qualification.v1.json` and checked by
+`scripts/verify-systemd.sh`. The instance unit uses the canonical service-host
+paths, fixed unprivileged account, restrictive directory modes and umask,
+fixed restart delay, bounded stop behavior, empty capabilities, no environment-based secret
+input, and the reviewed filesystem, kernel, namespace, process, and address-
+family protections. The Linux-only verifier requires systemd 252 or newer,
+runs syntax verification, and rejects an offline security exposure above 3.0.
+Type `simple` remains deliberate: readiness is the cached CLI/admin contract,
+not `sd_notify`. Compatibility-sensitive `MemoryDenyWriteExecute` and syscall
+filters remain deferred to the Step 229 integration wave rather than being
+enabled without real-binary evidence. This qualification does not install,
+enable, start, stop, or deploy a production service.
+
 The canonical service source lock binds the exact active public Lib cohort,
 Cargo lock, verified Lib source archive, toolchain, feature profile, and
 service contract versions. Deferred flake source data is independently

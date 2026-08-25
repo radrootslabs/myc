@@ -194,6 +194,15 @@
   root, arbitrary member name, Nix/NixOS/OCI input or output, signing key,
   parent-owned human document, private harness, protected material, or
   publication/deployment authority.
+- RCLD-RSHR-150 Step 227 owns the fixed standalone systemd unit and
+  `systemd_qualification.v1.json`. Keep the canonical service-host directory
+  directives, stable exit-code restart split, bounded stop, empty capability
+  sets, no environment-carried credentials, systemd 252 minimum, and maximum
+  offline exposure 3.0 exact. The Linux verifier must fail closed when
+  `systemd-analyze` is absent. Do not enable compatibility-sensitive
+  `MemoryDenyWriteExecute` or syscall filters until the Step 229 integration
+  wave proves them against the real binary; do not install, enable, start, or
+  deploy a production service here.
 - Step 221 integration requires a signer-transport-authored `pending_connection` response for an
   explicitly approval-gated NIP-46 connect request. Keep that exact response
   and its initial delivery job atomic and immutable without recording a false
@@ -368,6 +377,7 @@ cargo extbuild run -- cargo test --workspace --all-targets --locked
 cargo extbuild run -- cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo extbuild run -- ./scripts/verify-boundaries.sh
 cargo extbuild run -- ./scripts/verify-supply-chain.sh
+cargo extbuild run -- ./scripts/verify-systemd.sh
 cargo extbuild run -- ./scripts/release-acceptance.sh
 ```
 

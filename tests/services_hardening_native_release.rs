@@ -190,12 +190,13 @@ fn native_release_contract_and_manifest_metadata_are_exact() {
     );
     for required in [
         "ExecStart=/usr/bin/myc --profile service-host --instance %i run",
-        "ConfigDirectory=radroots/services/myc/%i",
+        "ConfigurationDirectory=radroots/services/myc/%i",
         "StateDirectory=radroots/services/myc/%i",
         "RuntimeDirectory=radroots/services/myc/%i",
         "UMask=0077",
         "NoNewPrivileges=yes",
         "ProtectSystem=strict",
+        "CapabilityBoundingSet=",
     ] {
         assert!(SYSTEMD_UNIT.contains(required), "missing `{required}`");
     }
