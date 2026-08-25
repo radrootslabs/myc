@@ -649,7 +649,7 @@ fn connect_permissions(
 ) -> Result<MycConnectionPermissionSet, MycNip46WorkError> {
     let permissions = permissions
         .iter()
-        .map(|permission| protocol_permission(&permission.to_string()))
+        .map(connect_permission)
         .collect::<Result<Vec<_>, _>>()?;
     if permissions.iter().any(|permission| {
         !matches!(
@@ -666,6 +666,27 @@ fn connect_permissions(
     }
     MycConnectionPermissionSet::new(&permissions)
         .map_err(|_| work_error(MycNip46WorkErrorKind::PermissionDenied))
+}
+
+fn connect_permission(
+    permission: &radroots_nostr_connect::permission::Permission,
+) -> Result<MycConnectionPermission, MycNip46WorkError> {
+    if permission.method() == &radroots_nostr_connect::Method::SignEvent {
+        let parameter = permission
+            .parameter()
+            .ok_or_else(|| work_error(MycNip46WorkErrorKind::PermissionDenied))?;
+        let kind = parameter.strip_prefix("kind:").unwrap_or(parameter);
+        let parsed = kind
+            .parse::<u32>()
+            .ok()
+            .filter(|parsed| kind == parsed.to_string())
+            .ok_or_else(|| work_error(MycNip46WorkErrorKind::PermissionDenied))?;
+        return Ok(MycConnectionPermission::SignEvent(parsed));
+    }
+    if permission.parameter().is_some() {
+        return Err(work_error(MycNip46WorkErrorKind::PermissionDenied));
+    }
+    protocol_permission(permission.method().as_str())
 }
 
 #[cfg(test)]
@@ -999,7 +1020,7 @@ mod tests {
             vec![
                 keys(2).public_key().to_hex(),
                 String::new(),
-                "nip44_encrypt,sign_event:kind:1".into(),
+                "nip44_encrypt,sign_event:1".into(),
             ],
         );
         let prepared = prepared_request(connect, 20);
