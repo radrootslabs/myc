@@ -366,9 +366,14 @@ cargo extbuild run -- cargo fmt --all --check
 cargo extbuild run -- cargo check --workspace --locked
 cargo extbuild run -- cargo test --workspace --all-targets --locked
 cargo extbuild run -- cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo extbuild run -- ./scripts/verify-supply-chain.sh
 cargo extbuild run -- ./scripts/release-acceptance.sh
 ```
 
+The supply-chain gate requires exact cargo-deny 0.19.8 and cargo-vet 0.10.2,
+the checked-in exemption inventory, the locked graph, approved licenses and
+sources, and only the explicitly justified Nostr 0.44 advisories. Exemptions
+are visible accepted review debt, not claims of independent source audits.
 The release-acceptance contract requires formatting, locked metadata, locked
 all-target checking and testing, warnings-denied all-target Clippy, rustdoc with
 warnings denied, and diff hygiene. Run any gate not yet covered by the current

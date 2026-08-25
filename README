@@ -549,6 +549,7 @@ crate through extbuild:
 
 ```text
 cargo extbuild doctor
+cargo extbuild run -- ./scripts/verify-supply-chain.sh
 cargo extbuild run -- ./scripts/release-acceptance.sh
 ```
 
