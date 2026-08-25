@@ -153,6 +153,7 @@ impl MycProviderCapabilitySet {
         match role {
             MycProviderRole::Transport => Self(
                 common
+                    | MycProviderCapability::SignEvent.bit()
                     | MycProviderCapability::Nip04Encrypt.bit()
                     | MycProviderCapability::Nip04Decrypt.bit()
                     | MycProviderCapability::Nip44Encrypt.bit()
@@ -1158,8 +1159,8 @@ mod tests {
     #[test]
     fn capability_sets_are_closed_ordered_and_duplicate_free() {
         let transport = MycProviderCapabilitySet::for_role(MycProviderRole::Transport);
-        assert_eq!(transport.len(), 6);
-        assert!(!transport.contains(MycProviderCapability::SignEvent));
+        assert_eq!(transport.len(), 7);
+        assert!(transport.contains(MycProviderCapability::SignEvent));
         assert_eq!(
             MycProviderCapabilitySet::for_role(MycProviderRole::User)
                 .iter()

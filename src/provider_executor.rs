@@ -425,8 +425,7 @@ const fn capability_allowed_for_role(
     capability: MycProviderCapability,
 ) -> bool {
     match role {
-        MycProviderRole::Transport => !matches!(capability, MycProviderCapability::SignEvent),
-        MycProviderRole::User => true,
+        MycProviderRole::Transport | MycProviderRole::User => true,
         MycProviderRole::Discovery => matches!(
             capability,
             MycProviderCapability::Describe
@@ -563,10 +562,10 @@ mod tests {
     #[test]
     fn capability_matrix_and_diagnostics_are_closed() {
         for capability in MycProviderCapability::ALL {
-            assert_eq!(
-                capability_allowed_for_role(MycProviderRole::Transport, capability),
-                !matches!(capability, MycProviderCapability::SignEvent)
-            );
+            assert!(capability_allowed_for_role(
+                MycProviderRole::Transport,
+                capability
+            ));
             assert!(capability_allowed_for_role(
                 MycProviderRole::User,
                 capability

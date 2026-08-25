@@ -573,17 +573,17 @@ impl MycRuntimeNip46Coordinator {
     ) -> Result<SignedRuntimeResponse, MycNip46DispatchError> {
         let content = core::str::from_utf8(ciphertext)
             .map_err(|_| dispatch_error(MycNip46DispatchErrorKind::Provider))?;
-        let user_binding = self
+        let transport_binding = self
             .configuration
             .provider_contract()
-            .binding(MycProviderRole::User)
+            .binding(MycProviderRole::Transport)
             .ok_or_else(|| dispatch_error(MycNip46DispatchErrorKind::Runtime))?;
-        let user = NostrPublicKey::from_hex(user_binding.expected_identity().as_hex())
+        let transport = NostrPublicKey::from_hex(transport_binding.expected_identity().as_hex())
             .map_err(|_| dispatch_error(MycNip46DispatchErrorKind::Runtime))?;
         let client = NostrPublicKey::from_hex(work.request_record().client_public_key().as_hex())
             .map_err(|_| dispatch_error(MycNip46DispatchErrorKind::Runtime))?;
         let unsigned = UnsignedEvent::new(
-            user,
+            transport,
             Timestamp::from_secs(completed_at.get() / 1_000),
             Kind::Custom(NIP46_RPC_KIND),
             vec![Tag::public_key(client)],
@@ -592,7 +592,7 @@ impl MycRuntimeNip46Coordinator {
         let input = MycProviderOperationInput::sign_event(unsigned.as_json().as_bytes())
             .map_err(|_| dispatch_error(MycNip46DispatchErrorKind::Runtime))?;
         let operation = derived_operation(
-            user_binding,
+            transport_binding,
             work,
             RESPONSE_SIGN_OPERATION_DOMAIN,
             RESPONSE_SIGN_CORRELATION_DOMAIN,

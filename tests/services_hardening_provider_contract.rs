@@ -131,10 +131,11 @@ fn admitted_configuration_derives_exact_role_bindings_and_limits() {
     );
     assert!(transport.local_signer_limits().is_none());
     assert!(
-        !transport
+        transport
             .required_capabilities()
             .contains(MycProviderCapability::SignEvent)
     );
+    assert_eq!(transport.required_capabilities().len(), 7);
 
     let user = contract
         .binding(MycProviderRole::User)
@@ -231,17 +232,24 @@ fn every_operation_is_identity_deadline_and_role_bound_before_execution() {
         .provider_contract()
         .binding(MycProviderRole::Transport)
         .expect("transport");
-    let rejected = MycProviderOperation::new(
+    let response_sign = MycProviderOperation::new(
         transport,
         operation_id,
         correlation_id,
         deadline,
         MycProviderOperationInput::sign_event(br#"{"kind":1}"#).expect("event input"),
     )
-    .expect_err("transport cannot sign events");
+    .expect("transport response signing operation");
+    assert_eq!(response_sign.role(), MycProviderRole::Transport);
+    assert_eq!(response_sign.instance().as_str(), "transport");
+    assert_eq!(response_sign.provider(), MycProviderKind::EncryptedFile);
     assert_eq!(
-        rejected.kind(),
-        MycProviderContractErrorKind::UnsupportedOperation
+        response_sign.expected_identity(),
+        transport.expected_identity()
+    );
+    assert_eq!(
+        response_sign.input().capability(),
+        MycProviderCapability::SignEvent
     );
 }
 

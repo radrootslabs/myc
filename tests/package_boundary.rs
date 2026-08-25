@@ -813,6 +813,7 @@ fn step148_response_commit_is_one_atomic_exact_byte_authority() {
     for required in [
         "sealed_step147_completion_component",
         "independently_signature_verified_canonical_kind_24133_event",
+        "exact_bound_transport_provider_operation",
         "exact_signed_response_bytes_sha256_and_event_id",
         "zero_attempt_target_state",
         "committed_response_bytes_only",
@@ -872,6 +873,7 @@ fn step221_pending_response_is_atomic_exact_and_nonterminal() {
     assert_eq!(contract["terminal_effects"]["session_activation"], false);
     for required in [
         "immutable_explicit_approval_pending_decision",
+        "exact_bound_transport_provider_operation",
         "exact_committed_pending_response_bytes",
         "response_edge_failure_rolls_back_response_and_delivery",
         "no_terminal_operation_commit_is_created",

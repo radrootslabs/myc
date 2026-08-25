@@ -255,7 +255,7 @@ relay. Required relay subscriptions and provider handshakes complete before
 Ready; bounded reconnect publishes Unready when a required dependency is lost,
 while optional operations loss publishes Degraded. NIP-46 dispatch verifies,
 decrypts, admits, authorizes, executes providers outside transactions,
-re-encrypts in the verified request context, signs through the user provider,
+re-encrypts in the verified request context, signs through the transport provider,
 and atomically commits completion, exact response bytes, immutable targets,
 and initial outbox state. Completed replay never re-executes a provider.
 

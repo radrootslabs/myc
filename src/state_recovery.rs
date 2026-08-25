@@ -34,13 +34,21 @@ const READ_INVARIANTS_SQL: &str = r#"SELECT
                 SELECT 1 FROM nip46_signed_responses r
                 WHERE r.operation_id = j.source_id
                     AND r.response_sha256 = j.artifact_sha256
+            ) AND NOT EXISTS (
+                SELECT 1 FROM nip46_pending_responses r
+                WHERE r.operation_id = j.source_id
+                    AND r.response_sha256 = j.artifact_sha256
             ))
             OR (j.source_kind = 'discovery_handler' AND NOT EXISTS (
                 SELECT 1 FROM discovery_documents d
                 WHERE d.generation_id = j.source_id
                     AND d.event_sha256 = j.artifact_sha256
             ))) AS invalid_sources,
-    (SELECT COUNT(*) FROM nip46_signed_responses r
+    (SELECT COUNT(*) FROM (
+            SELECT operation_id FROM nip46_signed_responses
+            UNION ALL
+            SELECT operation_id FROM nip46_pending_responses
+        ) r
         WHERE NOT EXISTS (
             SELECT 1 FROM delivery_jobs j
             WHERE j.source_kind = 'signer_response' AND j.source_id = r.operation_id

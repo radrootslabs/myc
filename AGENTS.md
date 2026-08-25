@@ -194,7 +194,7 @@
   root, arbitrary member name, Nix/NixOS/OCI input or output, signing key,
   parent-owned human document, private harness, protected material, or
   publication/deployment authority.
-- Step 221 integration requires a signed `pending_connection` response for an
+- Step 221 integration requires a signer-transport-authored `pending_connection` response for an
   explicitly approval-gated NIP-46 connect request. Keep that exact response
   and its initial delivery job atomic and immutable without recording a false
   terminal operation completion; relay delivery and exact replay use only the

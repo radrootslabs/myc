@@ -6,7 +6,7 @@
   "authority": {
     "completion": "sealed_step147_completion_component",
     "response": "independently_signature_verified_canonical_kind_24133_event",
-    "response_signer": "exact_bound_user_provider_operation",
+    "response_signer": "exact_bound_transport_provider_operation",
     "recipient": "exact_original_nip46_client_public_key",
     "targets_and_retry_policy": "normalized_configuration_bound_in_state_metadata",
     "time": "caller_injected_positive_unix_milliseconds",

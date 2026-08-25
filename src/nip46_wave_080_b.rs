@@ -24,6 +24,7 @@ use super::nip46_wave_080_a::{
     connect_request, connection_time, keys, metadata, migration_evidence, permissions,
     prepared_request, runtime, unsigned_sign_event, untrusted_response,
 };
+use crate::provider_verification::verify_encrypted_provider_response;
 use crate::state_response::MycNip46PendingResponseCommitRequest;
 
 pub(crate) async fn active_connection(
@@ -148,7 +149,7 @@ fn pending_response_request(
     decision: &crate::MycConnectionDecisionRecord,
 ) -> (MycNip46PendingResponseCommitRequest, Vec<u8>) {
     let unsigned = NostrUnsignedEvent::new(
-        keys(3).public_key(),
+        keys(2).public_key(),
         Timestamp::from_secs(OBSERVED_AT_SECONDS + 41),
         Kind::Custom(24_133),
         vec![Tag::public_key(keys(10).public_key())],
@@ -157,8 +158,8 @@ fn pending_response_request(
     let operation = MycProviderOperation::new(
         config
             .provider_contract()
-            .binding(MycProviderRole::User)
-            .expect("user binding"),
+            .binding(MycProviderRole::Transport)
+            .expect("transport binding"),
         MycProviderOperationId::from_bytes([0xa1; 32]),
         MycProviderCorrelationId::from_bytes([0xa2; 32]),
         MycProviderDeadlineUnixMs::new(PROVIDER_DEADLINE_MS).expect("provider deadline"),
@@ -167,27 +168,21 @@ fn pending_response_request(
     )
     .expect("pending response operation");
     let signed = unsigned
-        .sign_with_keys(&keys(3))
+        .sign_with_keys(&keys(2))
         .expect("signed pending response");
     let bytes = serde_json::to_vec(&signed).expect("canonical pending response");
-    let response: MycLocalSignerUntrustedResponse = untrusted_response(
+    let verified = verify_encrypted_provider_response(
+        config
+            .provider_contract()
+            .binding(MycProviderRole::Transport)
+            .expect("transport binding"),
         &operation,
-        hex::encode(operation.correlation_id().as_bytes()),
+        MycProviderResponseObservedAtUnixMs::new(RECEIVED_AT_MS + 41_001).expect("response time"),
         WireProviderResult::SignEvent {
             payload_hex: ProtectedWireHex::from_bytes(&bytes),
         },
-    );
-    let verified = response
-        .verify(
-            config
-                .provider_contract()
-                .binding(MycProviderRole::User)
-                .expect("user binding"),
-            &operation,
-            MycProviderResponseObservedAtUnixMs::new(RECEIVED_AT_MS + 41_001)
-                .expect("response time"),
-        )
-        .expect("verified pending response");
+    )
+    .expect("verified pending response");
     let request = MycNip46PendingResponseCommitRequest::new(
         work,
         decision,
@@ -252,6 +247,21 @@ async fn pending_approval_response_and_delivery_job_commit_atomically_and_replay
         .expect("pending response read")
         .expect("retained pending response");
     assert_eq!(by_job, committed);
+    repository
+        .verify_delivery_invariants()
+        .await
+        .expect("pending response satisfies delivery invariants");
+    repository
+        .recover_delivery_state(
+            crate::MycDeliveryTimeUnixMs::new(RECEIVED_AT_MS + 41_004).expect("recovery time"),
+            crate::MycDeliveryRecoveryEntropy::from_injected_entropy([0xa3; 32]),
+        )
+        .await
+        .expect("pending response survives restart recovery");
+    repository
+        .verify_delivery_invariants()
+        .await
+        .expect("recovered pending response satisfies delivery invariants");
     host.close().await.expect("host close");
 
     let options = SqliteConnectOptions::new()
@@ -297,7 +307,7 @@ pub(crate) fn atomic_response_request(
     completion: &MycNip46CommitRequest,
 ) -> (MycNip46ResponseCommitRequest, Vec<u8>) {
     let unsigned = NostrUnsignedEvent::new(
-        keys(3).public_key(),
+        keys(2).public_key(),
         Timestamp::from_secs(OBSERVED_AT_SECONDS + 3),
         Kind::Custom(24_133),
         vec![Tag::public_key(keys(10).public_key())],
@@ -306,8 +316,8 @@ pub(crate) fn atomic_response_request(
     let operation = MycProviderOperation::new(
         config
             .provider_contract()
-            .binding(MycProviderRole::User)
-            .expect("user binding"),
+            .binding(MycProviderRole::Transport)
+            .expect("transport binding"),
         MycProviderOperationId::from_bytes([0x91; 32]),
         MycProviderCorrelationId::from_bytes([0x92; 32]),
         MycProviderDeadlineUnixMs::new(PROVIDER_DEADLINE_MS).expect("provider deadline"),
@@ -315,26 +325,20 @@ pub(crate) fn atomic_response_request(
             .expect("response signing input"),
     )
     .expect("response operation");
-    let signed = unsigned.sign_with_keys(&keys(3)).expect("signed response");
+    let signed = unsigned.sign_with_keys(&keys(2)).expect("signed response");
     let bytes = serde_json::to_vec(&signed).expect("canonical response");
-    let response: MycLocalSignerUntrustedResponse = untrusted_response(
+    let verified = verify_encrypted_provider_response(
+        config
+            .provider_contract()
+            .binding(MycProviderRole::Transport)
+            .expect("transport binding"),
         &operation,
-        hex::encode(operation.correlation_id().as_bytes()),
+        MycProviderResponseObservedAtUnixMs::new(RECEIVED_AT_MS + 3_001).expect("response time"),
         WireProviderResult::SignEvent {
             payload_hex: ProtectedWireHex::from_bytes(&bytes),
         },
-    );
-    let verified = response
-        .verify(
-            config
-                .provider_contract()
-                .binding(MycProviderRole::User)
-                .expect("user binding"),
-            &operation,
-            MycProviderResponseObservedAtUnixMs::new(RECEIVED_AT_MS + 3_001)
-                .expect("response time"),
-        )
-        .expect("verified response");
+    )
+    .expect("verified response");
     let request = MycNip46ResponseCommitRequest::new(
         completion,
         &operation,

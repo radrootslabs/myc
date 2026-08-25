@@ -234,7 +234,7 @@ impl MycNip46ResponseCommitRequest {
         response: &MycVerifiedProviderResponse,
         committed_at: MycDeliveryTimeUnixMs,
     ) -> Result<Self, MycNip46ResponseCommitError> {
-        if response_operation.role() != MycProviderRole::User
+        if response_operation.role() != MycProviderRole::Transport
             || response_operation.input().capability() != MycProviderCapability::SignEvent
             || response.operation_id() != response_operation.operation_id()
             || response.correlation_id() != response_operation.correlation_id()
@@ -355,7 +355,7 @@ impl MycNip46PendingResponseCommitRequest {
             || decision.policy_generation() != connection.policy_generation()
             || connection.status() != MycConnectionStatus::Pending
             || connection.client_public_key() != work.request_record().client_public_key()
-            || response_operation.role() != MycProviderRole::User
+            || response_operation.role() != MycProviderRole::Transport
             || response_operation.input().capability() != MycProviderCapability::SignEvent
             || response.operation_id() != response_operation.operation_id()
             || response.correlation_id() != response_operation.correlation_id()
