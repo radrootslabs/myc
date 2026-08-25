@@ -13,4 +13,5 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 cargo test --locked -p myc_xtask
 scripts/verify-supply-chain.sh
+scripts/verify-boundaries.sh
 git diff --check
