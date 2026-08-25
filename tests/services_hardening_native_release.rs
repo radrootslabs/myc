@@ -12,7 +12,7 @@ const FLAKE_LOCK: &str = include_str!("../flake.lock");
 const CARGO_CONFIG: &str = include_str!("../.cargo/config.toml");
 const SYSTEMD_UNIT: &str = include_str!("../packaging/systemd/myc@.service");
 
-const LIB_REVISION: &str = "7d7b454b4c9ed86569671993bd03ca868b676665";
+const LIB_REVISION: &str = "d287d41c2cd97cd0e455445da90f22180029f089";
 const DEFERRED_NIX_LIB_REVISION: &str = "b44119fbac5985be8127ad1bf56d2950e6399427";
 const LIB_REPOSITORY: &str = "https://github.com/radrootslabs/lib";
 

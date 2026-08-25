@@ -87,7 +87,7 @@ fn build_for_contracts(
     MigrationBuildIdentity::new(
         env!("CARGO_PKG_VERSION"),
         "1111111111111111111111111111111111111111",
-        "7d7b454b4c9ed86569671993bd03ca868b676665",
+        "d287d41c2cd97cd0e455445da90f22180029f089",
         "rustc-test",
         "test-target",
         "service-host",
@@ -281,7 +281,7 @@ async fn initialize_v10(runtime: &myc::MycRuntimeContext, metadata: &MycStateMet
                  discovery_public_key, config_contract_version, 10, operator_contract_version, \
                  status_contract_version, 1725000000, '0.1.0', \
                  '1111111111111111111111111111111111111111', \
-                 '7d7b454b4c9ed86569671993bd03ca868b676665', 'rustc-test', 'test-target', \
+                 'd287d41c2cd97cd0e455445da90f22180029f089', 'rustc-test', 'test-target', \
                  'service-host', 1 FROM myc_state_metadata WHERE singleton = 1",
             )
             .execute(&mut *transaction)

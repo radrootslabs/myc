@@ -288,7 +288,7 @@ fn unsupported_profile_platform_and_diagnostics_fail_safely() {
 #[test]
 fn shared_runtime_paths_are_the_only_path_policy_and_identity_authority() {
     assert!(MANIFEST.contains(
-        "radroots_runtime_paths = { git = \"https://github.com/radrootslabs/lib\", rev = \"7d7b454b4c9ed86569671993bd03ca868b676665\", version = \"=0.1.0-alpha\" }"
+        "radroots_runtime_paths = { git = \"https://github.com/radrootslabs/lib\", rev = \"d287d41c2cd97cd0e455445da90f22180029f089\", version = \"=0.1.0-alpha\" }"
     ));
     assert!(LIB_SOURCE.contains("mod runtime_context;"));
     assert!(!LIB_SOURCE.contains("pub mod runtime_context;"));

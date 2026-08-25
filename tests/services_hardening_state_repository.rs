@@ -62,7 +62,7 @@ fn migration_evidence() -> (MigrationAppliedAtUnixSeconds, MigrationBuildIdentit
     let build = MigrationBuildIdentity::new(
         env!("CARGO_PKG_VERSION"),
         "1111111111111111111111111111111111111111",
-        "7d7b454b4c9ed86569671993bd03ca868b676665",
+        "d287d41c2cd97cd0e455445da90f22180029f089",
         "rustc-test",
         "test-target",
         "service-host",
