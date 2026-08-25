@@ -216,7 +216,7 @@ pub(crate) fn connect_request() -> Request {
     Request::from_parts(
         Method::Connect,
         vec![
-            keys(3).public_key().to_hex(),
+            keys(2).public_key().to_hex(),
             String::new(),
             "sign_event:kind:1".to_owned(),
         ],

@@ -449,8 +449,8 @@ pub fn prepare_myc_nip46_work(
             if connection.is_some() || provider_deadline.is_some() || secret.is_some() {
                 return Err(work_error(MycNip46WorkErrorKind::InvalidBinding));
             }
-            let user = user_binding(providers)?;
-            if remote_signer_public_key.to_hex() != user.expected_identity().as_hex() {
+            let transport = transport_binding(providers)?;
+            if remote_signer_public_key.to_hex() != transport.expected_identity().as_hex() {
                 return Err(work_error(MycNip46WorkErrorKind::InvalidBinding));
             }
             let permissions = connect_permissions(requested_permissions.as_slice())?;
@@ -604,6 +604,14 @@ fn provider_work(
 fn user_binding(providers: &MycProviderContract) -> Result<&MycProviderBinding, MycNip46WorkError> {
     providers
         .binding(MycProviderRole::User)
+        .ok_or_else(|| work_error(MycNip46WorkErrorKind::InvalidBinding))
+}
+
+fn transport_binding(
+    providers: &MycProviderContract,
+) -> Result<&MycProviderBinding, MycNip46WorkError> {
+    providers
+        .binding(MycProviderRole::Transport)
         .ok_or_else(|| work_error(MycNip46WorkErrorKind::InvalidBinding))
 }
 
@@ -989,7 +997,7 @@ mod tests {
         let connect = protocol_request(
             Method::Connect,
             vec![
-                keys(3).public_key().to_hex(),
+                keys(2).public_key().to_hex(),
                 String::new(),
                 "nip44_encrypt,sign_event:kind:1".into(),
             ],
@@ -1015,6 +1023,30 @@ mod tests {
             MycRateRelayId::new("primary").expect("relay"),
         )
         .expect("admission request");
+
+        for (request_seed, remote_signer_seed) in [(21, 3), (22, 4)] {
+            let wrong_identity_connect = protocol_request(
+                Method::Connect,
+                vec![
+                    keys(remote_signer_seed).public_key().to_hex(),
+                    String::new(),
+                ],
+            );
+            let prepared = prepared_request(wrong_identity_connect, request_seed);
+            let record = prepared.signer_request.admitted_record_for_test();
+            assert_eq!(
+                prepare_myc_nip46_work(
+                    prepared,
+                    record,
+                    None,
+                    configuration().provider_contract(),
+                    MycConnectionTimeUnixMs::new(RECEIVED_AT_MS + 1_000).expect("observation"),
+                    None,
+                )
+                .expect_err("connect remote signer identity mismatch"),
+                work_error(MycNip46WorkErrorKind::InvalidBinding)
+            );
+        }
 
         let secret_connect = protocol_request(
             Method::Connect,
