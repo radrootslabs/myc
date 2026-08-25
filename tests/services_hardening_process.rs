@@ -139,7 +139,7 @@ fn binary_executes_config_state_backup_restore_and_doctor_boundaries() {
     let status_value: serde_json::Value =
         serde_json::from_slice(&status.stdout).expect("state status JSON");
     assert_eq!(status_value["generation"], 1);
-    assert_eq!(status_value["schema_version"], 11);
+    assert_eq!(status_value["schema_version"], 12);
     assert_eq!(status_value["integrity"], "verified");
 
     let service_status = fixture.run(&["status"]);

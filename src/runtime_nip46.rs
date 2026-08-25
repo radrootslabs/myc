@@ -13,6 +13,8 @@ use radroots_nostr_connect::{
 use radroots_service_host::{EntropySource, SystemEntropy, SystemWallClock, WallClock};
 use sha2::{Digest, Sha256};
 
+use crate::state_response::MycNip46PendingResponseCommitRequest;
+
 use crate::{
     MycConfigDocumentV1, MycConnectionAdmissionPolicy, MycConnectionDecision,
     MycConnectionDecisionRecord, MycConnectionNonce, MycConnectionPermissionSet,
@@ -42,7 +44,7 @@ pub(crate) enum MycNip46DispatchDisposition {
     Dropped,
     PendingApproval,
     Completed,
-    ExactCompletedReplay,
+    ExactResponseReplay,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -223,7 +225,7 @@ impl MycRuntimeNip46Coordinator {
             .map_err(|_| dispatch_error(MycNip46DispatchErrorKind::State))?
             .is_some()
         {
-            return Ok(MycNip46DispatchDisposition::ExactCompletedReplay);
+            return Ok(MycNip46DispatchDisposition::ExactResponseReplay);
         }
 
         let connection = if prepared.method() == MycSignerRequestMethod::Connect {
@@ -273,10 +275,29 @@ impl MycRuntimeNip46Coordinator {
             let Some(record) = admission.record().cloned() else {
                 return Ok(MycNip46DispatchDisposition::Dropped);
             };
-            if matches!(
-                record.decision(),
-                MycConnectionDecision::PendingApproval | MycConnectionDecision::Challenged
-            ) {
+            if record.decision() == MycConnectionDecision::PendingApproval {
+                let committed_at = connection_time_now()?;
+                let protocol_response = self.protocol_response(&work, Some(&record), None)?;
+                let signed = self
+                    .signed_protocol_response(&work, protocol_response, committed_at, cancellation)
+                    .await?;
+                let commit = MycNip46PendingResponseCommitRequest::new(
+                    &work,
+                    &record,
+                    &signed.operation,
+                    &signed.response,
+                    crate::MycDeliveryTimeUnixMs::new(committed_at.get())
+                        .map_err(|_| dispatch_error(MycNip46DispatchErrorKind::Runtime))?,
+                )
+                .map_err(|_| dispatch_error(MycNip46DispatchErrorKind::Runtime))?;
+                self.state
+                    .repository()
+                    .commit_nip46_pending_response(&commit)
+                    .await
+                    .map_err(|_| dispatch_error(MycNip46DispatchErrorKind::State))?;
+                return Ok(MycNip46DispatchDisposition::PendingApproval);
+            }
+            if record.decision() == MycConnectionDecision::Challenged {
                 return Ok(MycNip46DispatchDisposition::PendingApproval);
             }
             Some(record)
@@ -308,16 +329,8 @@ impl MycRuntimeNip46Coordinator {
         .map_err(|_| dispatch_error(MycNip46DispatchErrorKind::Runtime))?;
         let protocol_response =
             self.protocol_response(&work, connect_decision.as_ref(), provider_response.as_ref())?;
-        let envelope = protocol_response
-            .into_envelope(work.request_record().request_id().as_str())
-            .map_err(|_| dispatch_error(MycNip46DispatchErrorKind::Runtime))?;
-        let plaintext = serde_json::to_vec(&envelope)
-            .map_err(|_| dispatch_error(MycNip46DispatchErrorKind::Runtime))?;
-        let encrypted = self
-            .encrypt_response(&work, &plaintext, cancellation)
-            .await?;
         let signed = self
-            .sign_response(&work, &encrypted, completed_at, cancellation)
+            .signed_protocol_response(&work, protocol_response, completed_at, cancellation)
             .await?;
         let commit = MycNip46ResponseCommitRequest::new(
             &completion,
@@ -333,6 +346,25 @@ impl MycRuntimeNip46Coordinator {
             .await
             .map_err(|_| dispatch_error(MycNip46DispatchErrorKind::State))?;
         Ok(MycNip46DispatchDisposition::Completed)
+    }
+
+    async fn signed_protocol_response(
+        &self,
+        work: &MycNip46Work,
+        response: Response,
+        committed_at: MycConnectionTimeUnixMs,
+        cancellation: &MycTaskCancellation,
+    ) -> Result<SignedRuntimeResponse, MycNip46DispatchError> {
+        let envelope = response
+            .into_envelope(work.request_record().request_id().as_str())
+            .map_err(|_| dispatch_error(MycNip46DispatchErrorKind::Runtime))?;
+        let plaintext = serde_json::to_vec(&envelope)
+            .map_err(|_| dispatch_error(MycNip46DispatchErrorKind::Runtime))?;
+        let encrypted = self
+            .encrypt_response(work, &plaintext, cancellation)
+            .await?;
+        self.sign_response(work, &encrypted, committed_at, cancellation)
+            .await
     }
 
     fn transport_binding(&self) -> Result<&crate::MycProviderBinding, MycNip46DispatchError> {
@@ -435,6 +467,7 @@ impl MycRuntimeNip46Coordinator {
             MycSignerRequestMethod::Connect => {
                 match connect.map(MycConnectionDecisionRecord::decision) {
                     Some(MycConnectionDecision::Allowed) => Ok(Response::UserPublicKey(user)),
+                    Some(MycConnectionDecision::PendingApproval) => Ok(Response::PendingConnection),
                     Some(MycConnectionDecision::Denied) => Ok(Response::Error {
                         result: None,
                         error: "connection_denied".to_owned(),

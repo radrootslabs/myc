@@ -204,8 +204,10 @@ pub use state_catalog::{
     MYC_STATE_SCHEMA_VERSION_9_SHA256, MYC_STATE_SCHEMA_VERSION_10_MIGRATION_SHA256,
     MYC_STATE_SCHEMA_VERSION_10_OBJECT_COUNT, MYC_STATE_SCHEMA_VERSION_10_SHA256,
     MYC_STATE_SCHEMA_VERSION_11_MIGRATION_SHA256, MYC_STATE_SCHEMA_VERSION_11_OBJECT_COUNT,
-    MYC_STATE_SCHEMA_VERSION_11_SHA256, MycStateCatalogError, MycStateCatalogErrorKind,
-    myc_migration_catalog, myc_schema_catalog, validate_myc_state_catalogs,
+    MYC_STATE_SCHEMA_VERSION_11_SHA256, MYC_STATE_SCHEMA_VERSION_12_MIGRATION_SHA256,
+    MYC_STATE_SCHEMA_VERSION_12_OBJECT_COUNT, MYC_STATE_SCHEMA_VERSION_12_SHA256,
+    MycStateCatalogError, MycStateCatalogErrorKind, myc_migration_catalog, myc_schema_catalog,
+    validate_myc_state_catalogs,
 };
 pub use state_completion::{
     MycNip46CommitAdmission, MycNip46CommitError, MycNip46CommitErrorKind, MycNip46CommitRecord,

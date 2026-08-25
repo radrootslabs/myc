@@ -194,6 +194,12 @@
   root, arbitrary member name, Nix/NixOS/OCI input or output, signing key,
   parent-owned human document, private harness, protected material, or
   publication/deployment authority.
+- Step 221 integration requires a signed `pending_connection` response for an
+  explicitly approval-gated NIP-46 connect request. Keep that exact response
+  and its initial delivery job atomic and immutable without recording a false
+  terminal operation completion; relay delivery and exact replay use only the
+  retained signed bytes, and terminal response authority must not conflict
+  with the pending response.
 - Step 161 owns the closed executable qualification matrix in
   `contracts/services_hardening/process_qualification.v1.json`. Keep its
   process deadlines, parallelism, soak count, crash fixture, output bound,

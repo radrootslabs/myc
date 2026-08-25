@@ -1,0 +1,62 @@
+{
+  "schema": "radroots.myc.nip46-pending-response.v1",
+  "contract_version": 1,
+  "step": 221,
+  "state_schema_version": 12,
+  "authority": {
+    "request": "admitted_connect_request",
+    "decision": "immutable_explicit_approval_pending_decision",
+    "connection": "same_pending_connection_and_policy_generation",
+    "response": "independently_signature_verified_canonical_kind_24133_pending_connection_event",
+    "response_signer": "exact_bound_user_provider_operation",
+    "recipient": "exact_original_nip46_client_public_key",
+    "targets_and_retry_policy": "normalized_configuration_bound_in_state_metadata",
+    "time": "caller_injected_positive_unix_milliseconds",
+    "transaction": "existing_service_sqlite_transaction_runner"
+  },
+  "atomic_commit": [
+    "immutable_exact_signed_pending_response_bytes_sha256_and_event_id",
+    "immutable_relay_target_set",
+    "pending_delivery_job",
+    "zero_attempt_target_state"
+  ],
+  "terminal_effects": {
+    "operation_completion": false,
+    "session_activation": false,
+    "connection_approval": false
+  },
+  "replay": {
+    "source": "committed_pending_response_bytes_only",
+    "same_bound_request": "exact_replay",
+    "mismatched_request_or_decision": "fail_closed",
+    "pending_response_without_job": "fail_closed_without_repair",
+    "terminal_response_conflict": "fail_closed"
+  },
+  "delivery": {
+    "job_state": "pending",
+    "target_state": "pending",
+    "attempt_count": 0,
+    "target_count_maximum": 32,
+    "retry_bytes": "exact_committed_pending_response_bytes",
+    "relay_io": "after_local_commit_only"
+  },
+  "qualification": [
+    "response_edge_failure_rolls_back_response_and_delivery",
+    "exact_replay_returns_original_bytes",
+    "no_terminal_operation_commit_is_created",
+    "delivery_reads_the_same_pending_authority",
+    "public_errors_and_debug_are_source_free_and_redacted",
+    "live_nip46_client_observes_pending_then_continues_after_admin_approval"
+  ],
+  "forbidden": [
+    "false_terminal_operation_completion",
+    "session_activation_before_approval",
+    "provider_execution_inside_transaction",
+    "relay_io_inside_transaction",
+    "response_reconstruction_on_retry",
+    "alternate_sqlite_authority",
+    "ambient_clock",
+    "ambient_entropy",
+    "task_spawn"
+  ]
+}

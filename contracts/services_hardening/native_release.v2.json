@@ -55,7 +55,7 @@
   },
   "contract_versions": {
     "config": 1,
-    "state": 11,
+    "state": 12,
     "admin": 1,
     "status": 1,
     "provider": 1

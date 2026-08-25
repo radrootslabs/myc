@@ -3,13 +3,13 @@
 use std::error::Error;
 
 use myc::{
-    InstanceId, MYC_DETAILED_STATUS_MAX_UTF8_BYTES, MYC_STATUS_CACHE_CONTRACT_VERSION,
-    MycConnectionCountsV1, MycIdentityHealthV1, MycIntegrityStateV1, MycOutboxStatusV1,
-    MycPersistenceHealthV1, MycPersistenceStatusV1, MycProviderStatusV1, MycRelayTransportStatusV1,
-    MycServicePhase, MycStatusBuildInfoV1, MycStatusBuildMode, MycStatusCommonV1,
-    MycStatusConfigurationIdentityV1, MycStatusConfigurationSource, MycStatusErrorKind,
-    MycStatusObservationV1, MycStatusReasonCode, MycStatusReasonCodes, MycStatusUnixSeconds,
-    MycTransportHealthV1, myc_status_cache,
+    InstanceId, MYC_DETAILED_STATUS_MAX_UTF8_BYTES, MYC_STATE_SCHEMA_VERSION,
+    MYC_STATUS_CACHE_CONTRACT_VERSION, MycConnectionCountsV1, MycIdentityHealthV1,
+    MycIntegrityStateV1, MycOutboxStatusV1, MycPersistenceHealthV1, MycPersistenceStatusV1,
+    MycProviderStatusV1, MycRelayTransportStatusV1, MycServicePhase, MycStatusBuildInfoV1,
+    MycStatusBuildMode, MycStatusCommonV1, MycStatusConfigurationIdentityV1,
+    MycStatusConfigurationSource, MycStatusErrorKind, MycStatusObservationV1, MycStatusReasonCode,
+    MycStatusReasonCodes, MycStatusUnixSeconds, MycTransportHealthV1, myc_status_cache,
 };
 
 const CONTRACT: &str = include_str!("../contracts/services_hardening/status_cache.v1.json");
@@ -60,7 +60,7 @@ fn observation(
     .expect("configuration");
     let persistence = MycPersistenceStatusV1::new(
         MycPersistenceHealthV1::Ready,
-        9,
+        MYC_STATE_SCHEMA_VERSION,
         42,
         MycIntegrityStateV1::Verified,
         MycStatusReasonCodes::empty(),
@@ -161,7 +161,7 @@ fn machine_contract_and_canonical_detailed_status_are_exact() {
     let wire = std::str::from_utf8(snapshot.detailed_status_json()).expect("status UTF-8");
     assert_eq!(
         wire,
-        r#"{"contract_version":1,"service":"myc","instance":"primary","phase":"ready","ready":true,"uptime_millis":120000,"reason_codes":[],"build_info":{"version":"0.1.0","revision":"0123456789abcdef0123456789abcdef01234567","toolchain":"1.97.1","contract_versions":{"config":1,"state":9,"admin":1,"status":1,"provider":1}},"configuration":{"schema":"radroots.myc.config","schema_version":1,"digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source":"explicit_config"},"persistence":{"health":"ready","schema_version":9,"generation":42,"integrity":"verified","reason_codes":[]},"provider":{"health":"ready","transport":{"configured":true,"available":true,"reason_codes":[]},"user":{"configured":true,"available":true,"reason_codes":[]},"discovery":{"configured":false,"available":false,"reason_codes":[]},"reason_codes":[]},"transport":{"health":"ready","required_relays_ready":true,"connected_relay_count":2,"reason_codes":[]},"myc":{"transport":{"configured":true,"available":true,"reason_codes":[]},"user":{"configured":true,"available":true,"reason_codes":[]},"discovery":{"configured":false,"available":false,"reason_codes":[]},"connection_counts":{"pending":5,"active":3,"denied":1,"expired":2},"outbox":{"pending":4,"unknown":1,"oldest_pending_at_utc":1723456789}}}"#
+        r#"{"contract_version":1,"service":"myc","instance":"primary","phase":"ready","ready":true,"uptime_millis":120000,"reason_codes":[],"build_info":{"version":"0.1.0","revision":"0123456789abcdef0123456789abcdef01234567","toolchain":"1.97.1","contract_versions":{"config":1,"state":12,"admin":1,"status":1,"provider":1}},"configuration":{"schema":"radroots.myc.config","schema_version":1,"digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source":"explicit_config"},"persistence":{"health":"ready","schema_version":12,"generation":42,"integrity":"verified","reason_codes":[]},"provider":{"health":"ready","transport":{"configured":true,"available":true,"reason_codes":[]},"user":{"configured":true,"available":true,"reason_codes":[]},"discovery":{"configured":false,"available":false,"reason_codes":[]},"reason_codes":[]},"transport":{"health":"ready","required_relays_ready":true,"connected_relay_count":2,"reason_codes":[]},"myc":{"transport":{"configured":true,"available":true,"reason_codes":[]},"user":{"configured":true,"available":true,"reason_codes":[]},"discovery":{"configured":false,"available":false,"reason_codes":[]},"connection_counts":{"pending":5,"active":3,"denied":1,"expired":2},"outbox":{"pending":4,"unknown":1,"oldest_pending_at_utc":1723456789}}}"#
     );
     assert!(wire.len() < MYC_DETAILED_STATUS_MAX_UTF8_BYTES);
     for forbidden in [

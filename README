@@ -190,10 +190,10 @@ without changing the canonical common artifact inventory.
 
 Create-new initialization reserves the shared schema-v1 metadata and migration
 ledger, retains exclusive writer authority, applies the exact Myc schema-v2
-through schema-v11 migrations, binds the normalized configuration, expected
+through schema-v12 migrations, binds the normalized configuration, expected
 identity roles, and policy versions through a sealed typed repository, and
 explicitly closes the host before reporting success. Existing writable open can
-resume any exact v1 through v10 prefix or admit the current v11 catalog;
+resume any exact v1 through v11 prefix or admit the current v12 catalog;
 read-only inspection requires the current catalog and exact latest Myc binding.
 
 Schema v10 adds an append-only configuration-binding history capped at exactly
@@ -223,6 +223,13 @@ milliseconds; the governed operating value is seven days.
 The admin response transport admits at least 8,382 UTF-8 bytes so the maximum
 retained model plus the maximum safe correlation identity always fits its
 canonical success envelope.
+
+Schema v12 adds immutable response authority for a connect request awaiting
+explicit approval. Myc signs and atomically retains the exact
+`pending_connection` response with its initial delivery job before relay
+publication, without recording a false terminal operation completion. Exact
+replay and delivery use only the retained signed bytes, and a later terminal
+response cannot conflict with the pending authority.
 
 The Step 159 provider and delivery boundary is sealed inside the crate. Both
 governed provider kinds execute only fully bound operations, and every result

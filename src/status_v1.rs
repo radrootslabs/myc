@@ -186,8 +186,9 @@ impl MycStatusBuildInfoV1 {
         target: Option<&str>,
         feature_profile: Option<&str>,
     ) -> Result<Self, MycStatusError> {
-        let contract_versions = HostContractVersions::new(1, 9, 1, 1, 1)
-            .map_err(|_| MycStatusError::new(MycStatusErrorKind::InvalidBuildInfo))?;
+        let contract_versions =
+            HostContractVersions::new(1, crate::MYC_STATE_SCHEMA_VERSION, 1, 1, 1)
+                .map_err(|_| MycStatusError::new(MycStatusErrorKind::InvalidBuildInfo))?;
         HostBuildInfo::from_compile_time(
             match mode {
                 MycStatusBuildMode::Development => HostBuildMode::Development,

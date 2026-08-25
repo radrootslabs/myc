@@ -120,7 +120,7 @@ async fn initialization_migrates_and_binds_exact_metadata_before_inspection() {
         .fetch_all(&mut connection)
         .await
         .expect("migration rows");
-    assert_eq!(migrations.len(), 10);
+    assert_eq!(migrations.len(), 11);
     assert_eq!(migrations[0].get::<i64, _>(0), 2);
     assert_eq!(
         migrations[0].get::<String, _>(1),
@@ -170,6 +170,11 @@ async fn initialization_migrates_and_binds_exact_metadata_before_inspection() {
     assert_eq!(
         migrations[9].get::<String, _>(1),
         "create_admin_operation_journal"
+    );
+    assert_eq!(migrations[10].get::<i64, _>(0), 12);
+    assert_eq!(
+        migrations[10].get::<String, _>(1),
+        "create_nip46_pending_response_authority"
     );
     let binding = sqlx::query(
         "SELECT normalized_config_sha256, transport_public_key, user_public_key, \

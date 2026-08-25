@@ -5,12 +5,13 @@ use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 
 use myc::{
     InstanceId, MYC_LIVEZ_PATH, MYC_METRICS_PATH, MYC_OPERATIONS_CONTRACT_VERSION, MYC_READYZ_PATH,
-    MycConfigProfile, MycConnectionCountsV1, MycIdentityHealthV1, MycIntegrityStateV1,
-    MycOperationsCancellationToken, MycOperationsErrorKind, MycOperationsServer, MycOutboxStatusV1,
-    MycPersistenceHealthV1, MycPersistenceStatusV1, MycProviderStatusV1, MycRelayTransportStatusV1,
-    MycServicePhase, MycStatusBuildInfoV1, MycStatusBuildMode, MycStatusCommonV1,
-    MycStatusConfigurationIdentityV1, MycStatusConfigurationSource, MycStatusObservationV1,
-    MycStatusReasonCodes, MycTransportHealthV1, myc_status_cache, parse_myc_config_v1,
+    MYC_STATE_SCHEMA_VERSION, MycConfigProfile, MycConnectionCountsV1, MycIdentityHealthV1,
+    MycIntegrityStateV1, MycOperationsCancellationToken, MycOperationsErrorKind,
+    MycOperationsServer, MycOutboxStatusV1, MycPersistenceHealthV1, MycPersistenceStatusV1,
+    MycProviderStatusV1, MycRelayTransportStatusV1, MycServicePhase, MycStatusBuildInfoV1,
+    MycStatusBuildMode, MycStatusCommonV1, MycStatusConfigurationIdentityV1,
+    MycStatusConfigurationSource, MycStatusObservationV1, MycStatusReasonCodes,
+    MycTransportHealthV1, myc_status_cache, parse_myc_config_v1,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -46,7 +47,7 @@ fn observation(phase: MycServicePhase, ready: bool) -> MycStatusObservationV1 {
     .expect("configuration");
     let persistence = MycPersistenceStatusV1::new(
         MycPersistenceHealthV1::Ready,
-        9,
+        MYC_STATE_SCHEMA_VERSION,
         42,
         MycIntegrityStateV1::Verified,
         MycStatusReasonCodes::empty(),

@@ -525,7 +525,7 @@ async fn v9_upgrade_seeds_one_current_binding_without_rewriting_birth_evidence()
 }
 
 #[tokio::test]
-async fn v10_binding_remains_valid_historical_evidence_after_v11_migration() {
+async fn v10_binding_remains_valid_historical_evidence_after_v12_migration() {
     let directory = tempfile::tempdir().expect("root");
     let runtime = runtime(directory.path());
     prepare(&runtime);
@@ -558,7 +558,7 @@ async fn v10_binding_remains_valid_historical_evidence_after_v11_migration() {
         .fetch_one(&mut connection)
         .await
         .expect("shared schema version"),
-        11
+        12
     );
     assert_eq!(
         sqlx::query_scalar::<_, i64>(

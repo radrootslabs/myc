@@ -15,6 +15,7 @@ const NIP46_WORK: &str = include_str!("../src/nip46_work.rs");
 const NIP46_WAVE_080_A: &str = include_str!("../src/nip46_wave_080_a.rs");
 const NIP46_COMPLETION: &str = include_str!("../src/state_completion.rs");
 const NIP46_RESPONSE: &str = include_str!("../src/state_response.rs");
+const STATE_CATALOG: &str = include_str!("../src/state_catalog.rs");
 const DELIVERY_RECOVERY: &str = include_str!("../src/state_recovery.rs");
 const DELIVERY_WORKER: &str = include_str!("../src/delivery_worker.rs");
 const PROVIDER_EXECUTOR: &str = include_str!("../src/provider_executor.rs");
@@ -59,6 +60,8 @@ const NIP46_COMPLETION_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_completion.v1.json");
 const NIP46_RESPONSE_CONTRACT: &str =
     include_str!("../contracts/services_hardening/nip46_response_commit.v1.json");
+const NIP46_PENDING_RESPONSE_CONTRACT: &str =
+    include_str!("../contracts/services_hardening/nip46_pending_response.v1.json");
 const DELIVERY_RECOVERY_EXPORT_CONTRACT: &str =
     include_str!("../contracts/services_hardening/delivery_recovery_export.v1.json");
 const PROCESS_QUALIFICATION_CONTRACT: &str =
@@ -190,6 +193,9 @@ fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {
         "caps a\nreplayed response model at 8,192 bytes",
         "admits at least 8,382 UTF-8 bytes",
         "The journal stores no request body, path,\ncorrelation ID, credential, bundle path, or secret",
+        "Schema v12 adds immutable response authority for a connect request awaiting\nexplicit approval",
+        "without recording a false terminal operation completion",
+        "Exact\nreplay and delivery use only the retained signed bytes",
         "The Step 159 provider and delivery boundary is sealed inside the crate",
         "persists Submitted immediately before execution",
         "The selected absolute config path is opened no-follow through its retained\nparent descriptor",
@@ -256,7 +262,7 @@ fn step159_runtime_graph_is_fixed_joined_and_binary_signal_owned() {
     }
     assert_eq!(RUNTIME_GRAPH.matches(".spawn(").count(), 5);
     assert!(RUNTIME_NIP46.contains("commit_nip46_response(&commit)"));
-    assert!(RUNTIME_NIP46.contains("ExactCompletedReplay"));
+    assert!(RUNTIME_NIP46.contains("ExactResponseReplay"));
     assert!(RUNTIME_NIP46.contains("admission_evidence: MycRuntimeNip46AdmissionEvidence"));
     assert!(RUNTIME_SIGNAL.contains("pub trait MycProcessSignalSource: Send"));
     for forbidden in [
@@ -379,6 +385,9 @@ fn reviewed_api_is_root_only_and_exposes_no_implementation_authority() {
         "pub enum myc::MycNip46ResponseCommitErrorKind",
         "pub async fn myc::MycStateRepository<'_>::commit_nip46_response",
         "pub async fn myc::MycStateRepository<'_>::read_nip46_response",
+        "pub const myc::MYC_STATE_SCHEMA_VERSION_12_MIGRATION_SHA256: [u8; 32]",
+        "pub const myc::MYC_STATE_SCHEMA_VERSION_12_OBJECT_COUNT: u32",
+        "pub const myc::MYC_STATE_SCHEMA_VERSION_12_SHA256: [u8; 32]",
         "pub async fn myc::MycStateRepository<'_>::recover_delivery_state",
         "pub async fn myc::MycStateRepository<'_>::render_offline_nip05",
         "pub struct myc::MycDeliveryRecoveryEntropy",
@@ -848,6 +857,45 @@ fn step148_response_commit_is_one_atomic_exact_byte_authority() {
             !NIP46_RESPONSE.contains(forbidden),
             "Step 148 gained forbidden authority `{forbidden}`"
         );
+    }
+}
+
+#[test]
+fn step221_pending_response_is_atomic_exact_and_nonterminal() {
+    let contract: serde_json::Value = serde_json::from_str(NIP46_PENDING_RESPONSE_CONTRACT)
+        .expect("Step 221 pending-response contract");
+    assert_eq!(contract["schema"], "radroots.myc.nip46-pending-response.v1");
+    assert_eq!(contract["contract_version"], 1);
+    assert_eq!(contract["step"], 221);
+    assert_eq!(contract["state_schema_version"], 12);
+    assert_eq!(contract["terminal_effects"]["operation_completion"], false);
+    assert_eq!(contract["terminal_effects"]["session_activation"], false);
+    for required in [
+        "immutable_explicit_approval_pending_decision",
+        "exact_committed_pending_response_bytes",
+        "response_edge_failure_rolls_back_response_and_delivery",
+        "no_terminal_operation_commit_is_created",
+        "live_nip46_client_observes_pending_then_continues_after_admin_approval",
+        "false_terminal_operation_completion",
+    ] {
+        assert!(
+            NIP46_PENDING_RESPONSE_CONTRACT.contains(required),
+            "Step 221 contract is missing `{required}`"
+        );
+    }
+    for required in [
+        "commit_nip46_pending_response(&commit)",
+        "Response::PendingConnection",
+        "MycNip46DispatchDisposition::PendingApproval",
+    ] {
+        assert!(RUNTIME_NIP46.contains(required), "missing `{required}`");
+    }
+    for required in [
+        "CREATE TABLE nip46_pending_responses",
+        "nip46_signed_responses_guard_pending_insert",
+        "fail_after_response_for_test",
+    ] {
+        assert!(NIP46_RESPONSE.contains(required) || STATE_CATALOG.contains(required));
     }
 }
 

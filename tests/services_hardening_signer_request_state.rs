@@ -458,7 +458,7 @@ async fn concurrent_identical_admission_creates_one_request_and_bounded_replay_e
 }
 
 #[tokio::test]
-async fn exact_schema_v3_state_advances_to_v11_before_request_admission() {
+async fn exact_schema_v3_state_advances_to_v12_before_request_admission() {
     let directory = tempfile::tempdir().expect("temporary root");
     let runtime = runtime(directory.path());
     prepare_state_directory(&runtime);
@@ -513,6 +513,11 @@ async fn exact_schema_v3_state_advances_to_v11_before_request_admission() {
         "DROP TRIGGER connection_permissions_no_update",
         "DROP TRIGGER connections_no_delete",
         "DROP TRIGGER connections_guard_update",
+        "DROP TRIGGER nip46_pending_responses_no_delete",
+        "DROP TRIGGER nip46_pending_responses_no_update",
+        "DROP TRIGGER nip46_signed_responses_guard_pending_insert",
+        "DROP TRIGGER nip46_pending_responses_guard_insert",
+        "DROP TABLE nip46_pending_responses",
         "DROP TRIGGER myc_admin_operations_guard_update",
         "DROP TABLE myc_admin_operations",
         "DROP TRIGGER myc_config_bindings_no_delete",
@@ -541,7 +546,7 @@ async fn exact_schema_v3_state_advances_to_v11_before_request_admission() {
         "DROP TABLE connections",
         "UPDATE radroots_service_metadata SET state_schema_version = 3 WHERE singleton = 1",
         "UPDATE myc_state_metadata SET state_contract_version = 3 WHERE singleton = 1",
-        "DELETE FROM schema_migrations WHERE version IN (4, 5, 6, 7, 8, 9, 10, 11)",
+        "DELETE FROM schema_migrations WHERE version IN (4, 5, 6, 7, 8, 9, 10, 11, 12)",
     ] {
         sqlx::query(sql)
             .execute(&mut connection)

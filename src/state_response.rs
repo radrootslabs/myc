@@ -23,8 +23,10 @@ use crate::state_repository::{
     RepositoryOperationError, require_expected_metadata,
 };
 use crate::{
-    MYC_PROVIDER_OUTPUT_MAX_BYTES, MycProviderCapability, MycProviderOperation, MycProviderRole,
-    MycSignerOperationId, MycVerifiedProviderResponse,
+    MYC_PROVIDER_OUTPUT_MAX_BYTES, MycConnectionDecision, MycConnectionDecisionRecord,
+    MycConnectionId, MycConnectionPolicyGeneration, MycConnectionStatus, MycNip46ClientPublicKey,
+    MycNip46Work, MycNip46WorkKind, MycProviderCapability, MycProviderOperation, MycProviderRole,
+    MycSignerOperationId, MycSignerRequestMethod, MycVerifiedProviderResponse,
 };
 
 const NIP46_RPC_KIND: u16 = 24_133;
@@ -34,7 +36,27 @@ const INSERT_RESPONSE_SQL: &str = r#"INSERT INTO nip46_signed_responses (
     response_sha256, response_bytes, authored_at_unix_s, committed_at_unix_ms
 ) VALUES (?, ?, ?, ?, ?, ?, ?)"#;
 
-const READ_RESPONSE_BY_OPERATION_SQL: &str = r#"SELECT
+const INSERT_PENDING_RESPONSE_SQL: &str = r#"INSERT INTO nip46_pending_responses (
+    operation_id, connection_id, response_kind, response_provider_operation_id,
+    response_event_id, response_sha256, response_bytes, authored_at_unix_s,
+    committed_at_unix_ms
+) VALUES (?, ?, 'pending_approval', ?, ?, ?, ?, ?, ?)"#;
+
+const READ_RESPONSE_BY_OPERATION_SQL: &str = r#"WITH response_authority AS (
+    SELECT 'terminal' AS authority_kind, operation_id,
+        response_provider_operation_id, response_event_id, response_sha256,
+        response_bytes, authored_at_unix_s, committed_at_unix_ms
+    FROM nip46_signed_responses
+    UNION ALL
+    SELECT response_kind AS authority_kind, operation_id,
+        response_provider_operation_id, response_event_id, response_sha256,
+        response_bytes, authored_at_unix_s, committed_at_unix_ms
+    FROM nip46_pending_responses
+)
+SELECT
+    CASE WHEN typeof(r.authority_kind) = 'text'
+            AND length(CAST(r.authority_kind AS BLOB)) <= 16
+        THEN r.authority_kind ELSE NULL END AS authority_kind,
     CASE WHEN typeof(r.operation_id) = 'blob' AND length(r.operation_id) = 32
         THEN r.operation_id ELSE NULL END AS operation_id,
     CASE WHEN typeof(r.response_provider_operation_id) = 'blob'
@@ -53,14 +75,28 @@ const READ_RESPONSE_BY_OPERATION_SQL: &str = r#"SELECT
         THEN q.client_public_key ELSE NULL END AS client_public_key,
     CASE WHEN typeof(j.job_id) = 'blob' AND length(j.job_id) = 32
         THEN j.job_id ELSE NULL END AS job_id
-FROM nip46_signed_responses r
+FROM response_authority r
 JOIN nip46_requests q ON q.operation_id = r.operation_id
 JOIN delivery_jobs j ON j.source_kind = 'signer_response'
     AND j.source_id = r.operation_id
 WHERE r.operation_id = ?
 LIMIT 2"#;
 
-const READ_RESPONSE_BY_JOB_SQL: &str = r#"SELECT
+const READ_RESPONSE_BY_JOB_SQL: &str = r#"WITH response_authority AS (
+    SELECT 'terminal' AS authority_kind, operation_id,
+        response_provider_operation_id, response_event_id, response_sha256,
+        response_bytes, authored_at_unix_s, committed_at_unix_ms
+    FROM nip46_signed_responses
+    UNION ALL
+    SELECT response_kind AS authority_kind, operation_id,
+        response_provider_operation_id, response_event_id, response_sha256,
+        response_bytes, authored_at_unix_s, committed_at_unix_ms
+    FROM nip46_pending_responses
+)
+SELECT
+    CASE WHEN typeof(r.authority_kind) = 'text'
+            AND length(CAST(r.authority_kind AS BLOB)) <= 16
+        THEN r.authority_kind ELSE NULL END AS authority_kind,
     CASE WHEN typeof(r.operation_id) = 'blob' AND length(r.operation_id) = 32
         THEN r.operation_id ELSE NULL END AS operation_id,
     CASE WHEN typeof(r.response_provider_operation_id) = 'blob'
@@ -80,9 +116,36 @@ const READ_RESPONSE_BY_JOB_SQL: &str = r#"SELECT
     CASE WHEN typeof(j.job_id) = 'blob' AND length(j.job_id) = 32
         THEN j.job_id ELSE NULL END AS job_id
 FROM delivery_jobs j
-JOIN nip46_signed_responses r ON r.operation_id = j.source_id
+JOIN response_authority r ON r.operation_id = j.source_id
 JOIN nip46_requests q ON q.operation_id = r.operation_id
 WHERE j.job_id = ? AND j.source_kind = 'signer_response'
+LIMIT 2"#;
+
+const READ_PENDING_BINDING_SQL: &str = r#"SELECT
+    CASE WHEN typeof(decision.connection_id) = 'blob'
+            AND length(decision.connection_id) = 32
+        THEN decision.connection_id ELSE NULL END AS connection_id,
+    decision.policy_generation, decision.decided_at_unix_ms,
+    CASE WHEN typeof(decision.decision) = 'text'
+            AND length(CAST(decision.decision AS BLOB)) <= 32
+        THEN decision.decision ELSE NULL END AS decision,
+    CASE WHEN typeof(decision.reason_code) = 'text'
+            AND length(CAST(decision.reason_code AS BLOB)) <= 32
+        THEN decision.reason_code ELSE NULL END AS reason_code,
+    CASE WHEN typeof(connection.status) = 'text'
+            AND length(CAST(connection.status AS BLOB)) <= 16
+        THEN connection.status ELSE NULL END AS connection_status,
+    CASE WHEN typeof(connection.client_public_key) = 'text'
+            AND length(CAST(connection.client_public_key AS BLOB)) = 64
+        THEN connection.client_public_key ELSE NULL END AS client_public_key
+FROM nip46_request_decisions AS decision
+JOIN connections AS connection ON connection.connection_id = decision.connection_id
+JOIN nip46_requests AS request ON request.operation_id = decision.operation_id
+WHERE decision.operation_id = ?
+    AND connection.client_public_key = request.client_public_key
+    AND connection.policy_generation = decision.policy_generation
+    AND connection.requested_permissions_sha256 = decision.requested_permissions_sha256
+    AND request.method = 'connect'
 LIMIT 2"#;
 
 /// Stable construction failure classes for an atomic NIP-46 response commit.
@@ -257,9 +320,125 @@ impl fmt::Debug for MycNip46ResponseCommitRequest {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct MycNip46PendingResponseCommitRequest {
+    operation_id: MycSignerOperationId,
+    connection_id: MycConnectionId,
+    policy_generation: MycConnectionPolicyGeneration,
+    client_public_key: MycNip46ClientPublicKey,
+    decided_at_unix_ms: u64,
+    response_provider_operation_id: [u8; 32],
+    response_event_id: [u8; 32],
+    response_digest: MycDeliveryArtifactDigest,
+    response_bytes: Box<[u8]>,
+    authored_at_unix_s: u64,
+    committed_at: MycDeliveryTimeUnixMs,
+    #[cfg(test)]
+    fail_after_response: bool,
+}
+
+impl MycNip46PendingResponseCommitRequest {
+    pub(crate) fn new(
+        work: &MycNip46Work,
+        decision: &MycConnectionDecisionRecord,
+        response_operation: &MycProviderOperation,
+        response: &MycVerifiedProviderResponse,
+        committed_at: MycDeliveryTimeUnixMs,
+    ) -> Result<Self, MycNip46ResponseCommitError> {
+        let connection = decision.connection().ok_or_else(|| {
+            MycNip46ResponseCommitRequest::error(MycNip46ResponseCommitErrorKind::InvalidBinding)
+        })?;
+        if work.kind() != MycNip46WorkKind::Connect
+            || work.method() != MycSignerRequestMethod::Connect
+            || decision.operation_id() != work.request_record().operation_id()
+            || decision.decision() != MycConnectionDecision::PendingApproval
+            || decision.policy_generation() != connection.policy_generation()
+            || connection.status() != MycConnectionStatus::Pending
+            || connection.client_public_key() != work.request_record().client_public_key()
+            || response_operation.role() != MycProviderRole::User
+            || response_operation.input().capability() != MycProviderCapability::SignEvent
+            || response.operation_id() != response_operation.operation_id()
+            || response.correlation_id() != response_operation.correlation_id()
+            || response.instance() != response_operation.instance()
+            || response.role() != response_operation.role()
+            || response.capability() != response_operation.input().capability()
+            || !response.matches_operation(response_operation)
+            || response_operation.operation_id().as_bytes()
+                == work.request_record().operation_id().as_bytes()
+        {
+            return Err(MycNip46ResponseCommitRequest::error(
+                MycNip46ResponseCommitErrorKind::InvalidBinding,
+            ));
+        }
+        let bytes = response.signed_event_bytes().ok_or_else(|| {
+            MycNip46ResponseCommitRequest::error(MycNip46ResponseCommitErrorKind::InvalidResponse)
+        })?;
+        let event = validate_response_event(
+            bytes,
+            work.request_record().client_public_key().as_hex(),
+            Some(response_operation.expected_identity().as_hex()),
+        )?;
+        let authored_at_unix_s = event.created_at.as_secs();
+        if committed_at.get() < decision.decided_at().get()
+            || authored_at_unix_s
+                .checked_mul(1_000)
+                .is_none_or(|authored_ms| authored_ms > committed_at.get())
+        {
+            return Err(MycNip46ResponseCommitRequest::error(
+                MycNip46ResponseCommitErrorKind::InvalidTime,
+            ));
+        }
+        Ok(Self {
+            operation_id: work.request_record().operation_id(),
+            connection_id: connection.id(),
+            policy_generation: connection.policy_generation(),
+            client_public_key: connection.client_public_key().clone(),
+            decided_at_unix_ms: decision.decided_at().get(),
+            response_provider_operation_id: *response_operation.operation_id().as_bytes(),
+            response_event_id: *event.id.as_bytes(),
+            response_digest: MycDeliveryArtifactDigest::from_bytes(Sha256::digest(bytes).into()),
+            response_bytes: Box::from(bytes),
+            authored_at_unix_s,
+            committed_at,
+            #[cfg(test)]
+            fail_after_response: false,
+        })
+    }
+
+    #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+    pub(crate) fn fail_after_response_for_test(&self) -> Self {
+        let mut request = self.clone();
+        request.fail_after_response = true;
+        request
+    }
+}
+
+impl fmt::Debug for MycNip46PendingResponseCommitRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("MycNip46PendingResponseCommitRequest([redacted])")
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResponseAuthorityKind {
+    Terminal,
+    PendingApproval,
+}
+
+impl ResponseAuthorityKind {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "terminal" => Some(Self::Terminal),
+            "pending_approval" => Some(Self::PendingApproval),
+            _ => None,
+        }
+    }
+}
+
 /// Immutable exact signed response and its config-bound initial delivery state.
 #[derive(Clone, PartialEq, Eq)]
 pub struct MycNip46ResponseRecord {
+    authority_kind: ResponseAuthorityKind,
     operation_id: MycSignerOperationId,
     response_provider_operation_id: [u8; 32],
     response_event_id: [u8; 32],
@@ -445,6 +624,54 @@ impl MycStateRepository<'_> {
             .map_err(map_transaction_error)
     }
 
+    pub(crate) async fn commit_nip46_pending_response(
+        &self,
+        request: &MycNip46PendingResponseCommitRequest,
+    ) -> Result<MycNip46ResponseRecord, MycStateRepositoryError> {
+        let expected = PersistedMetadata::from(self.expected());
+        let policy = self.expected().delivery_policies().clone();
+        let request = request.clone();
+        self.host()
+            .transaction(move |transaction| {
+                Box::pin(async move {
+                    require_expected_metadata(transaction, &expected)
+                        .await
+                        .map_err(AtomicOperationError::from)?;
+                    require_pending_binding(transaction, &request).await?;
+                    if let Some(response) =
+                        read_response_by_operation(transaction, request.operation_id).await?
+                    {
+                        exact_pending_response(&response, &request)?;
+                        return Ok(response);
+                    }
+                    insert_pending_response(transaction, &request).await?;
+                    #[cfg(test)]
+                    if request.fail_after_response {
+                        return Err(AtomicOperationError::Storage);
+                    }
+                    let delivery = create_job(
+                        transaction,
+                        MycDeliverySource::signer_response(request.operation_id),
+                        request.response_digest,
+                        request.committed_at,
+                        &policy,
+                    )
+                    .await
+                    .map_err(AtomicOperationError::from)?;
+                    if !matches!(delivery, MycDeliveryJobAdmission::Created(_)) {
+                        return Err(AtomicOperationError::Binding);
+                    }
+                    let response = read_response_by_operation(transaction, request.operation_id)
+                        .await?
+                        .ok_or(AtomicOperationError::Binding)?;
+                    exact_pending_response(&response, &request)?;
+                    Ok(response)
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
+    }
+
     /// Reads the exact committed response bytes for a retained delivery job.
     pub async fn read_nip46_response(
         &self,
@@ -518,6 +745,57 @@ impl From<DeliveryOperationError> for AtomicOperationError {
             DeliveryOperationError::Storage => Self::Storage,
         }
     }
+}
+
+async fn require_pending_binding(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    request: &MycNip46PendingResponseCommitRequest,
+) -> Result<(), AtomicOperationError> {
+    let rows = sqlx::query(READ_PENDING_BINDING_SQL)
+        .bind(request.operation_id.as_bytes().as_slice())
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| AtomicOperationError::Storage)?;
+    if rows.len() != 1 {
+        return Err(AtomicOperationError::Binding);
+    }
+    let row = &rows[0];
+    let connection_id = MycConnectionId::from_bytes(blob32(row, "connection_id")?);
+    let policy_generation = positive_i64(row, "policy_generation")?;
+    let decided_at_unix_ms = positive_i64(row, "decided_at_unix_ms")?;
+    let decision = bounded_text(row, "decision", 32)?;
+    let reason_code = bounded_text(row, "reason_code", 32)?;
+    let connection_status = bounded_text(row, "connection_status", 16)?;
+    let client_public_key = bounded_text(row, "client_public_key", 64)?;
+    let valid = connection_id == request.connection_id
+        && policy_generation == request.policy_generation.get()
+        && decided_at_unix_ms == request.decided_at_unix_ms
+        && decision == "pending_approval"
+        && reason_code == "explicit_approval_required"
+        && connection_status == "pending"
+        && client_public_key == request.client_public_key.as_hex();
+    valid.then_some(()).ok_or(AtomicOperationError::Binding)
+}
+
+async fn insert_pending_response(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    request: &MycNip46PendingResponseCommitRequest,
+) -> Result<(), AtomicOperationError> {
+    let result = sqlx::query(INSERT_PENDING_RESPONSE_SQL)
+        .bind(request.operation_id.as_bytes().as_slice())
+        .bind(request.connection_id.as_bytes().as_slice())
+        .bind(request.response_provider_operation_id.as_slice())
+        .bind(request.response_event_id.as_slice())
+        .bind(request.response_digest.as_bytes().as_slice())
+        .bind(request.response_bytes.as_ref())
+        .bind(to_i64(request.authored_at_unix_s)?)
+        .bind(to_i64(request.committed_at.get())?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| AtomicOperationError::Storage)?;
+    (result.rows_affected() == 1)
+        .then_some(())
+        .ok_or(AtomicOperationError::Storage)
 }
 
 async fn insert_response(
@@ -596,6 +874,8 @@ async fn read_response(
     let Some(row) = rows.first() else {
         return Ok(None);
     };
+    let authority_kind = ResponseAuthorityKind::parse(bounded_text(row, "authority_kind", 16)?)
+        .ok_or(AtomicOperationError::Binding)?;
     let operation_id = MycSignerOperationId::from_persisted(blob32(row, "operation_id")?);
     let response_provider_operation_id = blob32(row, "response_provider_operation_id")?;
     let response_event_id = blob32(row, "response_event_id")?;
@@ -633,6 +913,7 @@ async fn read_response(
         return Err(AtomicOperationError::Binding);
     }
     Ok(Some(MycNip46ResponseRecord {
+        authority_kind,
         operation_id,
         response_provider_operation_id,
         response_event_id,
@@ -648,7 +929,24 @@ fn exact_response(
     response: &MycNip46ResponseRecord,
     request: &MycNip46ResponseCommitRequest,
 ) -> Result<(), AtomicOperationError> {
-    (response.operation_id == request.completion.signer_request().operation_id()
+    (response.authority_kind == ResponseAuthorityKind::Terminal
+        && response.operation_id == request.completion.signer_request().operation_id()
+        && response.response_provider_operation_id == request.response_provider_operation_id
+        && response.response_event_id == request.response_event_id
+        && response.response_digest == request.response_digest
+        && response.response_bytes.as_ref() == request.response_bytes.as_ref()
+        && response.authored_at_unix_s == request.authored_at_unix_s
+        && response.committed_at == request.committed_at)
+        .then_some(())
+        .ok_or(AtomicOperationError::Binding)
+}
+
+fn exact_pending_response(
+    response: &MycNip46ResponseRecord,
+    request: &MycNip46PendingResponseCommitRequest,
+) -> Result<(), AtomicOperationError> {
+    (response.authority_kind == ResponseAuthorityKind::PendingApproval
+        && response.operation_id == request.operation_id
         && response.response_provider_operation_id == request.response_provider_operation_id
         && response.response_event_id == request.response_event_id
         && response.response_digest == request.response_digest
@@ -702,6 +1000,17 @@ fn blob32(row: &sqlx::sqlite::SqliteRow, column: &str) -> Result<[u8; 32], Atomi
         .ok_or(AtomicOperationError::Binding)?
         .try_into()
         .map_err(|_| AtomicOperationError::Binding)
+}
+
+fn bounded_text<'row>(
+    row: &'row sqlx::sqlite::SqliteRow,
+    column: &str,
+    maximum_bytes: usize,
+) -> Result<&'row str, AtomicOperationError> {
+    row.try_get::<Option<&str>, _>(column)
+        .map_err(|_| AtomicOperationError::Binding)?
+        .filter(|value| !value.is_empty() && value.len() <= maximum_bytes)
+        .ok_or(AtomicOperationError::Binding)
 }
 
 fn positive_i64(row: &sqlx::sqlite::SqliteRow, column: &str) -> Result<u64, AtomicOperationError> {

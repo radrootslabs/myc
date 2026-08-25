@@ -12,7 +12,7 @@ use radroots_service_sqlite::{
 pub const MYC_STATE_BASE_SCHEMA_VERSION: u32 = 1;
 
 /// The newest governed Myc state schema understood by this binary.
-pub const MYC_STATE_SCHEMA_VERSION: u32 = 11;
+pub const MYC_STATE_SCHEMA_VERSION: u32 = 12;
 
 /// The shared metadata and migration-ledger objects present at schema v1.
 pub const MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT: u32 = 6;
@@ -47,6 +47,9 @@ pub const MYC_STATE_SCHEMA_VERSION_10_OBJECT_COUNT: u32 = 63;
 /// The shared objects plus the bounded admin-operation journal.
 pub const MYC_STATE_SCHEMA_VERSION_11_OBJECT_COUNT: u32 = 65;
 
+/// The shared objects plus immutable pending-approval response authority.
+pub const MYC_STATE_SCHEMA_VERSION_12_OBJECT_COUNT: u32 = 70;
+
 /// SHA-256 identity of the exact schema-v1 object snapshot.
 pub const MYC_STATE_SCHEMA_VERSION_1_SHA256: [u8; 32] = [
     0x94, 0xdc, 0x66, 0xfb, 0xca, 0x60, 0x16, 0x79, 0x61, 0x5c, 0x05, 0x52, 0x29, 0xdc, 0x0d, 0xb6,
@@ -61,14 +64,14 @@ pub const MYC_STATE_SCHEMA_VERSION_2_SHA256: [u8; 32] = [
 
 /// SHA-256 identity of the ordered Myc migration catalog.
 pub const MYC_MIGRATION_CATALOG_SHA256: [u8; 32] = [
-    0x1a, 0xa7, 0x0a, 0x76, 0xb0, 0x47, 0x4f, 0x9b, 0xb0, 0x33, 0x00, 0xf0, 0xe8, 0x64, 0x54, 0xb2,
-    0x86, 0x3b, 0x45, 0x74, 0x51, 0xed, 0xd9, 0xa2, 0xcc, 0xed, 0x97, 0xba, 0x31, 0xcb, 0x8c, 0xc1,
+    0xb1, 0xd6, 0x45, 0x82, 0x45, 0xe6, 0xdf, 0xc4, 0x66, 0x1a, 0xa6, 0x14, 0x6b, 0x8c, 0xe8, 0xab,
+    0x55, 0xf7, 0xc2, 0x9b, 0xf3, 0x60, 0x99, 0xd2, 0x61, 0xc0, 0x7f, 0x5f, 0x51, 0x67, 0x56, 0x1d,
 ];
 
 /// SHA-256 identity of the schema catalog bound to the migration catalog.
 pub const MYC_STATE_SCHEMA_CATALOG_SHA256: [u8; 32] = [
-    0x09, 0xec, 0x0c, 0x13, 0x2f, 0xbc, 0x1a, 0x8a, 0x46, 0xad, 0x34, 0x03, 0x49, 0x78, 0x93, 0x83,
-    0x4a, 0xbf, 0x73, 0x52, 0x00, 0x5e, 0xb6, 0x27, 0x2c, 0x7a, 0x45, 0x28, 0xdd, 0x5d, 0x66, 0x1a,
+    0xb5, 0x27, 0x21, 0xd8, 0x5c, 0x1e, 0xb8, 0xcd, 0xdc, 0x28, 0x25, 0x6c, 0x21, 0x17, 0x9a, 0x10,
+    0xd5, 0xf3, 0x2b, 0xcb, 0x33, 0xe9, 0xd2, 0xa6, 0xbb, 0x8f, 0xe4, 0x9e, 0xcb, 0xc4, 0x9a, 0x68,
 ];
 
 /// SHA-256 identity of the schema-v2 migration content.
@@ -177,6 +180,18 @@ pub const MYC_STATE_SCHEMA_VERSION_10_SHA256: [u8; 32] = [
 pub const MYC_STATE_SCHEMA_VERSION_11_MIGRATION_SHA256: [u8; 32] = [
     0x16, 0x38, 0x53, 0x68, 0xaa, 0x4e, 0xe4, 0x0e, 0xa7, 0x00, 0x2a, 0x0a, 0xb4, 0x26, 0x45, 0xbc,
     0x68, 0xb5, 0x46, 0xa4, 0xba, 0x6a, 0xfd, 0xfe, 0xde, 0x56, 0x5f, 0xe0, 0x26, 0x57, 0x6c, 0x96,
+];
+
+/// SHA-256 identity of the schema-v12 pending-approval response migration.
+pub const MYC_STATE_SCHEMA_VERSION_12_MIGRATION_SHA256: [u8; 32] = [
+    0x38, 0x8e, 0xe5, 0x1d, 0xe5, 0x99, 0xf3, 0x7b, 0x7b, 0xb1, 0x95, 0x6c, 0xeb, 0xd5, 0x18, 0x46,
+    0x1f, 0x3e, 0xb1, 0x93, 0x53, 0x5f, 0xfe, 0x6b, 0xb9, 0xea, 0xc2, 0xd8, 0x2b, 0xbe, 0x3e, 0x37,
+];
+
+/// SHA-256 identity of the schema-v12 object snapshot.
+pub const MYC_STATE_SCHEMA_VERSION_12_SHA256: [u8; 32] = [
+    0xd8, 0x93, 0xa2, 0x3b, 0xa6, 0x8e, 0x46, 0x34, 0x89, 0xad, 0x7e, 0xf1, 0xe6, 0xa8, 0x0e, 0xa4,
+    0xe8, 0x80, 0x89, 0x38, 0x1c, 0x73, 0xde, 0xcc, 0x32, 0x43, 0xa4, 0xce, 0x6f, 0x64, 0xda, 0x8f,
 ];
 
 /// SHA-256 identity of the schema-v11 object snapshot.
@@ -1746,6 +1761,118 @@ const CREATE_NIP46_ATOMIC_RESPONSE_MIGRATION_SQL: &str = concat!(
     nip46_signed_responses_no_delete_sql!(),
 );
 
+macro_rules! nip46_pending_responses_table_sql {
+    () => {
+        r#"CREATE TABLE nip46_pending_responses (
+    operation_id BLOB NOT NULL PRIMARY KEY CHECK (length(operation_id) = 32)
+        REFERENCES nip46_requests(operation_id),
+    connection_id BLOB NOT NULL CHECK (length(connection_id) = 32)
+        REFERENCES connections(connection_id),
+    response_kind TEXT NOT NULL CHECK (response_kind = 'pending_approval'),
+    response_provider_operation_id BLOB NOT NULL UNIQUE
+        CHECK (length(response_provider_operation_id) = 32),
+    response_event_id BLOB NOT NULL UNIQUE CHECK (length(response_event_id) = 32),
+    response_sha256 BLOB NOT NULL CHECK (length(response_sha256) = 32),
+    response_bytes BLOB NOT NULL
+        CHECK (length(response_bytes) BETWEEN 1 AND 1048576),
+    authored_at_unix_s INTEGER NOT NULL
+        CHECK (authored_at_unix_s BETWEEN 1 AND 9223372036854775807),
+    committed_at_unix_ms INTEGER NOT NULL
+        CHECK (committed_at_unix_ms BETWEEN 1 AND 9223372036854775807)
+) STRICT"#
+    };
+}
+
+macro_rules! nip46_pending_responses_guard_insert_sql {
+    () => {
+        r#"CREATE TRIGGER nip46_pending_responses_guard_insert
+BEFORE INSERT ON nip46_pending_responses
+WHEN NOT EXISTS (
+        SELECT 1
+        FROM nip46_request_decisions AS decision
+        JOIN connections AS connection
+            ON connection.connection_id = decision.connection_id
+        JOIN nip46_requests AS request
+            ON request.operation_id = decision.operation_id
+        WHERE decision.operation_id = NEW.operation_id
+            AND decision.connection_id = NEW.connection_id
+            AND decision.decision = 'pending_approval'
+            AND decision.reason_code = 'explicit_approval_required'
+            AND connection.status = 'pending'
+            AND connection.client_public_key = request.client_public_key
+            AND connection.policy_generation = decision.policy_generation
+            AND connection.requested_permissions_sha256 = decision.requested_permissions_sha256
+            AND request.method = 'connect'
+    )
+    OR EXISTS (
+        SELECT 1 FROM nip46_signed_responses
+        WHERE operation_id = NEW.operation_id
+            OR response_provider_operation_id = NEW.response_provider_operation_id
+            OR response_event_id = NEW.response_event_id
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'pending NIP-46 response binding is invalid');
+END"#
+    };
+}
+
+macro_rules! nip46_signed_responses_guard_pending_insert_sql {
+    () => {
+        r#"CREATE TRIGGER nip46_signed_responses_guard_pending_insert
+BEFORE INSERT ON nip46_signed_responses
+WHEN EXISTS (
+    SELECT 1 FROM nip46_pending_responses
+    WHERE operation_id = NEW.operation_id
+        OR response_provider_operation_id = NEW.response_provider_operation_id
+        OR response_event_id = NEW.response_event_id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'terminal NIP-46 response conflicts with pending authority');
+END"#
+    };
+}
+
+macro_rules! nip46_pending_responses_no_update_sql {
+    () => {
+        r#"CREATE TRIGGER nip46_pending_responses_no_update
+BEFORE UPDATE ON nip46_pending_responses
+BEGIN
+    SELECT RAISE(ABORT, 'pending NIP-46 response is immutable');
+END"#
+    };
+}
+
+macro_rules! nip46_pending_responses_no_delete_sql {
+    () => {
+        r#"CREATE TRIGGER nip46_pending_responses_no_delete
+BEFORE DELETE ON nip46_pending_responses
+BEGIN
+    SELECT RAISE(ABORT, 'pending NIP-46 response is retained');
+END"#
+    };
+}
+
+const CREATE_NIP46_PENDING_RESPONSES_TABLE_SQL: &str = nip46_pending_responses_table_sql!();
+const CREATE_NIP46_PENDING_RESPONSES_GUARD_INSERT_SQL: &str =
+    nip46_pending_responses_guard_insert_sql!();
+const CREATE_NIP46_SIGNED_RESPONSES_GUARD_PENDING_INSERT_SQL: &str =
+    nip46_signed_responses_guard_pending_insert_sql!();
+const CREATE_NIP46_PENDING_RESPONSES_NO_UPDATE_SQL: &str = nip46_pending_responses_no_update_sql!();
+const CREATE_NIP46_PENDING_RESPONSES_NO_DELETE_SQL: &str = nip46_pending_responses_no_delete_sql!();
+
+const CREATE_NIP46_PENDING_RESPONSE_MIGRATION_SQL: &str = concat!(
+    nip46_pending_responses_table_sql!(),
+    ";\n",
+    nip46_pending_responses_guard_insert_sql!(),
+    ";\n",
+    nip46_signed_responses_guard_pending_insert_sql!(),
+    ";\n",
+    nip46_pending_responses_no_update_sql!(),
+    ";\n",
+    nip46_pending_responses_no_delete_sql!(),
+    ";",
+);
+
 macro_rules! myc_config_bindings_table_sql {
     () => {
         r#"CREATE TABLE myc_config_bindings (
@@ -1905,6 +2032,27 @@ const MYC_ADMIN_OPERATIONS_TABLE_SHA256: [u8; 32] = [
 const MYC_ADMIN_OPERATIONS_GUARD_UPDATE_SHA256: [u8; 32] = [
     0xb9, 0x68, 0x2d, 0x07, 0xca, 0x59, 0x91, 0x3b, 0x66, 0x09, 0xdc, 0x73, 0x61, 0xc5, 0xe0, 0xee,
     0x22, 0x52, 0x4f, 0x51, 0x2c, 0xbc, 0xe2, 0x8a, 0x7a, 0x8f, 0xe0, 0xd5, 0x2c, 0xfd, 0x45, 0xf6,
+];
+
+const NIP46_PENDING_RESPONSES_TABLE_SHA256: [u8; 32] = [
+    0x27, 0x99, 0x17, 0x8b, 0x41, 0xb4, 0x4b, 0xb2, 0x22, 0x2c, 0x54, 0x99, 0xbc, 0xc2, 0x67, 0x37,
+    0x47, 0x84, 0xe8, 0xe1, 0xd5, 0xde, 0xa2, 0xe6, 0x93, 0x6e, 0xfa, 0x9f, 0xb0, 0xc8, 0x80, 0x10,
+];
+const NIP46_PENDING_RESPONSES_GUARD_INSERT_SHA256: [u8; 32] = [
+    0x7a, 0x8a, 0x70, 0x91, 0x63, 0x33, 0xf4, 0xb8, 0x39, 0x5e, 0xa9, 0x39, 0x6b, 0xc1, 0xd6, 0x3e,
+    0x4b, 0x11, 0xe9, 0x96, 0x70, 0x4d, 0x6f, 0x3b, 0xa0, 0x30, 0xac, 0xbb, 0x19, 0x5a, 0xd6, 0x8c,
+];
+const NIP46_SIGNED_RESPONSES_GUARD_PENDING_INSERT_SHA256: [u8; 32] = [
+    0xd7, 0x30, 0xca, 0xbe, 0xe4, 0x05, 0x1b, 0xfb, 0x5a, 0x7b, 0x34, 0xe5, 0x9c, 0x1f, 0x35, 0x7b,
+    0x25, 0x4f, 0xea, 0x50, 0x53, 0x6d, 0xed, 0x67, 0x7e, 0x9e, 0x52, 0x67, 0x4a, 0x6b, 0x15, 0xbe,
+];
+const NIP46_PENDING_RESPONSES_NO_UPDATE_SHA256: [u8; 32] = [
+    0x7a, 0xfa, 0xc0, 0xb6, 0x19, 0x61, 0x2d, 0xf8, 0xfe, 0xab, 0xe0, 0x27, 0xa8, 0x18, 0x82, 0x7b,
+    0xa6, 0x5c, 0x84, 0xed, 0x11, 0x1f, 0x2d, 0x7e, 0xf3, 0xee, 0xdd, 0x3b, 0xaa, 0x3c, 0x7d, 0x4e,
+];
+const NIP46_PENDING_RESPONSES_NO_DELETE_SHA256: [u8; 32] = [
+    0xa2, 0x95, 0x91, 0x8a, 0x52, 0x2e, 0xfb, 0xf3, 0xbf, 0x94, 0x73, 0xeb, 0x58, 0x60, 0x67, 0xad,
+    0x4d, 0x28, 0x64, 0x2f, 0xbb, 0x02, 0xca, 0xf3, 0xdf, 0x2f, 0x2a, 0x02, 0xfd, 0xe1, 0x5d, 0x1b,
 ];
 
 const MYC_CONFIG_BINDINGS_TABLE_SHA256: [u8; 32] = [
@@ -2286,6 +2434,13 @@ pub fn myc_migration_catalog() -> Result<MigrationCatalog, MycStateCatalogError>
         MigrationChecksum::from_bytes(MYC_STATE_SCHEMA_VERSION_11_MIGRATION_SHA256),
     )
     .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
+    let pending_responses = MigrationDescriptor::sql(
+        12,
+        "create_nip46_pending_response_authority",
+        CREATE_NIP46_PENDING_RESPONSE_MIGRATION_SQL,
+        MigrationChecksum::from_bytes(MYC_STATE_SCHEMA_VERSION_12_MIGRATION_SHA256),
+    )
+    .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
     let catalog = MigrationCatalog::new([
         metadata,
         requests,
@@ -2297,10 +2452,11 @@ pub fn myc_migration_catalog() -> Result<MigrationCatalog, MycStateCatalogError>
         response,
         configuration,
         admin_operations,
+        pending_responses,
     ])
     .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::MigrationCatalog))?;
     if catalog.current_version() != MYC_STATE_SCHEMA_VERSION
-        || catalog.descriptors().len() != 10
+        || catalog.descriptors().len() != 11
         || catalog.digest().as_bytes() != &MYC_MIGRATION_CATALOG_SHA256
     {
         return Err(MycStateCatalogError::new(
@@ -2379,6 +2535,12 @@ pub fn myc_schema_catalog() -> Result<SchemaCatalog, MycStateCatalogError> {
         SchemaDigest::from_bytes(MYC_STATE_SCHEMA_VERSION_11_SHA256),
     )
     .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
+    let version_twelve = SchemaVersionCatalog::new(
+        12,
+        myc_state_pending_response_objects()?,
+        SchemaDigest::from_bytes(MYC_STATE_SCHEMA_VERSION_12_SHA256),
+    )
+    .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
     let catalog = SchemaCatalog::new(
         &migrations,
         [
@@ -2393,6 +2555,7 @@ pub fn myc_schema_catalog() -> Result<SchemaCatalog, MycStateCatalogError> {
             version_nine,
             version_ten,
             version_eleven,
+            version_twelve,
         ],
     )
     .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))?;
@@ -3018,6 +3181,52 @@ fn myc_state_admin_operation_objects() -> Result<Vec<SchemaObject>, MycStateCata
     Ok(objects)
 }
 
+fn myc_state_pending_response_objects() -> Result<Vec<SchemaObject>, MycStateCatalogError> {
+    let mut objects = myc_state_admin_operation_objects()?;
+    let object = |kind, name, table, sql, digest| {
+        SchemaObject::new(kind, name, table, sql, SchemaDigest::from_bytes(digest))
+            .map_err(|_| MycStateCatalogError::new(MycStateCatalogErrorKind::SchemaCatalog))
+    };
+    objects.extend([
+        object(
+            SchemaObjectKind::Table,
+            "nip46_pending_responses",
+            "nip46_pending_responses",
+            CREATE_NIP46_PENDING_RESPONSES_TABLE_SQL,
+            NIP46_PENDING_RESPONSES_TABLE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "nip46_pending_responses_guard_insert",
+            "nip46_pending_responses",
+            CREATE_NIP46_PENDING_RESPONSES_GUARD_INSERT_SQL,
+            NIP46_PENDING_RESPONSES_GUARD_INSERT_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "nip46_pending_responses_no_delete",
+            "nip46_pending_responses",
+            CREATE_NIP46_PENDING_RESPONSES_NO_DELETE_SQL,
+            NIP46_PENDING_RESPONSES_NO_DELETE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "nip46_pending_responses_no_update",
+            "nip46_pending_responses",
+            CREATE_NIP46_PENDING_RESPONSES_NO_UPDATE_SQL,
+            NIP46_PENDING_RESPONSES_NO_UPDATE_SHA256,
+        )?,
+        object(
+            SchemaObjectKind::Trigger,
+            "nip46_signed_responses_guard_pending_insert",
+            "nip46_signed_responses",
+            CREATE_NIP46_SIGNED_RESPONSES_GUARD_PENDING_INSERT_SQL,
+            NIP46_SIGNED_RESPONSES_GUARD_PENDING_INSERT_SHA256,
+        )?,
+    ]);
+    Ok(objects)
+}
+
 /// Independently validates exact catalog versions, counts, and digests.
 pub fn validate_myc_state_catalogs(
     migrations: &MigrationCatalog,
@@ -3026,7 +3235,7 @@ pub fn validate_myc_state_catalogs(
     let versions = schema.versions();
     let descriptors = migrations.descriptors();
     let valid = migrations.current_version() == MYC_STATE_SCHEMA_VERSION
-        && descriptors.len() == 10
+        && descriptors.len() == 11
         && descriptors[0].target_version() == 2
         && descriptors[0].name().as_str() == "create_myc_state_metadata"
         && descriptors[0].checksum().as_bytes() == &MYC_STATE_SCHEMA_VERSION_2_MIGRATION_SHA256
@@ -3057,9 +3266,12 @@ pub fn validate_myc_state_catalogs(
         && descriptors[9].target_version() == 11
         && descriptors[9].name().as_str() == "create_admin_operation_journal"
         && descriptors[9].checksum().as_bytes() == &MYC_STATE_SCHEMA_VERSION_11_MIGRATION_SHA256
+        && descriptors[10].target_version() == 12
+        && descriptors[10].name().as_str() == "create_nip46_pending_response_authority"
+        && descriptors[10].checksum().as_bytes() == &MYC_STATE_SCHEMA_VERSION_12_MIGRATION_SHA256
         && migrations.digest().as_bytes() == &MYC_MIGRATION_CATALOG_SHA256
         && schema.migration_catalog_digest() == migrations.digest()
-        && versions.len() == 11
+        && versions.len() == 12
         && versions[0].version() == MYC_STATE_BASE_SCHEMA_VERSION
         && versions[0].object_count() == MYC_STATE_SCHEMA_VERSION_1_OBJECT_COUNT
         && versions[0].digest().as_bytes() == &MYC_STATE_SCHEMA_VERSION_1_SHA256
@@ -3093,6 +3305,9 @@ pub fn validate_myc_state_catalogs(
         && versions[10].version() == 11
         && versions[10].object_count() == MYC_STATE_SCHEMA_VERSION_11_OBJECT_COUNT
         && versions[10].digest().as_bytes() == &MYC_STATE_SCHEMA_VERSION_11_SHA256
+        && versions[11].version() == 12
+        && versions[11].object_count() == MYC_STATE_SCHEMA_VERSION_12_OBJECT_COUNT
+        && versions[11].digest().as_bytes() == &MYC_STATE_SCHEMA_VERSION_12_SHA256
         && schema.digest().as_bytes() == &MYC_STATE_SCHEMA_CATALOG_SHA256;
     if valid {
         Ok(())

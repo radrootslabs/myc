@@ -24,6 +24,7 @@ use super::nip46_wave_080_a::{
     connect_request, connection_time, keys, metadata, migration_evidence, permissions,
     prepared_request, runtime, unsigned_sign_event, untrusted_response,
 };
+use crate::state_response::MycNip46PendingResponseCommitRequest;
 
 pub(crate) async fn active_connection(
     repository: &crate::MycStateRepository<'_>,
@@ -90,6 +91,205 @@ pub(crate) async fn active_connection(
         .await
         .expect("terminal connect decision");
     (work, active, decision)
+}
+
+async fn pending_connection(
+    repository: &crate::MycStateRepository<'_>,
+    config: &crate::MycConfigDocumentV1,
+) -> (crate::MycNip46Work, crate::MycConnectionDecisionRecord) {
+    let prepared = prepared_request(
+        config,
+        &keys(10),
+        "pending-response-connect",
+        connect_request(),
+        Encryption::Nip44V2,
+        OBSERVED_AT_SECONDS + 40,
+        40,
+        RECEIVED_AT_MS + 40,
+    );
+    let admitted = repository
+        .admit_signer_request(prepared.signer_request())
+        .await
+        .expect("pending request admission");
+    let work = prepare_myc_nip46_work(
+        prepared,
+        admitted.record().clone(),
+        None,
+        config.provider_contract(),
+        connection_time(RECEIVED_AT_MS + 4_000),
+        None,
+    )
+    .expect("pending connect work");
+    let connection_request = work
+        .connection_admission_request(
+            MycConnectionPolicyGeneration::new(1).expect("policy generation"),
+            crate::MycConnectionNonce::from_injected_entropy([0x81; 32]),
+            connection_time(RECEIVED_AT_MS + 4_000),
+            None,
+            MycConnectionAdmissionPolicy::ExplicitApproval,
+            MycRateRelayId::new("primary").expect("relay"),
+        )
+        .expect("pending connection request");
+    let admission = repository
+        .admit_connection(&connection_request)
+        .await
+        .expect("pending connection admission");
+    let decision = admission.record().expect("pending decision").clone();
+    assert_eq!(
+        decision.decision(),
+        crate::MycConnectionDecision::PendingApproval
+    );
+    (work, decision)
+}
+
+fn pending_response_request(
+    config: &crate::MycConfigDocumentV1,
+    work: &crate::MycNip46Work,
+    decision: &crate::MycConnectionDecisionRecord,
+) -> (MycNip46PendingResponseCommitRequest, Vec<u8>) {
+    let unsigned = NostrUnsignedEvent::new(
+        keys(3).public_key(),
+        Timestamp::from_secs(OBSERVED_AT_SECONDS + 41),
+        Kind::Custom(24_133),
+        vec![Tag::public_key(keys(10).public_key())],
+        "encrypted-pending-response",
+    );
+    let operation = MycProviderOperation::new(
+        config
+            .provider_contract()
+            .binding(MycProviderRole::User)
+            .expect("user binding"),
+        MycProviderOperationId::from_bytes([0xa1; 32]),
+        MycProviderCorrelationId::from_bytes([0xa2; 32]),
+        MycProviderDeadlineUnixMs::new(PROVIDER_DEADLINE_MS).expect("provider deadline"),
+        MycProviderOperationInput::sign_event(unsigned.as_json().as_bytes())
+            .expect("response signing input"),
+    )
+    .expect("pending response operation");
+    let signed = unsigned
+        .sign_with_keys(&keys(3))
+        .expect("signed pending response");
+    let bytes = serde_json::to_vec(&signed).expect("canonical pending response");
+    let response: MycLocalSignerUntrustedResponse = untrusted_response(
+        &operation,
+        hex::encode(operation.correlation_id().as_bytes()),
+        WireProviderResult::SignEvent {
+            payload_hex: ProtectedWireHex::from_bytes(&bytes),
+        },
+    );
+    let verified = response
+        .verify(
+            config
+                .provider_contract()
+                .binding(MycProviderRole::User)
+                .expect("user binding"),
+            &operation,
+            MycProviderResponseObservedAtUnixMs::new(RECEIVED_AT_MS + 41_001)
+                .expect("response time"),
+        )
+        .expect("verified pending response");
+    let request = MycNip46PendingResponseCommitRequest::new(
+        work,
+        decision,
+        &operation,
+        &verified,
+        crate::MycDeliveryTimeUnixMs::new(RECEIVED_AT_MS + 41_003).expect("commit time"),
+    )
+    .expect("pending response request");
+    (request, bytes)
+}
+
+#[tokio::test]
+async fn pending_approval_response_and_delivery_job_commit_atomically_and_replay_exactly() {
+    let directory = tempfile::tempdir().expect("temporary root");
+    let runtime = runtime(directory.path());
+    fs::create_dir_all(runtime.context().paths().state()).expect("state directory");
+    fs::set_permissions(
+        runtime.context().paths().state(),
+        fs::Permissions::from_mode(0o700),
+    )
+    .expect("state mode");
+    let metadata = metadata(&runtime);
+    let config = configuration();
+    let (applied_at, build) = migration_evidence();
+    initialize_myc_state(&runtime, &metadata, applied_at, &build)
+        .await
+        .expect("state initialization");
+    let host = open_myc_state_read_write(&runtime, &metadata, applied_at, &build)
+        .await
+        .expect("writable state");
+    let repository = host.repository();
+    let (work, decision) = pending_connection(&repository, &config).await;
+    let (request, response_bytes) = pending_response_request(&config, &work, &decision);
+    let debug = format!("{request:?}");
+    assert!(!debug.contains("encrypted-pending-response"));
+
+    let rollback = repository
+        .commit_nip46_pending_response(&request.fail_after_response_for_test())
+        .await
+        .expect_err("pending response without delivery must roll back");
+    assert_eq!(
+        rollback.kind(),
+        crate::MycStateRepositoryErrorKind::Transaction
+    );
+    let committed = repository
+        .commit_nip46_pending_response(&request)
+        .await
+        .expect("pending response commit");
+    assert_eq!(committed.signed_response_bytes(), response_bytes);
+    assert_eq!(
+        committed.operation_id(),
+        work.request_record().operation_id()
+    );
+    let replay = repository
+        .commit_nip46_pending_response(&request)
+        .await
+        .expect("exact pending response replay");
+    assert_eq!(replay, committed);
+    let by_job = repository
+        .read_nip46_response(committed.delivery_job().id())
+        .await
+        .expect("pending response read")
+        .expect("retained pending response");
+    assert_eq!(by_job, committed);
+    host.close().await.expect("host close");
+
+    let options = SqliteConnectOptions::new()
+        .filename(runtime.artifacts().state_database())
+        .create_if_missing(false)
+        .disable_statement_logging();
+    let mut connection = sqlx::SqliteConnection::connect_with(&options)
+        .await
+        .expect("inspection connection");
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM nip46_pending_responses")
+            .fetch_one(&mut connection)
+            .await
+            .expect("pending response count"),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM nip46_signed_responses")
+            .fetch_one(&mut connection)
+            .await
+            .expect("terminal response count"),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM nip46_operation_commits")
+            .fetch_one(&mut connection)
+            .await
+            .expect("terminal operation count"),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM delivery_jobs")
+            .fetch_one(&mut connection)
+            .await
+            .expect("delivery job count"),
+        1
+    );
+    connection.close().await.expect("inspection close");
 }
 
 pub(crate) fn atomic_response_request(
