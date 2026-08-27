@@ -494,6 +494,14 @@ reads return the same committed event bytes and projection inputs; publication
 and hosted NIP-05 responses remain later runtime concerns and never run inside
 the SQLite transaction.
 
+Explicit state initialization validates runtime identity, build evidence, and
+the complete migration/schema catalogs before invoking the runtime-path
+directory plan. That plan alone may provision the exact interactive
+`services/myc/<instance>` suffix; service-host deployment roots and suffixes
+must already exist. The shared service-SQLite initializer owns the one
+transaction and exposes only its sealed typed SQLx executor. Existing writable
+and inspection opens never provision directories or create missing state.
+
 Writable hosts expose Myc-bound online-backup and active-integrity operations.
 Backup verification retains the exact admitted member inode, and
 offline staging derives the same runtime paths, database identity, migration

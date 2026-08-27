@@ -16,6 +16,7 @@ const NIP46_WAVE_080_A: &str = include_str!("../src/nip46_wave_080_a.rs");
 const NIP46_COMPLETION: &str = include_str!("../src/state_completion.rs");
 const NIP46_RESPONSE: &str = include_str!("../src/state_response.rs");
 const STATE_CATALOG: &str = include_str!("../src/state_catalog.rs");
+const STATE_HOST: &str = include_str!("../src/state_host.rs");
 const DELIVERY_RECOVERY: &str = include_str!("../src/state_recovery.rs");
 const DELIVERY_WORKER: &str = include_str!("../src/delivery_worker.rs");
 const PROVIDER_EXECUTOR: &str = include_str!("../src/provider_executor.rs");
@@ -116,6 +117,35 @@ const SOURCES: &[&str] = &[
     include_str!("../src/state_request.rs"),
     include_str!("../src/state_response.rs"),
 ];
+
+#[test]
+fn state_initialization_uses_only_governed_directory_and_sqlite_authority() {
+    for required in [
+        "ServiceSqliteInitializer",
+        "ServiceSqliteInitializerFuture",
+        ".state_directory_plan()",
+        ".and_then(|plan| plan.provision())",
+        "initialize_database(",
+    ] {
+        assert!(
+            STATE_HOST.contains(required),
+            "state initialization is missing `{required}`"
+        );
+    }
+    for forbidden in [
+        "PathBuf",
+        "use sqlx::",
+        "SqliteConnectOptions",
+        "ConnectOptions",
+        "create_dir_all",
+        "try_exists",
+    ] {
+        assert!(
+            !STATE_HOST.contains(forbidden),
+            "state initialization regained `{forbidden}`"
+        );
+    }
+}
 
 #[test]
 fn implementation_modules_are_private_and_rustdoc_uses_the_reviewed_readme() {

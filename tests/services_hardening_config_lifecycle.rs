@@ -1,13 +1,7 @@
 #![forbid(unsafe_code)]
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 
-use std::{
-    error::Error,
-    fs,
-    num::NonZeroU32,
-    os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
-};
+use std::{error::Error, fs, num::NonZeroU32, os::unix::fs::PermissionsExt, path::Path};
 
 use myc::{
     MycConfigApplyErrorKind, MycConfigProfile, MycStateHostErrorKind, MycStateMetadata,
@@ -18,7 +12,8 @@ use myc::{
 use radroots_service_sqlite::{
     MigrationAppliedAtUnixSeconds, MigrationBuildIdentity, MigrationCatalog, OpenMode,
     SchemaCatalog, ServiceDatabaseIdentity, ServiceSqliteConnectionOptions, ServiceSqliteHost,
-    ServiceSqlitePaths, initialize_database,
+    ServiceSqliteInitializer, ServiceSqliteInitializerFuture, ServiceSqlitePaths,
+    initialize_database,
 };
 use radroots_storage::event::SourceGeneration;
 use sqlx::{ConnectOptions, Connection, Row, sqlite::SqliteConnectOptions};
@@ -87,7 +82,7 @@ fn build_for_contracts(
     MigrationBuildIdentity::new(
         env!("CARGO_PKG_VERSION"),
         "1111111111111111111111111111111111111111",
-        "d287d41c2cd97cd0e455445da90f22180029f089",
+        "053d0c750bf9cd683c6ea37cefe7e79617ba629f",
         "rustc-test",
         "test-target",
         "service-host",
@@ -111,6 +106,12 @@ impl std::fmt::Display for TestInitializationError {
 
 impl Error for TestInitializationError {}
 
+fn initialize_empty_catalog<'a>(
+    _initializer: &'a mut ServiceSqliteInitializer<'_>,
+) -> ServiceSqliteInitializerFuture<'a, TestInitializationError> {
+    Box::pin(async { Ok(()) })
+}
+
 async fn initialize_v9(runtime: &myc::MycRuntimeContext, metadata: &MycStateMetadata) {
     let full_migrations = myc::myc_migration_catalog().expect("full migrations");
     let migrations = MigrationCatalog::new(full_migrations.descriptors()[..8].iter().cloned())
@@ -131,20 +132,7 @@ async fn initialize_v9(runtime: &myc::MycRuntimeContext, metadata: &MycStateMeta
         OpenMode::Initialize,
         initial,
         &schema,
-        |path: PathBuf| async move {
-            let connection = sqlx::SqliteConnection::connect_with(
-                &SqliteConnectOptions::new()
-                    .filename(path)
-                    .create_if_missing(false)
-                    .disable_statement_logging(),
-            )
-            .await
-            .map_err(|_| TestInitializationError)?;
-            connection
-                .close()
-                .await
-                .map_err(|_| TestInitializationError)
-        },
+        initialize_empty_catalog,
     )
     .await
     .expect("v9 initialize");
@@ -215,20 +203,7 @@ async fn initialize_v10(runtime: &myc::MycRuntimeContext, metadata: &MycStateMet
         OpenMode::Initialize,
         initial,
         &schema,
-        |path: PathBuf| async move {
-            let connection = sqlx::SqliteConnection::connect_with(
-                &SqliteConnectOptions::new()
-                    .filename(path)
-                    .create_if_missing(false)
-                    .disable_statement_logging(),
-            )
-            .await
-            .map_err(|_| TestInitializationError)?;
-            connection
-                .close()
-                .await
-                .map_err(|_| TestInitializationError)
-        },
+        initialize_empty_catalog,
     )
     .await
     .expect("v10 initialize");
@@ -281,7 +256,7 @@ async fn initialize_v10(runtime: &myc::MycRuntimeContext, metadata: &MycStateMet
                  discovery_public_key, config_contract_version, 10, operator_contract_version, \
                  status_contract_version, 1725000000, '0.1.0', \
                  '1111111111111111111111111111111111111111', \
-                 'd287d41c2cd97cd0e455445da90f22180029f089', 'rustc-test', 'test-target', \
+                 '053d0c750bf9cd683c6ea37cefe7e79617ba629f', 'rustc-test', 'test-target', \
                  'service-host', 1 FROM myc_state_metadata WHERE singleton = 1",
             )
             .execute(&mut *transaction)

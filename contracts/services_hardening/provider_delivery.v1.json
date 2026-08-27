@@ -16,7 +16,7 @@
   },
   "relay_adapter": {
     "implementation": "radroots_transport_nostr",
-    "source_locked_revision": "d287d41c2cd97cd0e455445da90f22180029f089",
+    "source_locked_revision": "053d0c750bf9cd683c6ea37cefe7e79617ba629f",
     "preparation_performs_io": false,
     "target_cardinality_per_attempt": 1,
     "public_profile": "wss_only",

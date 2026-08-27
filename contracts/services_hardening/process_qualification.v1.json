@@ -6,7 +6,7 @@
   "binary": "myc",
   "source_lock": {
     "schema": "radroots.service.source-lock.v2",
-    "lib_revision": "d287d41c2cd97cd0e455445da90f22180029f089"
+    "lib_revision": "053d0c750bf9cd683c6ea37cefe7e79617ba629f"
   },
   "bounds": {
     "process_deadline_ms": 30000,

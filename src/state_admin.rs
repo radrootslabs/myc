@@ -969,7 +969,7 @@ mod tests {
         MigrationBuildIdentity::new(
             env!("CARGO_PKG_VERSION"),
             "1111111111111111111111111111111111111111",
-            "d287d41c2cd97cd0e455445da90f22180029f089",
+            "053d0c750bf9cd683c6ea37cefe7e79617ba629f",
             "rustc-test",
             "test-target",
             "service-host",

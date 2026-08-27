@@ -97,6 +97,13 @@
   it is not active native revision authority. Native target metadata does not
   qualify an artifact; Nix, OCI, signing, tags, publication, and deployment
   remain deferred.
+- RCLD-RSHR-195 Step 245 advances the active native Lib source lock and freezes
+  Myc state creation behind the runtime-path directory plan plus the sealed
+  service-SQLite initializer. Explicit initialization may provision only the
+  exact governed service-instance suffix after identity and catalog validation;
+  every existing-only open remains non-creating. Do not restore raw paths, raw
+  SQLx connections, filesystem probes, or directory-creation fallbacks at the
+  state-host boundary.
 - Step 148 closes the production NIP-46 response authority in
   `contracts/services_hardening/nip46_response_commit.v1.json`. Production
   code may commit a completion only through the atomic exact-response method;

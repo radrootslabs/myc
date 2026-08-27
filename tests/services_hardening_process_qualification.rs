@@ -220,7 +220,7 @@ fn qualification_contract_freezes_the_exact_process_and_component_corpus() {
         contract["source_lock"],
         serde_json::json!({
             "schema": "radroots.service.source-lock.v2",
-            "lib_revision": "d287d41c2cd97cd0e455445da90f22180029f089"
+            "lib_revision": "053d0c750bf9cd683c6ea37cefe7e79617ba629f"
         })
     );
     assert_eq!(
