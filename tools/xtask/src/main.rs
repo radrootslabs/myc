@@ -19,7 +19,7 @@ const VERSION: &str = "0.1.0";
 const REPOSITORY: &str = "https://github.com/radrootslabs/myc";
 const RUST_VERSION: &str = "1.97.1";
 const HOST_FEATURE_PROFILE: &str = "service-host";
-const SOURCE_LOCK: &str = "radroots.service.source-lock.v2.toml";
+const SOURCE_LOCK: &str = "radroots.service.source-lock.v3.toml";
 const CONFIG_EXAMPLE: &str = "contracts/services_hardening/config.v1.example.toml";
 const CONFIG_SCHEMA: &str = "contracts/services_hardening/config.v1.schema.json";
 const SYSTEMD_UNIT: &str = "packaging/systemd/myc@.service";
@@ -161,10 +161,13 @@ struct SourceLock {
     workspace_catalog_sha256: String,
     version: String,
     source_archive_sha256: String,
+    source_archive_contract: SourceArchiveContract,
     cargo_lock_sha256: String,
     rust_version: String,
     host_feature_profile: String,
     nix: NixEvidence,
+    artifact_contract: ArtifactContract,
+    sqlite: SqliteContract,
     contract_versions: ContractVersions,
 }
 
@@ -172,8 +175,68 @@ struct SourceLock {
 #[serde(deny_unknown_fields)]
 struct NixEvidence {
     material: String,
-    lib_revision: Option<String>,
-    flake_lock_sha256: Option<String>,
+    lib_revision: String,
+    public_input_lock: PublicInputLock,
+    parent_result: ParentResult,
+    supported_systems: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublicInputLock {
+    path: String,
+    sha256: String,
+    binding: String,
+    mutable_reference: String,
+    lib_input: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ParentResult {
+    embedded_in_public_input_lock: bool,
+    embedded_in_source_lock: bool,
+    storage: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceArchiveContract {
+    binding: String,
+    format: String,
+    compression: String,
+    compression_timestamp: String,
+    entry_order: String,
+    path_prefix: String,
+    file_mode: String,
+    uid: u32,
+    gid: u32,
+    uname: String,
+    gname: String,
+    mtime: String,
+    pax_headers: String,
+    directory_entries: String,
+    symlinks: String,
+    hardlinks: String,
+    submodules: String,
+    trailer: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArtifactContract {
+    path: String,
+    sha256: String,
+    binding: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SqliteContract {
+    high_level_authority: String,
+    second_pool_connection_query_transaction_migration_authority: String,
+    incremental_backup_adapter: String,
+    native_linkage_count: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -465,7 +528,7 @@ fn native_release(root: &Path, args: &NativeReleaseArgs) -> Result<(), ReleaseEr
         host_feature_profile: HOST_FEATURE_PROFILE,
         contract_versions: source_lock.contract_versions.clone(),
         protected_material_included: false,
-        nix_qualified: false,
+        nix_qualified: true,
         oci_included: false,
         artifacts: payload,
     };
@@ -624,9 +687,14 @@ fn read_source_lock(root: &Path) -> Result<SourceLock, ReleaseError> {
     let text = std::str::from_utf8(&bytes).map_err(|_| ReleaseError::InvalidSourceLock)?;
     let lock: SourceLock = toml::from_str(text).map_err(|_| ReleaseError::InvalidSourceLock)?;
     let cargo_lock = hash_regular(&root.join("Cargo.lock"), MAX_DOCUMENT_BYTES)?;
+    let flake_lock = hash_regular(&root.join("flake.lock"), MAX_DOCUMENT_BYTES)?;
+    let artifact_contract = hash_regular(
+        &root.join("contracts/release/myc-artifact-contract.v3.json"),
+        MAX_DOCUMENT_BYTES,
+    )?;
     let revisions = cargo_dependency_revisions(root)?;
-    if lock.schema != "radroots.service.source-lock.v2"
-        || lock.contract_version != 2
+    if lock.schema != "radroots.service.source-lock.v3"
+        || lock.contract_version != 3
         || lock.service != SERVICE
         || lock.repository != "https://github.com/radrootslabs/lib"
         || !lower_hex(&lock.revision, 40)
@@ -637,17 +705,46 @@ fn read_source_lock(root: &Path) -> Result<SourceLock, ReleaseError> {
         || lock.cargo_lock_sha256 != cargo_lock.sha256
         || lock.rust_version != RUST_VERSION
         || lock.host_feature_profile != HOST_FEATURE_PROFILE
-        || lock.nix.material != "deferred"
+        || lock.source_archive_contract.binding
+            != "sha256_of_canonical_exact_lib_revision_tree_archive"
+        || lock.source_archive_contract.format != "ustar"
+        || lock.source_archive_contract.compression != "none"
+        || lock.source_archive_contract.compression_timestamp != "not_applicable"
+        || lock.source_archive_contract.entry_order != "bytewise_git_path"
+        || lock.source_archive_contract.path_prefix != "none"
+        || lock.source_archive_contract.file_mode != "git_index_100644_or_100755"
+        || lock.source_archive_contract.uid != 0
+        || lock.source_archive_contract.gid != 0
+        || !lock.source_archive_contract.uname.is_empty()
+        || !lock.source_archive_contract.gname.is_empty()
+        || lock.source_archive_contract.mtime != "lib_revision_commit_timestamp"
+        || lock.source_archive_contract.pax_headers != "forbidden"
+        || lock.source_archive_contract.directory_entries != "omitted"
+        || lock.source_archive_contract.symlinks != "forbidden"
+        || lock.source_archive_contract.hardlinks != "forbidden"
+        || lock.source_archive_contract.submodules != "forbidden"
+        || lock.source_archive_contract.trailer != "two_zero_blocks"
+        || lock.nix.material != "qualified"
+        || lock.nix.lib_revision != lock.revision
+        || lock.nix.supported_systems != ["aarch64-darwin", "x86_64-linux"]
+        || lock.nix.public_input_lock.path != "flake.lock"
+        || lock.nix.public_input_lock.sha256 != flake_lock.sha256
+        || lock.nix.public_input_lock.binding != "exact_regular_file_bytes"
+        || lock.nix.public_input_lock.mutable_reference != "forbidden"
+        || lock.nix.public_input_lock.lib_input != "lib"
+        || lock.nix.parent_result.embedded_in_public_input_lock
+        || lock.nix.parent_result.embedded_in_source_lock
+        || lock.nix.parent_result.storage != "separate_generation_scoped_evidence"
+        || lock.artifact_contract.path != "contracts/release/myc-artifact-contract.v3.json"
+        || lock.artifact_contract.sha256 != artifact_contract.sha256
+        || lock.artifact_contract.binding != "exact_regular_file_bytes_in_same_source_revision"
+        || lock.sqlite.high_level_authority != "sqlx_only"
         || lock
-            .nix
-            .lib_revision
-            .as_deref()
-            .is_none_or(|revision| !lower_hex(revision, 40))
-        || lock
-            .nix
-            .flake_lock_sha256
-            .as_deref()
-            .is_none_or(|digest| !lower_hex(digest, 64))
+            .sqlite
+            .second_pool_connection_query_transaction_migration_authority
+            != "forbidden"
+        || lock.sqlite.incremental_backup_adapter != "sealed_native_sqlx_owned_locked_handle_only"
+        || lock.sqlite.native_linkage_count != 1
         || revisions != BTreeSet::from([lock.revision.clone()])
         || [
             lock.contract_versions.config,

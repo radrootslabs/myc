@@ -35,7 +35,7 @@ let _snapshot = MycStatusSnapshot {};
 ```
 
 The native package, artifact, and dependency-trust boundary is frozen by
-`contracts/services_hardening/native_release.v2.json`. Linux x86_64 and
+`contracts/services_hardening/native_release.v3.json`. Linux x86_64 and
 aarch64 are the only admitted native artifact targets. `cargo xtask
 native-release` consumes an exact prebuilt target binary from a clean Git head
 and deterministically writes or checks the complete binary/source archive,
@@ -61,10 +61,11 @@ enable, start, stop, or deploy a production service.
 
 The canonical service source lock binds the exact active public Lib cohort,
 Cargo lock, verified Lib source archive, toolchain, feature profile, and
-service contract versions. Deferred flake source data is independently
-digest-bound and may select an older reachable Lib revision; it does not
-control native artifacts or claim Nix qualification. Nix, NixOS material, OCI,
-signing, tags, publication, and deployment remain deferred and unclaimed.
+service contract versions. Source-lock v3 binds the public flake lock to the
+same exact Lib revision as Cargo and records qualified Nix material for only
+macOS aarch64 and Linux x86_64. The Linux-only NixOS module and unsigned OCI
+derivation are build outputs; signing, tags, publication, deployment, and
+production activation remain unclaimed.
 
 ## Hardened v1 configuration contract
 
@@ -584,10 +585,10 @@ cargo extbuild run -- cargo xtask native-release --mode write --target <aarch64-
 cargo extbuild run -- cargo xtask native-release --mode check --target <same-target> --binary <same-absolute-binary> --output <same-absolute-directory> --source-date-epoch <same-seconds>
 ```
 
-Through RCLD-RSHR-170, Nix evaluation, builds, packages, NixOS modules, and
-Nix-produced OCI artifacts are deferred and unclaimed. Do not install, repair,
-invoke, or require Nix for these checkpoints. Run narrower ad hoc Cargo
-commands through `cargo extbuild run --` from this repository root.
+The flake exposes the Myc package, application, checks, and development shell
+for `aarch64-darwin` and `x86_64-linux`, plus the NixOS module and unsigned OCI
+derivation for `x86_64-linux`. Run Nix and narrower ad hoc Cargo commands
+through `cargo extbuild run --` from this repository root.
 
 ## Copyright
 

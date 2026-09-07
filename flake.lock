@@ -1,28 +1,68 @@
 {
   "nodes": {
-    "lib": {
+    "crane": {
       "locked": {
-        "lastModified": 1787301679,
-        "narHash": "sha256-WOcgJuKhM9aP55yTuTM63uBf+/IroeBu26zy+lMkvpE=",
+        "lastModified": 1773189535,
+        "narHash": "sha256-E1G/Or6MWeP+L6mpQ0iTFLpzSzlpGrITfU2220Gq47g=",
+        "owner": "ipetkov",
+        "repo": "crane",
+        "rev": "6fa2fb4cf4a89ba49fc9dd5a3eb6cde99d388269",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ipetkov",
+        "repo": "crane",
+        "type": "github"
+      }
+    },
+    "flake-parts": {
+      "inputs": {
+        "nixpkgs-lib": "nixpkgs-lib"
+      },
+      "locked": {
+        "lastModified": 1772408722,
+        "narHash": "sha256-rHuJtdcOjK7rAHpHphUb1iCvgkU3GpfvicLMwwnfMT0=",
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "rev": "f20dc5d9b8027381c474144ecabc9034d6a839a3",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "type": "github"
+      }
+    },
+    "lib": {
+      "inputs": {
+        "crane": "crane",
+        "flake-parts": "flake-parts",
+        "nixpkgs": "nixpkgs",
+        "rust-overlay": "rust-overlay",
+        "treefmt-nix": "treefmt-nix"
+      },
+      "locked": {
+        "lastModified": 1788739124,
+        "narHash": "sha256-Aw8qbU1DrtxSYJKg0js6kexnKgVGFCjR34bgq+ZVAVo=",
         "owner": "radrootslabs",
         "repo": "lib",
-        "rev": "b44119fbac5985be8127ad1bf56d2950e6399427",
+        "rev": "055096853fca95e15d0f813d33a14aca13be3881",
         "type": "github"
       },
       "original": {
         "owner": "radrootslabs",
         "repo": "lib",
-        "rev": "b44119fbac5985be8127ad1bf56d2950e6399427",
+        "rev": "055096853fca95e15d0f813d33a14aca13be3881",
         "type": "github"
       }
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1774799055,
-        "narHash": "sha256-Tsq9BCz0q47ej1uFF39m4tuhcwru/ls6vCCJzutEpaw=",
+        "lastModified": 1773222311,
+        "narHash": "sha256-BHoB/XpbqoZkVYZCfXJXfkR+GXFqwb/4zbWnOr2cRcU=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "107cba9eb4a8d8c9f8e9e61266d78d340867913a",
+        "rev": "0590cd39f728e129122770c029970378a79d076a",
         "type": "github"
       },
       "original": {
@@ -32,30 +72,65 @@
         "type": "github"
       }
     },
+    "nixpkgs-lib": {
+      "locked": {
+        "lastModified": 1772328832,
+        "narHash": "sha256-e+/T/pmEkLP6BHhYjx6GmwP5ivonQQn0bJdH9YrRB+Q=",
+        "owner": "nix-community",
+        "repo": "nixpkgs.lib",
+        "rev": "c185c7a5e5dd8f9add5b2f8ebeff00888b070742",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "nixpkgs.lib",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
-        "lib": "lib",
-        "nixpkgs": "nixpkgs",
-        "rust-overlay": "rust-overlay"
+        "lib": "lib"
       }
     },
     "rust-overlay": {
       "inputs": {
         "nixpkgs": [
+          "lib",
           "nixpkgs"
         ]
       },
       "locked": {
-        "lastModified": 1784265529,
-        "narHash": "sha256-ohQQiPOngux8ofsrSlloHCMDhRMvocXqJiG8uH45Q5k=",
+        "lastModified": 1785131767,
+        "narHash": "sha256-VNbQv2P0zgaNh96mT4LrnX7hdXgiC5nBH+uvyrrVX7U=",
         "owner": "oxalica",
         "repo": "rust-overlay",
-        "rev": "068175006cfb69d5b541a140ed93e361488c9e53",
+        "rev": "c67ce00525464a710971351c183ce67acb6ca827",
         "type": "github"
       },
       "original": {
         "owner": "oxalica",
         "repo": "rust-overlay",
+        "type": "github"
+      }
+    },
+    "treefmt-nix": {
+      "inputs": {
+        "nixpkgs": [
+          "lib",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1773297127,
+        "narHash": "sha256-6E/yhXP7Oy/NbXtf1ktzmU8SdVqJQ09HC/48ebEGBpk=",
+        "owner": "numtide",
+        "repo": "treefmt-nix",
+        "rev": "71b125cd05fbfd78cab3e070b73544abe24c5016",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "treefmt-nix",
         "type": "github"
       }
     }

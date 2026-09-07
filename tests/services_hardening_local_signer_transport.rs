@@ -84,7 +84,7 @@ fn machine_contract_freezes_the_complete_local_signer_transport() {
 #[test]
 fn implementation_uses_only_the_hardened_fixed_unix_admin_boundary() {
     for required in [
-        "radroots_service_host = { git = \"https://github.com/radrootslabs/lib\", rev = \"053d0c750bf9cd683c6ea37cefe7e79617ba629f\"",
+        "radroots_service_host = { git = \"https://github.com/radrootslabs/lib\", rev = \"055096853fca95e15d0f813d33a14aca13be3881\"",
         "const MYC_LOCAL_SIGNER_ENDPOINT: &str = \"/v1/provider/operation\"",
         "radroots_service_host::AdminClient",
         ".mutate::<_, LocalSignerResponse>(",
