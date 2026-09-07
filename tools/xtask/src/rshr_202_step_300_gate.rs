@@ -24,7 +24,7 @@ const EXACT_SOURCES: &[(&str, &str)] = &[
     ),
     (
         "contracts/release/myc-artifact-contract.v3.json",
-        "4582a9e14b11ea4589bc524748ae6c34841916bda78bffc667814be911673ae6",
+        "edde8d77b701bb6e086b928c61fc003b5c3572669d2945ee4679485f23a2bddc",
     ),
     (
         "flake.lock",
@@ -36,7 +36,7 @@ const EXACT_SOURCES: &[(&str, &str)] = &[
     ),
     (
         "radroots.service.source-lock.v3.toml",
-        "32064c24438615895e0ebdef2de5f55b93c32400280e87452a4dc6077ddbaf72",
+        "070a210d79ecd385ae4beafe1dc1b16fd374f9564afc7d224e00be462c58b732",
     ),
 ];
 

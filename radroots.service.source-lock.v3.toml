@@ -50,7 +50,7 @@ storage = "separate_generation_scoped_evidence"
 
 [artifact_contract]
 path = "contracts/release/myc-artifact-contract.v3.json"
-sha256 = "4582a9e14b11ea4589bc524748ae6c34841916bda78bffc667814be911673ae6"
+sha256 = "edde8d77b701bb6e086b928c61fc003b5c3572669d2945ee4679485f23a2bddc"
 binding = "exact_regular_file_bytes_in_same_source_revision"
 
 [sqlite]
