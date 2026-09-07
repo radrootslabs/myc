@@ -2,16 +2,17 @@
   "nodes": {
     "crane": {
       "locked": {
-        "lastModified": 1773189535,
-        "narHash": "sha256-E1G/Or6MWeP+L6mpQ0iTFLpzSzlpGrITfU2220Gq47g=",
+        "lastModified": 1766774972,
+        "narHash": "sha256-8qxEFpj4dVmIuPn9j9z6NTbU+hrcGjBOvaxTzre5HmM=",
         "owner": "ipetkov",
         "repo": "crane",
-        "rev": "6fa2fb4cf4a89ba49fc9dd5a3eb6cde99d388269",
+        "rev": "01bc1d404a51a0a07e9d8759cd50a7903e218c82",
         "type": "github"
       },
       "original": {
         "owner": "ipetkov",
         "repo": "crane",
+        "rev": "01bc1d404a51a0a07e9d8759cd50a7903e218c82",
         "type": "github"
       }
     },
@@ -35,7 +36,9 @@
     },
     "lib": {
       "inputs": {
-        "crane": "crane",
+        "crane": [
+          "crane"
+        ],
         "flake-parts": "flake-parts",
         "nixpkgs": "nixpkgs",
         "rust-overlay": "rust-overlay",
@@ -89,7 +92,16 @@
     },
     "root": {
       "inputs": {
-        "lib": "lib"
+        "crane": "crane",
+        "lib": "lib",
+        "nixpkgs": [
+          "lib",
+          "nixpkgs"
+        ],
+        "rust-overlay": [
+          "lib",
+          "rust-overlay"
+        ]
       }
     },
     "rust-overlay": {

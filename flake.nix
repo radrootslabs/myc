@@ -1,10 +1,29 @@
 {
   description = "Myc Nostr remote signer";
 
-  inputs.lib.url = "github:radrootslabs/lib/055096853fca95e15d0f813d33a14aca13be3881";
+  inputs = {
+    # Crane 0.23+ currently asks nixpkgs' Cargo vendor helper to fetch
+    # semver-build-metadata crate versions through the crates.io API. That
+    # endpoint rejects the literal `+`; the immutable v0.22.0 input avoids
+    # that upstream fetch defect while preserving the same locked sources.
+    crane.url = "github:ipetkov/crane/01bc1d404a51a0a07e9d8759cd50a7903e218c82";
+    lib = {
+      url = "github:radrootslabs/lib/055096853fca95e15d0f813d33a14aca13be3881";
+      inputs.crane.follows = "crane";
+    };
+    nixpkgs.follows = "lib/nixpkgs";
+    rust-overlay.follows = "lib/rust-overlay";
+  };
 
   outputs =
-    { self, lib }:
+    {
+      self,
+      crane,
+      lib,
+      nixpkgs,
+      rust-overlay,
+      ...
+    }:
     let
       systems = lib.lib.supportedSystems;
       forAllSystems = function:
@@ -17,40 +36,89 @@
       serviceOutputs =
         system:
         let
+          pkgs = import nixpkgs {
+            inherit system;
+            overlays = [ rust-overlay.overlays.default ];
+          };
           helpers = lib.lib.mkServiceHelpers system;
           toolchain = helpers.mkToolchain {
             rustToolchainFile = ./rust-toolchain.toml;
           };
           nativeInputs = helpers.mkNativeInputs { };
-          package = helpers.mkServicePackage {
-            inherit nativeInputs toolchain;
-            source = ./.;
-            cargoLock = ./Cargo.lock;
-            servicePackage = "myc";
-            binaryName = "myc";
+          craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
+          source = pkgs.lib.cleanSourceWith {
+            src = ./.;
+            filter =
+              path: type:
+              craneLib.filterCargoSources path type
+              || pkgs.lib.hasSuffix ".json" (baseNameOf path)
+              || baseNameOf path == "README";
+            name = "myc-source";
           };
-          hooks = {
+          commonArgs = {
+            src = source;
+            cargoLock = ./Cargo.lock;
+            strictDeps = true;
+            nativeBuildInputs = nativeInputs.nativeBuildInputs;
+            buildInputs = nativeInputs.buildInputs;
+            env = nativeInputs.environment;
+            doCheck = false;
+          };
+          cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+          package = craneLib.buildPackage (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pname = "myc";
+              version = "0.1.0";
+              CARGO_PROFILE = "release";
+              cargoExtraArgs = "--locked --package myc --bin myc";
+            }
+          );
+          mkCargoCheck =
+            name: command: extraArgs:
+            craneLib.mkCargoDerivation (
+              commonArgs
+              // extraArgs
+              // {
+                inherit cargoArtifacts;
+                pname = "myc-${name}";
+                version = "1";
+                buildPhaseCargoCommand = command;
+                installPhaseCommand = "mkdir -p $out";
+              }
+            );
+          checks = {
+            fmt = craneLib.cargoFmt (
+              commonArgs
+              // {
+                pname = "myc-fmt";
+                version = "1";
+              }
+            );
+            check = mkCargoCheck "check" "cargo check --workspace --all-targets --locked" { };
+            test = mkCargoCheck "test" "cargo test --workspace --all-targets --locked" { };
+            clippy = mkCargoCheck "clippy" "cargo clippy --workspace --all-targets --locked -- -D warnings" { };
+            docs = mkCargoCheck "docs" "cargo doc --workspace --no-deps --locked" {
+              RUSTDOCFLAGS = "-D warnings";
+            };
             config = package;
             integration = package;
+            package = package;
             source-lock = package;
             sqlx = package;
-          };
-          checks = helpers.mkServiceChecks {
-            serviceName = "myc";
-            inherit
-              hooks
-              nativeInputs
-              package
-              toolchain
-              ;
-            source = ./.;
-            cargoLock = ./Cargo.lock;
           };
           apps = helpers.mkServiceApps {
             serviceName = "myc";
             binaryName = "myc";
             inherit nativeInputs package toolchain;
-            releaseAcceptanceCommand = "${package}/bin/myc --help >/dev/null";
+            releaseAcceptanceCommand = ''
+              ${package}/bin/myc \
+                --profile repo-local \
+                --instance nix-release-acceptance \
+                --repo-local-root "$PWD" \
+                config schema >/dev/null
+            '';
           };
           devShells.default = helpers.mkServiceDevShell {
             serviceName = "myc";

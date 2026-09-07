@@ -38,7 +38,7 @@ supported_systems = ["aarch64-darwin", "x86_64-linux"]
 
 [nix.public_input_lock]
 path = "flake.lock"
-sha256 = "df48d334292ea79f1156757279b0cfc01008be1b8a50f013b381b6fe31ff8f56"
+sha256 = "5d5b11622c341292f429a5f93e55f38a3506431b139720ff62f983b35bf7d55f"
 binding = "exact_regular_file_bytes"
 mutable_reference = "forbidden"
 lib_input = "lib"

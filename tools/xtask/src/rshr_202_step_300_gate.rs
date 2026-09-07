@@ -28,15 +28,15 @@ const EXACT_SOURCES: &[(&str, &str)] = &[
     ),
     (
         "flake.lock",
-        "df48d334292ea79f1156757279b0cfc01008be1b8a50f013b381b6fe31ff8f56",
+        "5d5b11622c341292f429a5f93e55f38a3506431b139720ff62f983b35bf7d55f",
     ),
     (
         "flake.nix",
-        "13d3acf9a25e8403dc03fa770b6ccb8bdc2ff2fea1c483395128b622f2703393",
+        "906b1cb7176e421d6bf067e76d6da2860a4863468651e9d768bc0933a1635eb4",
     ),
     (
         "radroots.service.source-lock.v3.toml",
-        "fab0e089bd81c707f59a2428789555337fb0ef56d3d0cb195b59b257010bead7",
+        "32064c24438615895e0ebdef2de5f55b93c32400280e87452a4dc6077ddbaf72",
     ),
 ];
 
