@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+mod rshr_202_step_300_gate;
+mod rshr_202_step_300_platform;
+
 use std::{
     collections::BTreeSet,
     env, fmt, fs,
@@ -370,8 +373,62 @@ fn run_main() -> Result<(), ReleaseError> {
             let args = parse_native_release_args(arguments.collect())?;
             native_release(&workspace_root(), &args)
         }
+        Some("rshr-step-300-gate") => {
+            let args = parse_rshr_step_300_gate_args(arguments.collect())?;
+            rshr_202_step_300_gate::run(args).map_err(|_| ReleaseError::Generation)
+        }
+        Some("rshr-step-300-platform-probe") if arguments.next().is_none() => {
+            rshr_202_step_300_platform::run().map_err(|_| ReleaseError::Generation)
+        }
         _ => Err(ReleaseError::InvalidArguments),
     }
+}
+
+fn parse_rshr_step_300_gate_args(
+    values: Vec<String>,
+) -> Result<rshr_202_step_300_gate::Arguments, ReleaseError> {
+    let mut step = None;
+    let mut check_id = None;
+    let mut source_revision = None;
+    let mut source_tree = None;
+    let mut candidate_digest = None;
+    let mut platform = None;
+    let mut execution_request_sha256 = None;
+    for value in values {
+        let (name, value) = value
+            .split_once('=')
+            .ok_or(ReleaseError::InvalidArguments)?;
+        let slot = match name {
+            "--check-id" => &mut check_id,
+            "--source-revision" => &mut source_revision,
+            "--source-tree" => &mut source_tree,
+            "--candidate-digest" => &mut candidate_digest,
+            "--platform" => &mut platform,
+            "--execution-request-sha256" => &mut execution_request_sha256,
+            "--step" => {
+                let parsed = value
+                    .parse::<u16>()
+                    .map_err(|_| ReleaseError::InvalidArguments)?;
+                if step.replace(parsed).is_some() {
+                    return Err(ReleaseError::InvalidArguments);
+                }
+                continue;
+            }
+            _ => return Err(ReleaseError::InvalidArguments),
+        };
+        if value.is_empty() || slot.replace(value.to_owned()).is_some() {
+            return Err(ReleaseError::InvalidArguments);
+        }
+    }
+    Ok(rshr_202_step_300_gate::Arguments {
+        step: step.ok_or(ReleaseError::InvalidArguments)?,
+        check_id: check_id.ok_or(ReleaseError::InvalidArguments)?,
+        source_revision: source_revision.ok_or(ReleaseError::InvalidArguments)?,
+        source_tree: source_tree.ok_or(ReleaseError::InvalidArguments)?,
+        candidate_digest: candidate_digest.ok_or(ReleaseError::InvalidArguments)?,
+        platform: platform.ok_or(ReleaseError::InvalidArguments)?,
+        execution_request_sha256: execution_request_sha256.ok_or(ReleaseError::InvalidArguments)?,
+    })
 }
 
 fn workspace_root() -> PathBuf {
