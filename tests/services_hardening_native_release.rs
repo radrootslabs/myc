@@ -249,7 +249,9 @@ fn every_radroots_dependency_is_exactly_source_locked() {
     assert!(source.contains(&format!("?rev={LIB_REVISION}#{LIB_REVISION}")));
 
     for required in [
-        "inputs.lib.url = \"github:radrootslabs/lib/055096853fca95e15d0f813d33a14aca13be3881\";",
+        "lib = {",
+        "url = \"github:radrootslabs/lib/055096853fca95e15d0f813d33a14aca13be3881\";",
+        "inputs.crane.follows = \"crane\";",
         "systems = lib.lib.supportedSystems;",
         "nixosModules.default",
     ] {
@@ -267,7 +269,7 @@ fn every_radroots_dependency_is_exactly_source_locked() {
         flake_lock["nodes"]["lib"],
         json!({
             "inputs": {
-                "crane": "crane",
+                "crane": ["crane"],
                 "flake-parts": "flake-parts",
                 "nixpkgs": "nixpkgs",
                 "rust-overlay": "rust-overlay",
