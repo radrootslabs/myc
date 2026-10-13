@@ -53,6 +53,7 @@ FROM delivery_targets t
 JOIN delivery_jobs j ON j.job_id = t.job_id
 WHERE j.status IN ('pending', 'active')
     AND t.status IN ('pending', 'retryable', 'unknown')
+    AND t.attempt_count < j.max_attempts
     AND t.active_attempt_id IS NULL
     AND (t.next_attempt_at_unix_ms IS NULL OR t.next_attempt_at_unix_ms <= ?)
 ORDER BY j.created_at_unix_ms, t.job_id, t.target_index

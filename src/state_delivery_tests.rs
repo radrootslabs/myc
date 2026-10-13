@@ -2,14 +2,17 @@
 
 use std::{fs, os::unix::fs::PermissionsExt};
 
+use radroots_storage::event::SourceGeneration;
+
 use crate::nip46_wave_080_a::{
-    RECEIVED_AT_MS, configuration, connection_time, metadata, migration_evidence, runtime,
+    RECEIVED_AT_MS, configuration, connection_time, keys, metadata, migration_evidence, runtime,
 };
 use crate::nip46_wave_080_b::{active_connection, atomic_response_request};
 use crate::{
-    MycDeliveryAttemptNonce, MycDeliveryAttemptOutcome, MycDeliveryClaim, MycDeliveryJobStatus,
-    MycDeliveryRelayId, MycDeliveryRetryJitter, MycDeliveryTargetStatus, MycDeliveryTimeUnixMs,
-    MycNip46CommitRequest, initialize_myc_state, open_myc_state_read_write,
+    MycConfigProfile, MycDeliveryAttemptNonce, MycDeliveryAttemptOutcome, MycDeliveryClaim,
+    MycDeliveryJobStatus, MycDeliveryRelayId, MycDeliveryRetryJitter, MycDeliveryTargetStatus,
+    MycDeliveryTimeUnixMs, MycNip46CommitRequest, MycStateMetadata, initialize_myc_state,
+    open_myc_state_read_write, parse_myc_config_v1,
 };
 
 fn time(offset_ms: u64) -> MycDeliveryTimeUnixMs {
@@ -248,6 +251,188 @@ async fn ready_target_selection_is_read_only_ordered_and_respects_delivery_state
             .await
             .expect("reopened response read")
             .expect("reopened response")
+            .signed_response_bytes(),
+        signed_bytes
+    );
+    reopened.close().await.expect("reopened state close");
+}
+
+#[tokio::test]
+async fn ready_target_selection_skips_optional_unknown_at_attempt_ceiling() {
+    let directory = tempfile::tempdir().expect("temporary state root");
+    let runtime = runtime(directory.path());
+    fs::create_dir_all(runtime.context().paths().state()).expect("state directory");
+    fs::set_permissions(
+        runtime.context().paths().state(),
+        fs::Permissions::from_mode(0o700),
+    )
+    .expect("state directory mode");
+    let source = include_str!("../contracts/services_hardening/config.v1.example.toml")
+        .replacen(
+            "4444444444444444444444444444444444444444444444444444444444444444",
+            &keys(2).public_key().to_hex(),
+            1,
+        )
+        .replacen(
+            "2222222222222222222222222222222222222222222222222222222222222222",
+            &keys(3).public_key().to_hex(),
+            1,
+        )
+        .replacen("required = true", "required = false", 1)
+        .replacen("max_attempts = 5", "max_attempts = 1", 1);
+    let configuration = parse_myc_config_v1(source.as_bytes(), MycConfigProfile::RepoLocal)
+        .expect("one optional target with one attempt");
+    let metadata = MycStateMetadata::new(
+        &runtime,
+        &configuration,
+        SourceGeneration::new([0x5a; 32]).expect("fixture generation"),
+        RECEIVED_AT_MS,
+    )
+    .expect("configuration-bound metadata");
+    let (applied_at, build) = migration_evidence();
+    initialize_myc_state(&runtime, &metadata, applied_at, &build)
+        .await
+        .expect("state initialization");
+    let host = open_myc_state_read_write(&runtime, &metadata, applied_at, &build)
+        .await
+        .expect("writable state");
+    let repository = host.repository();
+    let (work, _, decision) = active_connection(&repository, &configuration).await;
+    let completion = MycNip46CommitRequest::new(
+        &work,
+        Some(&decision),
+        None,
+        connection_time(RECEIVED_AT_MS + 2_001),
+    )
+    .expect("connection completion");
+    let (request, signed_bytes) = atomic_response_request(&configuration, &completion);
+    let committed = repository
+        .commit_nip46_response(&request)
+        .await
+        .expect("atomic response and delivery commit");
+    let job_id = committed.record().response().delivery_job().id();
+    let primary = MycDeliveryRelayId::new("primary").expect("optional primary target");
+    let secondary = MycDeliveryRelayId::new("secondary").expect("required secondary target");
+    assert_eq!(
+        committed.record().response().delivery_job().max_attempts(),
+        1
+    );
+    assert!(!committed.record().response().delivery_job().targets()[0].required());
+    assert!(committed.record().response().delivery_job().targets()[1].required());
+    let optional = match repository
+        .claim_delivery_target(
+            job_id,
+            &primary,
+            MycDeliveryAttemptNonce::from_injected_entropy([0xc1; 32]),
+            time(4_000),
+        )
+        .await
+        .expect("optional target claim")
+    {
+        MycDeliveryClaim::Claimed(attempt) => attempt,
+        other => panic!("expected fresh optional claim: {other:?}"),
+    };
+    repository
+        .mark_delivery_attempt_submitted(job_id, &primary, optional.id(), time(4_001))
+        .await
+        .expect("record synthetic submission evidence");
+    let active = repository
+        .record_delivery_attempt_outcome(
+            job_id,
+            &primary,
+            optional.id(),
+            MycDeliveryAttemptOutcome::UnknownAcknowledgement,
+            MycDeliveryRetryJitter::new(0).expect("zero jitter at attempt ceiling"),
+            time(4_002),
+        )
+        .await
+        .expect("retain synthetic unknown acknowledgement");
+    assert_eq!(active.status(), MycDeliveryJobStatus::Active);
+    let unknown = active.targets()[0].clone();
+    assert_eq!(unknown.status(), MycDeliveryTargetStatus::Unknown);
+    assert_eq!(unknown.attempt_count(), 1);
+    assert_eq!(unknown.next_attempt_at(), None);
+    assert!(matches!(
+        repository
+            .claim_delivery_target(
+                job_id,
+                &primary,
+                MycDeliveryAttemptNonce::from_injected_entropy([0xc2; 32]),
+                time(4_003),
+            )
+            .await
+            .expect("optional target has no remaining attempt"),
+        MycDeliveryClaim::Terminal
+    ));
+    assert_eq!(
+        repository
+            .next_ready_delivery_target(time(4_003))
+            .await
+            .expect("select claimable required target"),
+        Some((job_id, secondary.clone())),
+        "an optional unknown target at its attempt ceiling must not starve required work"
+    );
+    let required = match repository
+        .claim_delivery_target(
+            job_id,
+            &secondary,
+            MycDeliveryAttemptNonce::from_injected_entropy([0xc3; 32]),
+            time(4_003),
+        )
+        .await
+        .expect("required target claim")
+    {
+        MycDeliveryClaim::Claimed(attempt) => attempt,
+        other => panic!("expected fresh required claim: {other:?}"),
+    };
+    repository
+        .mark_delivery_attempt_submitted(job_id, &secondary, required.id(), time(4_004))
+        .await
+        .expect("record required submission evidence");
+    let delivered = repository
+        .record_delivery_attempt_outcome(
+            job_id,
+            &secondary,
+            required.id(),
+            MycDeliveryAttemptOutcome::Delivered,
+            MycDeliveryRetryJitter::new(0).expect("zero jitter"),
+            time(4_005),
+        )
+        .await
+        .expect("synthetic required acknowledgement");
+    assert_eq!(delivered.status(), MycDeliveryJobStatus::Delivered);
+    assert_eq!(delivered.targets()[0], unknown);
+    repository
+        .verify_delivery_invariants()
+        .await
+        .expect("delivery invariants retain the optional unknown evidence");
+    host.close().await.expect("state close");
+
+    let reopened = open_myc_state_read_write(&runtime, &metadata, applied_at, &build)
+        .await
+        .expect("reopen state");
+    let repository = reopened.repository();
+    let retained = repository
+        .read_delivery_job(job_id)
+        .await
+        .expect("reopened job read")
+        .expect("retained job");
+    assert_eq!(retained.status(), MycDeliveryJobStatus::Delivered);
+    assert_eq!(retained.targets()[0], unknown);
+    assert_eq!(
+        repository
+            .read_delivery_attempts(job_id, &primary)
+            .await
+            .expect("retained optional attempt")
+            .len(),
+        1
+    );
+    assert_eq!(
+        repository
+            .read_nip46_response(job_id)
+            .await
+            .expect("reopened response read")
+            .expect("retained response")
             .signed_response_bytes(),
         signed_bytes
     );
