@@ -650,8 +650,6 @@ fn configuration_integer(
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error as _;
-
     use nostr::{EventBuilder, JsonUtil as _, Keys};
     use radroots_transport::{
         outcome::{DeliveryOutcome, Retryability},

@@ -820,7 +820,6 @@ impl From<WireCapability> for MycProviderCapability {
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error as _;
     use std::path::Path;
 
     use nostr::nips::{nip04, nip44};

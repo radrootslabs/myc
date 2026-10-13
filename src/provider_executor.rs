@@ -437,9 +437,7 @@ const fn capability_allowed_for_role(
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error as _;
-
-    use nostr::{JsonUtil as _, Kind, Tag, Timestamp};
+    use nostr::{Kind, Tag, Timestamp};
 
     use super::*;
     use crate::{

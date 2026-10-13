@@ -1,5 +1,9 @@
 //! Durable delivery-job identity, bounded target attempts, and lease evidence.
 
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+#[path = "state_delivery_tests.rs"]
+mod tests;
+
 use core::fmt;
 use std::error::Error;
 
@@ -52,7 +56,7 @@ WHERE j.status IN ('pending', 'active')
     AND t.active_attempt_id IS NULL
     AND (t.next_attempt_at_unix_ms IS NULL OR t.next_attempt_at_unix_ms <= ?)
 ORDER BY j.created_at_unix_ms, t.job_id, t.target_index
-LIMIT 2"#;
+LIMIT 1"#;
 
 const READ_JOB_SQL: &str = r#"SELECT
     CASE WHEN typeof(job_id) = 'blob' AND length(job_id) = 32

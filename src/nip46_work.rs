@@ -691,8 +691,6 @@ fn connect_permission(
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error as _;
-
     use nostr::{
         EventBuilder, JsonUtil as _, Keys, Kind, Tag, Timestamp,
         UnsignedEvent as NostrUnsignedEvent,

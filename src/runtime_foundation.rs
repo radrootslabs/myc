@@ -371,7 +371,8 @@ pub async fn open_myc_runtime_foundation(
 
     match compose_after_state_open(runtime, configuration, metadata, state).await {
         Ok(foundation) => Ok(foundation),
-        Err((error, state)) => {
+        Err(failure) => {
+            let (error, state) = *failure;
             if state.close().await.is_err() {
                 Err(MycRuntimeFoundationError::new(
                     MycRuntimeFoundationErrorKind::Close,
@@ -388,11 +389,11 @@ async fn compose_after_state_open(
     configuration: MycConfigDocumentV1,
     metadata: MycStateMetadata,
     state: MycStateHost,
-) -> Result<MycRuntimeFoundation, (MycRuntimeFoundationError, MycStateHost)> {
+) -> Result<MycRuntimeFoundation, Box<(MycRuntimeFoundationError, MycStateHost)>> {
     let (providers, readiness, supervisor) =
         match compose_runtime_components(&runtime, &configuration).await {
             Ok(components) => components,
-            Err(error) => return Err((error, state)),
+            Err(error) => return Err(Box::new((error, state))),
         };
     Ok(MycRuntimeFoundation {
         runtime,
