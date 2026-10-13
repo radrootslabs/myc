@@ -455,3 +455,86 @@ fn provider_aggregate_and_optional_oldest_time_are_deterministic() {
     assert!(wire.contains("\"outbox\":{\"pending\":0,\"unknown\":0}"));
     assert!(!wire.contains("oldest_pending_at_utc"));
 }
+
+#[test]
+fn combined_runtime_failure_reasons_satisfy_the_exact_admin_status_model() {
+    let codes = [
+        "signer_provider_unavailable",
+        "required_relay_unavailable",
+        "subscriber_not_active",
+        "operations_listener_failed",
+    ];
+    let common = MycStatusCommonV1::new(
+        MycServicePhase::Unready,
+        false,
+        reasons(&codes),
+        1,
+        build_info(),
+        MycStatusConfigurationIdentityV1::new(
+            "a".repeat(64),
+            MycStatusConfigurationSource::ExplicitConfig,
+        )
+        .expect("configuration"),
+        MycPersistenceStatusV1::new(
+            MycPersistenceHealthV1::Ready,
+            MYC_STATE_SCHEMA_VERSION,
+            1,
+            MycIntegrityStateV1::Verified,
+            MycStatusReasonCodes::empty(),
+        )
+        .expect("persistence"),
+    )
+    .expect("combined unready observation");
+    let provider = MycProviderStatusV1::new(
+        identity(true, false, &codes),
+        identity(true, false, &codes),
+        identity(true, false, &codes),
+        reasons(&codes),
+    )
+    .expect("unavailable providers");
+    let transport = MycRelayTransportStatusV1::new(
+        MycTransportHealthV1::Unavailable,
+        false,
+        0,
+        reasons(&codes),
+    )
+    .expect("unavailable required relays");
+    let (_publisher, reader) = myc_status_cache(
+        InstanceId::new("primary").expect("instance"),
+        MycStatusObservationV1::new(
+            common,
+            provider,
+            transport,
+            MycConnectionCountsV1::default(),
+            MycOutboxStatusV1::default(),
+        ),
+    )
+    .expect("passive status cache");
+    let snapshot = reader.snapshot();
+    let value: serde_json::Value =
+        serde_json::from_slice(snapshot.detailed_status_json()).expect("cached status JSON");
+    let canonical = serde_json::to_vec(&value).expect("canonical admin response model");
+    let admitted =
+        myc::MycAdminResponseDocument::from_canonical_bytes(myc::MycAdminRoute::Status, &canonical)
+            .expect("combined runtime failure reasons must satisfy the exact admin status model");
+    assert_eq!(admitted.canonical_bytes(), canonical);
+    let expected = serde_json::json!([
+        "operations_listener_failed",
+        "required_relay_unavailable",
+        "signer_provider_unavailable",
+        "subscriber_not_active",
+    ]);
+    for pointer in [
+        "/reason_codes",
+        "/provider/reason_codes",
+        "/provider/transport/reason_codes",
+        "/provider/user/reason_codes",
+        "/provider/discovery/reason_codes",
+        "/transport/reason_codes",
+        "/myc/transport/reason_codes",
+        "/myc/user/reason_codes",
+        "/myc/discovery/reason_codes",
+    ] {
+        assert_eq!(value.pointer(pointer), Some(&expected), "{pointer}");
+    }
+}

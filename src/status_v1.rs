@@ -107,7 +107,7 @@ impl MycStatusReasonCodes {
             }
             bounded.push(value);
         }
-        bounded.sort_unstable();
+        bounded.sort_unstable_by_key(|value| value.as_str());
         bounded.dedup();
         Ok(Self(bounded))
     }
