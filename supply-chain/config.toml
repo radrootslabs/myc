@@ -793,9 +793,9 @@ version = "1.1.4"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustls]]
-version = "0.23.45"
+version = "0.23.46"
 criteria = "safe-to-deploy"
-notes = "Existing full-crate review debt retained. The exact 0.23.43 to 0.23.45 package delta was reviewed while applying the upstream patch for RUSTSEC-2026-0285; this is not an independent full-crate audit. No advisory exception was added."
+notes = "Existing full-crate review debt retained. Updated to 0.23.46 for RUSTSEC-2026-0346 through RUSTSEC-2026-0349. This version-specific exemption is not an independent full-crate audit. No advisory exception was added."
 
 [[exemptions.rustls-pki-types]]
 version = "1.15.1"
