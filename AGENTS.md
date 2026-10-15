@@ -28,7 +28,7 @@
 ## 2. Authority and preflight
 
 - Before editing, read this file, `README`, `Cargo.toml`,
-  `radroots.service.source-lock.v2.toml`, the relevant implementation and tests,
+  `radroots.service.source-lock.v3.toml`, the relevant implementation and tests,
   and `flake.nix` or migrations when they are in scope.
 - `.radroots-consumer-root` is the standalone source-lock identity and must
   remain exactly `myc`. The implemented control-plane contract is
@@ -358,6 +358,12 @@
 
 ## 8. Rust and test discipline
 
+- The current stable compiler and MSRV are exact Rust 1.99.0, edition 2024
+  and resolver 3. Keep package minimums, `rust-toolchain.toml` and Cargo metadata
+  in exact agreement. Preserve original compiler identities in frozen release
+  history and dedicated nightly tooling. A current minimum change does not
+  qualify old source-lock, artifact or acquisition descriptors for a new
+  candidate; update and verify those through their owning producers first.
 - Prefer pure transformations, explicit state machines, validated newtypes,
   tagged enums, narrow side-effect boundaries, and private visibility.
 - Avoid hidden production panics. Use typed errors for expected failures and
