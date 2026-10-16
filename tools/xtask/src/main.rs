@@ -20,9 +20,9 @@ use tempfile::{NamedTempFile, TempDir};
 const SERVICE: &str = "myc";
 const VERSION: &str = "0.1.0";
 const REPOSITORY: &str = "https://github.com/radrootslabs/myc";
-const RUST_VERSION: &str = "1.97.1";
+const RUST_VERSION: &str = "1.99.0";
 const HOST_FEATURE_PROFILE: &str = "service-host";
-const SOURCE_LOCK: &str = "radroots.service.source-lock.v3.toml";
+const SOURCE_LOCK: &str = "radroots.service.source_lock.v4.toml";
 const CONFIG_EXAMPLE: &str = "contracts/services_hardening/config.v1.example.toml";
 const CONFIG_SCHEMA: &str = "contracts/services_hardening/config.v1.schema.json";
 const SYSTEMD_UNIT: &str = "packaging/systemd/myc@.service";
@@ -42,6 +42,7 @@ const OUTPUT_NAMES: [&str; 12] = [
     "systemd.service",
 ];
 const MAX_TEXT_BYTES: u64 = 1_048_576;
+const MAX_SOURCE_LOCK_BYTES: u64 = 16_384;
 const MAX_DOCUMENT_BYTES: u64 = 16_777_216;
 const MAX_METADATA_BYTES: u64 = 33_554_432;
 const MAX_BINARY_BYTES: u64 = 536_870_912;
@@ -152,7 +153,7 @@ struct CargoNode {
     dependencies: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SourceLock {
     schema: String,
@@ -174,17 +175,17 @@ struct SourceLock {
     contract_versions: ContractVersions,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct NixEvidence {
     material: String,
     lib_revision: String,
+    supported_systems: Vec<String>,
     public_input_lock: PublicInputLock,
     parent_result: ParentResult,
-    supported_systems: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct PublicInputLock {
     path: String,
@@ -194,7 +195,7 @@ struct PublicInputLock {
     lib_input: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ParentResult {
     embedded_in_public_input_lock: bool,
@@ -202,7 +203,7 @@ struct ParentResult {
     storage: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SourceArchiveContract {
     binding: String,
@@ -225,7 +226,7 @@ struct SourceArchiveContract {
     trailer: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ArtifactContract {
     path: String,
@@ -233,7 +234,7 @@ struct ArtifactContract {
     binding: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SqliteContract {
     high_level_authority: String,
@@ -551,7 +552,7 @@ fn native_release(root: &Path, args: &NativeReleaseArgs) -> Result<(), ReleaseEr
     copy_bounded(
         &root.join(SOURCE_LOCK),
         &stage.join(SOURCE_LOCK),
-        MAX_TEXT_BYTES,
+        MAX_SOURCE_LOCK_BYTES,
     )?;
     create_binary_archive(
         &args.binary,
@@ -568,7 +569,7 @@ fn native_release(root: &Path, args: &NativeReleaseArgs) -> Result<(), ReleaseEr
     write_json(&stage.join("sbom.cdx.json"), &sbom)?;
     write_generated(&stage.join("THIRD-PARTY-NOTICES.txt"), notices.as_bytes())?;
 
-    let source_lock_sha256 = hash_regular(&stage.join(SOURCE_LOCK), MAX_TEXT_BYTES)?.sha256;
+    let source_lock_sha256 = hash_regular(&stage.join(SOURCE_LOCK), MAX_SOURCE_LOCK_BYTES)?.sha256;
     let payload = inventory_records(stage)?;
     let manifest = ArtifactManifest {
         schema: "radroots.service.release-artifacts.v1",
@@ -585,7 +586,7 @@ fn native_release(root: &Path, args: &NativeReleaseArgs) -> Result<(), ReleaseEr
         host_feature_profile: HOST_FEATURE_PROFILE,
         contract_versions: source_lock.contract_versions.clone(),
         protected_material_included: false,
-        nix_qualified: true,
+        nix_qualified: false,
         oci_included: false,
         artifacts: payload,
     };
@@ -596,8 +597,8 @@ fn native_release(root: &Path, args: &NativeReleaseArgs) -> Result<(), ReleaseEr
         schema: "radroots.service.provenance-input.v1",
         contract_version: 1,
         predicate_type: "https://slsa.dev/provenance/v1",
-        build_type: "https://radroots.dev/contracts/myc-native-release/v2",
-        builder_id: "https://radroots.dev/builders/myc-native-release/v2",
+        build_type: "https://radroots.dev/contracts/myc-native-release/v4",
+        builder_id: "https://radroots.dev/builders/myc-native-release/v4",
         service: SERVICE,
         version: VERSION,
         target: args.target.clone(),
@@ -736,22 +737,35 @@ fn validate_output_path(root: &Path, output: &Path) -> Result<(), ReleaseError> 
 }
 
 fn read_source_lock(root: &Path) -> Result<SourceLock, ReleaseError> {
+    for predecessor in [
+        "radroots.service.source-lock.v1.toml",
+        "radroots.service.source-lock.v2.toml",
+        "radroots.service.source-lock.v3.toml",
+    ] {
+        match fs::symlink_metadata(root.join(predecessor)) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            _ => return Err(ReleaseError::InvalidSourceLock),
+        }
+    }
     let bytes = read_bounded(
         &root.join(SOURCE_LOCK),
-        MAX_TEXT_BYTES,
+        MAX_SOURCE_LOCK_BYTES,
         ReleaseError::InvalidSourceLock,
     )?;
     let text = std::str::from_utf8(&bytes).map_err(|_| ReleaseError::InvalidSourceLock)?;
     let lock: SourceLock = toml::from_str(text).map_err(|_| ReleaseError::InvalidSourceLock)?;
+    if toml::to_string(&lock).map_err(|_| ReleaseError::InvalidSourceLock)? != text {
+        return Err(ReleaseError::InvalidSourceLock);
+    }
     let cargo_lock = hash_regular(&root.join("Cargo.lock"), MAX_DOCUMENT_BYTES)?;
     let flake_lock = hash_regular(&root.join("flake.lock"), MAX_DOCUMENT_BYTES)?;
     let artifact_contract = hash_regular(
-        &root.join("contracts/release/myc-artifact-contract.v3.json"),
+        &root.join("contracts/release/myc-artifact-contract.v4.json"),
         MAX_DOCUMENT_BYTES,
     )?;
     let revisions = cargo_dependency_revisions(root)?;
-    if lock.schema != "radroots.service.source-lock.v3"
-        || lock.contract_version != 3
+    if lock.schema != "radroots.service.source_lock.v4"
+        || lock.contract_version != 4
         || lock.service != SERVICE
         || lock.repository != "https://github.com/radrootslabs/lib"
         || !lower_hex(&lock.revision, 40)
@@ -781,7 +795,7 @@ fn read_source_lock(root: &Path) -> Result<SourceLock, ReleaseError> {
         || lock.source_archive_contract.hardlinks != "forbidden"
         || lock.source_archive_contract.submodules != "forbidden"
         || lock.source_archive_contract.trailer != "two_zero_blocks"
-        || lock.nix.material != "qualified"
+        || lock.nix.material != "bound"
         || lock.nix.lib_revision != lock.revision
         || lock.nix.supported_systems != ["aarch64-darwin", "x86_64-linux"]
         || lock.nix.public_input_lock.path != "flake.lock"
@@ -791,8 +805,8 @@ fn read_source_lock(root: &Path) -> Result<SourceLock, ReleaseError> {
         || lock.nix.public_input_lock.lib_input != "lib"
         || lock.nix.parent_result.embedded_in_public_input_lock
         || lock.nix.parent_result.embedded_in_source_lock
-        || lock.nix.parent_result.storage != "separate_generation_scoped_evidence"
-        || lock.artifact_contract.path != "contracts/release/myc-artifact-contract.v3.json"
+        || lock.nix.parent_result.storage != "separate_source_scoped_execution_evidence"
+        || lock.artifact_contract.path != "contracts/release/myc-artifact-contract.v4.json"
         || lock.artifact_contract.sha256 != artifact_contract.sha256
         || lock.artifact_contract.binding != "exact_regular_file_bytes_in_same_source_revision"
         || lock.sqlite.high_level_authority != "sqlx_only"
@@ -1427,11 +1441,10 @@ fn output_maximum(name: &str) -> Result<u64, ReleaseError> {
     match name {
         "binary.tar.gz" => Ok(MAX_BINARY_BYTES + MAX_TEXT_BYTES),
         "service-source.tar.gz" => Ok(MAX_SOURCE_ARCHIVE_BYTES),
-        "LICENSE"
-        | "config.example.toml"
-        | "config.schema.json"
-        | "systemd.service"
-        | SOURCE_LOCK => Ok(MAX_TEXT_BYTES),
+        "LICENSE" | "config.example.toml" | "config.schema.json" | "systemd.service" => {
+            Ok(MAX_TEXT_BYTES)
+        }
+        SOURCE_LOCK => Ok(MAX_SOURCE_LOCK_BYTES),
         "SHA256SUMS"
         | "THIRD-PARTY-NOTICES.txt"
         | "artifact-manifest.v1.json"
@@ -1634,6 +1647,64 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn current_source_lock_is_canonical_bounded_and_exactly_bound() {
+        let root = workspace_root();
+        let lock = read_source_lock(&root).expect("current V4 lock");
+        assert_eq!(lock.rust_version, RUST_VERSION);
+        assert_eq!(lock.nix.material, "bound");
+        assert_eq!(output_maximum(SOURCE_LOCK), Ok(MAX_SOURCE_LOCK_BYTES));
+        let fixture = TempDir::new().expect("source fixture");
+        for name in [
+            SOURCE_LOCK,
+            "Cargo.toml",
+            "Cargo.lock",
+            "flake.lock",
+            "contracts/release/myc-artifact-contract.v4.json",
+        ] {
+            let target = fixture.path().join(name);
+            fs::create_dir_all(target.parent().expect("fixture parent")).expect("parent");
+            fs::copy(root.join(name), target).expect("fixture input");
+        }
+        read_source_lock(fixture.path()).expect("exact fixture");
+        let path = fixture.path().join(SOURCE_LOCK);
+        let original = fs::read_to_string(&path).expect("lock bytes");
+        for changed in [
+            format!("{original}\n"),
+            original.replacen("1.99.0", "1.97.1", 1),
+            original.replacen("material = \"bound\"", "material = \"qualified\"", 1),
+            original.replacen("native_linkage_count = 1", "native_linkage_count = 2", 1),
+            original.replacen("contract_version = 4", "contract_version = 3", 1),
+            "x".repeat(MAX_SOURCE_LOCK_BYTES as usize + 1),
+        ] {
+            assert_ne!(changed, original);
+            fs::write(&path, changed).expect("mutated lock");
+            assert!(read_source_lock(fixture.path()).is_err());
+        }
+        fs::write(&path, original).expect("restore lock");
+        fs::write(
+            fixture.path().join("radroots.service.source-lock.v3.toml"),
+            b"historical",
+        )
+        .expect("coexisting predecessor");
+        assert!(read_source_lock(fixture.path()).is_err());
+        fs::remove_file(fixture.path().join("radroots.service.source-lock.v3.toml"))
+            .expect("remove predecessor fixture");
+        for name in [
+            "Cargo.lock",
+            "flake.lock",
+            "contracts/release/myc-artifact-contract.v4.json",
+        ] {
+            let target = fixture.path().join(name);
+            let original = fs::read(&target).expect("bound input");
+            let mut changed = original.clone();
+            changed.push(b'\n');
+            fs::write(&target, changed).expect("changed input");
+            assert!(read_source_lock(fixture.path()).is_err(), "{name}");
+            fs::write(target, original).expect("restore input");
+        }
+    }
 
     #[test]
     fn argument_parser_is_closed_and_bounded() {

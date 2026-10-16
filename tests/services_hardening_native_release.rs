@@ -6,7 +6,7 @@ use serde_json::json;
 
 const CONTRACT: &str = include_str!("../contracts/services_hardening/native_release.v2.json");
 const ACTIVE_CONTRACT: &str =
-    include_str!("../contracts/services_hardening/native_release.v3.json");
+    include_str!("../contracts/services_hardening/native_release.v4.json");
 const MANIFEST: &str = include_str!("../Cargo.toml");
 const LOCK: &str = include_str!("../Cargo.lock");
 const FLAKE: &str = include_str!("../flake.nix");
@@ -14,7 +14,7 @@ const FLAKE_LOCK: &str = include_str!("../flake.lock");
 const CARGO_CONFIG: &str = include_str!("../.cargo/config.toml");
 const SYSTEMD_UNIT: &str = include_str!("../packaging/systemd/myc@.service");
 
-const LIB_REVISION: &str = "055096853fca95e15d0f813d33a14aca13be3881";
+const LIB_REVISION: &str = "386e2d7e8cca95bdd0f6ce3444b5e741ea61ef8a";
 const LIB_REPOSITORY: &str = "https://github.com/radrootslabs/lib";
 
 #[test]
@@ -158,7 +158,7 @@ fn native_release_contract_and_manifest_metadata_are_exact() {
         toml::Value::Table(toml::toml! {
             service = "myc"
             host_feature_profile = "service-host"
-            nix_material = "qualified"
+            nix_material = "bound"
             config_contract_version = 1
             state_contract_version = 12
             admin_contract_version = 1
@@ -250,7 +250,7 @@ fn every_radroots_dependency_is_exactly_source_locked() {
 
     for required in [
         "lib = {",
-        "url = \"github:radrootslabs/lib/055096853fca95e15d0f813d33a14aca13be3881\";",
+        "url = \"github:radrootslabs/lib/386e2d7e8cca95bdd0f6ce3444b5e741ea61ef8a\";",
         "inputs.crane.follows = \"crane\";",
         "systems = lib.lib.supportedSystems;",
         "nixosModules.default",
@@ -276,8 +276,8 @@ fn every_radroots_dependency_is_exactly_source_locked() {
                 "treefmt-nix": "treefmt-nix"
             },
             "locked": {
-                "lastModified": 1788739124_u64,
-                "narHash": "sha256-Aw8qbU1DrtxSYJKg0js6kexnKgVGFCjR34bgq+ZVAVo=",
+                "lastModified": 1792158226_u64,
+                "narHash": "sha256-JuDYlQok9ujR5TAOvSHAMbi6SwPLXk1A5KOyxI53658=",
                 "owner": "radrootslabs",
                 "repo": "lib",
                 "rev": LIB_REVISION,
@@ -299,7 +299,12 @@ fn native_release_surfaces_remain_generated_outside_the_source_tree() {
     assert!(!root.join("radroots.lib.source-lock.v1.toml").exists());
     assert!(!root.join("radroots.service.source-lock.v1.toml").exists());
     assert!(!root.join("radroots.service.source-lock.v2.toml").exists());
-    assert!(root.join("radroots.service.source-lock.v3.toml").is_file());
+    assert!(!root.join("radroots.service.source-lock.v3.toml").exists());
+    assert!(root.join("radroots.service.source_lock.v4.toml").is_file());
+    assert!(
+        root.join("contracts/release/history/radroots.service.source-lock.v3.toml")
+            .is_file()
+    );
     assert!(
         !root
             .join("contracts/services_hardening/native_release.v1.json")
@@ -334,14 +339,17 @@ fn native_release_surfaces_remain_generated_outside_the_source_tree() {
     assert!(!CONTRACT.contains("nixos-module"));
     let active: serde_json::Value =
         serde_json::from_str(ACTIVE_CONTRACT).expect("active release contract");
-    assert_eq!(active["schema_version"], 3);
-    assert_eq!(active["contract_version"], 3);
-    assert_eq!(active["predecessor"]["filename"], "native_release.v2.json");
+    assert_eq!(active["schema_version"], 4);
+    assert_eq!(active["contract_version"], 4);
+    assert_eq!(active["predecessor"]["filename"], "native_release.v3.json");
     assert_eq!(
         active["source_lock"]["filename"],
-        "radroots.service.source-lock.v3.toml"
+        "radroots.service.source_lock.v4.toml"
     );
-    assert_eq!(active["source_lock"]["nix_material"], "qualified");
+    assert_eq!(active["source_lock"]["nix_material"], "bound");
+    assert_eq!(active["toolchain"]["rust_version"], "1.99.0");
+    assert_eq!(active["nix_qualified"], false);
+    assert_eq!(active["maximums"]["source_lock_bytes"], 16_384);
     assert_eq!(active["nix_outputs"]["bundled_sqlite"], true);
     assert_eq!(active["nix_outputs"]["native_linkage_count"], 1);
 }

@@ -28,8 +28,15 @@
 ## 2. Authority and preflight
 
 - Before editing, read this file, `README`, `Cargo.toml`,
-  `radroots.service.source-lock.v3.toml`, the relevant implementation and tests,
+  `radroots.service.source_lock.v4.toml`, the relevant implementation and tests,
   and `flake.nix` or migrations when they are in scope.
+- Current compiler/source preparation uses the V4 lock and
+  `contracts/services_hardening/native_release.v4.json`. Nix inputs are bound;
+  executed current qualification remains separate. Generate a staged migration
+  with the source-locked Lib `service-source-lock --mode prepare`, verify and
+  commit it, then require its clean-source check. The unchanged archived V3
+  lock and V2/V3 declarations retain historical scope. Step 300 tooling is
+  replay-only for its original source and does not qualify current inputs.
 - `.radroots-consumer-root` is the standalone source-lock identity and must
   remain exactly `myc`. The implemented control-plane contract is
   `contracts/services_hardening/operator_contract.v1.json`.
