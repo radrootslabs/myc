@@ -48,11 +48,8 @@
           craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
           source = pkgs.lib.cleanSourceWith {
             src = ./.;
-            filter =
-              path: type:
-              craneLib.filterCargoSources path type
-              || pkgs.lib.hasSuffix ".json" (baseNameOf path)
-              || baseNameOf path == "README";
+            # Standalone tests also consume identity, policy and packaging assets.
+            filter = pkgs.lib.cleanSourceFilter;
             name = "myc-source";
           };
           commonArgs = {
