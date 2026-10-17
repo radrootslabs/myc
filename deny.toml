@@ -10,9 +10,8 @@ all-features = true
 [advisories]
 # Nostr 0.44's idna branch is never an authorization identity: Myc validates
 # relay URLs through the patched canonical URL boundary before connection.
-# nostr-relay-pool 0.44 is separately unmaintained and is removed with the
-# governed Nostr 0.45 migration.
-ignore = ["RUSTSEC-2024-0421", "RUSTSEC-2026-0243"]
+# The private native SDK is maintained; the obsolete relay-pool exception is removed.
+ignore = ["RUSTSEC-2024-0421"]
 
 [licenses]
 allow = [
@@ -56,7 +55,11 @@ skip-tree = []
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = ["https://github.com/radrootslabs/lib"]
+allow-git = [
+  "https://github.com/radrootslabs/lib",
+  "https://github.com/nostrdevkit/nostr.git",
+  "https://github.com/yukibtc/async-utility",
+]
 
 [sources.allow-org]
 github = []

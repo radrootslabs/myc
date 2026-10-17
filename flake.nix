@@ -8,7 +8,7 @@
     # that upstream fetch defect while preserving the same locked sources.
     crane.url = "github:ipetkov/crane/01bc1d404a51a0a07e9d8759cd50a7903e218c82";
     lib = {
-      url = "github:radrootslabs/lib/386e2d7e8cca95bdd0f6ce3444b5e741ea61ef8a";
+      url = "github:radrootslabs/lib/3af7814ea4f76f2cca3d33d4c2bd8a854f3fb78f";
       inputs.crane.follows = "crane";
     };
     nixpkgs.follows = "lib/nixpkgs";
@@ -131,7 +131,7 @@
             buildInfo = {
               serviceVersion = "0.1.0";
               serviceCommit = self.rev or "0000000000000000000000000000000000000000";
-              libRevision = "386e2d7e8cca95bdd0f6ce3444b5e741ea61ef8a";
+              libRevision = "3af7814ea4f76f2cca3d33d4c2bd8a854f3fb78f";
               rustVersion = "1.99.0";
               target = "x86_64-unknown-linux-gnu";
               featureProfile = "service-host";
