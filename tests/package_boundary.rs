@@ -1534,6 +1534,7 @@ fn step159_provider_delivery_is_sealed_exact_and_durability_ordered() {
     }
     for required in [
         "radroots_transport_nostr",
+        "radroots_transport_nostr_native::create_transport",
         "prepare_delivery(request)",
         "execute_prepared_delivery(prepared).await",
         "DeliveryOutcomeKind::Accepted",
@@ -1564,6 +1565,7 @@ fn step159_provider_delivery_is_sealed_exact_and_durability_ordered() {
         "pub struct myc::MycDeliveryWorker",
         "pub struct myc::MycNostrDeliveryAdapter",
         "radroots_transport_nostr::",
+        "radroots_transport_nostr_native::",
         "radroots_transport::",
     ] {
         assert!(

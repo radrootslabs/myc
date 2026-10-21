@@ -634,7 +634,9 @@ fn build_transport(
         .with_timeouts(connect_timeout, request_timeout, connect_timeout)
         .and_then(|config| config.with_max_connections(maximum_connections))
         .map_err(|_| adapter_error(MycRelayAdapterErrorKind::Configuration))?;
-    Ok(Some(NostrTransport::new(config)))
+    Ok(Some(radroots_transport_nostr_native::create_transport(
+        config,
+    )))
 }
 
 fn configuration_integer(

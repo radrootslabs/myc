@@ -17,7 +17,7 @@ const FLAKE_LOCK: &str = include_str!("../flake.lock");
 const CARGO_CONFIG: &str = include_str!("../.cargo/config.toml");
 const SYSTEMD_UNIT: &str = include_str!("../packaging/systemd/myc@.service");
 
-const LIB_REVISION: &str = "b6f927c4d484ed2f8afcf171a83f2c8f967fb4d4";
+const LIB_REVISION: &str = "a903133cdcd78b6a25687bd23c793d17d17b90c8";
 const LIB_REPOSITORY: &str = "https://github.com/radrootslabs/lib";
 
 #[test]
@@ -214,7 +214,28 @@ fn every_radroots_dependency_is_exactly_source_locked() {
         .iter()
         .filter(|(name, _)| name.starts_with("radroots_"))
         .collect::<Vec<_>>();
-    assert_eq!(radroots.len(), 11);
+    assert_eq!(
+        radroots
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<BTreeSet<_>>(),
+        [
+            "radroots_event_codec",
+            "radroots_identity",
+            "radroots_nostr",
+            "radroots_nostr_connect",
+            "radroots_runtime_paths",
+            "radroots_secrets",
+            "radroots_service_host",
+            "radroots_service_sqlite",
+            "radroots_storage",
+            "radroots_transport",
+            "radroots_transport_nostr",
+            "radroots_transport_nostr_native",
+        ]
+        .into_iter()
+        .collect()
+    );
     for (name, dependency) in radroots {
         let dependency = dependency.as_table().expect("detailed dependency");
         assert_eq!(
@@ -253,7 +274,7 @@ fn every_radroots_dependency_is_exactly_source_locked() {
 
     for required in [
         "lib = {",
-        "url = \"github:radrootslabs/lib/b6f927c4d484ed2f8afcf171a83f2c8f967fb4d4\";",
+        "url = \"github:radrootslabs/lib/a903133cdcd78b6a25687bd23c793d17d17b90c8\";",
         "inputs.crane.follows = \"crane\";",
         "systems = lib.lib.supportedSystems;",
         "nixosModules.default",
@@ -279,8 +300,8 @@ fn every_radroots_dependency_is_exactly_source_locked() {
                 "treefmt-nix": "treefmt-nix"
             },
             "locked": {
-                "lastModified": 1792224313_u64,
-                "narHash": "sha256-SdpBK4wv43TsvgNXgf81XoKCMNwCEAdCMSkbabWbWpo=",
+                "lastModified": 1792599601_u64,
+                "narHash": "sha256-7md838KxMxBzdQNo6E4uGWzq3LyH6PGHgD/FMtjA/Wc=",
                 "owner": "radrootslabs",
                 "repo": "lib",
                 "rev": LIB_REVISION,
