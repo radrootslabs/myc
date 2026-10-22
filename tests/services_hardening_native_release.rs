@@ -17,7 +17,7 @@ const FLAKE_LOCK: &str = include_str!("../flake.lock");
 const CARGO_CONFIG: &str = include_str!("../.cargo/config.toml");
 const SYSTEMD_UNIT: &str = include_str!("../packaging/systemd/myc@.service");
 
-const LIB_REVISION: &str = "a903133cdcd78b6a25687bd23c793d17d17b90c8";
+const LIB_REVISION: &str = "4b4aa8a7feaab08492c3f596df9182070ee8d814";
 const LIB_REPOSITORY: &str = "https://github.com/radrootslabs/lib";
 
 #[test]
@@ -274,7 +274,7 @@ fn every_radroots_dependency_is_exactly_source_locked() {
 
     for required in [
         "lib = {",
-        "url = \"github:radrootslabs/lib/a903133cdcd78b6a25687bd23c793d17d17b90c8\";",
+        "url = \"github:radrootslabs/lib/4b4aa8a7feaab08492c3f596df9182070ee8d814\";",
         "inputs.crane.follows = \"crane\";",
         "systems = lib.lib.supportedSystems;",
         "nixosModules.default",
@@ -300,8 +300,8 @@ fn every_radroots_dependency_is_exactly_source_locked() {
                 "treefmt-nix": "treefmt-nix"
             },
             "locked": {
-                "lastModified": 1792599601_u64,
-                "narHash": "sha256-7md838KxMxBzdQNo6E4uGWzq3LyH6PGHgD/FMtjA/Wc=",
+                "lastModified": 1792626713_u64,
+                "narHash": "sha256-THmBCeJQwtKKZaQQyjTIMfk/qw0WtuXAbo29QkkpU3Q=",
                 "owner": "radrootslabs",
                 "repo": "lib",
                 "rev": LIB_REVISION,

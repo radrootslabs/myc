@@ -1898,7 +1898,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 [[package]]
 name = "radroots_blossom"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "mediatype",
  "serde",
@@ -1910,7 +1910,7 @@ dependencies = [
 [[package]]
 name = "radroots_core"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "rust_decimal",
  "serde",
@@ -1919,7 +1919,7 @@ dependencies = [
 [[package]]
 name = "radroots_domain"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "radroots_identity",
  "zeroize",
@@ -1928,7 +1928,7 @@ dependencies = [
 [[package]]
 name = "radroots_event"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "hex",
  "jiff-tzdb",
@@ -1946,7 +1946,7 @@ dependencies = [
 [[package]]
 name = "radroots_event_codec"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "hex",
  "radroots_blossom",
@@ -1963,7 +1963,7 @@ dependencies = [
 [[package]]
 name = "radroots_identity"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "k256",
  "serde",
@@ -1973,7 +1973,7 @@ dependencies = [
 [[package]]
 name = "radroots_nostr"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "nostr 0.44.7",
  "radroots_event",
@@ -1988,7 +1988,7 @@ dependencies = [
 [[package]]
 name = "radroots_nostr_connect"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "nostr 0.44.7",
  "radroots_event",
@@ -2004,7 +2004,7 @@ dependencies = [
 [[package]]
 name = "radroots_protocol"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "radroots_identity",
  "serde",
@@ -2015,7 +2015,7 @@ dependencies = [
 [[package]]
 name = "radroots_runtime_paths"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "rustix",
  "serde",
@@ -2025,7 +2025,7 @@ dependencies = [
 [[package]]
 name = "radroots_secrets"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "chacha20poly1305",
  "serde",
@@ -2037,7 +2037,7 @@ dependencies = [
 [[package]]
 name = "radroots_service_host"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "bytes",
  "fs2",
@@ -2058,7 +2058,7 @@ dependencies = [
 [[package]]
 name = "radroots_service_sqlite"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "fs2",
  "futures",
@@ -2076,7 +2076,7 @@ dependencies = [
 [[package]]
 name = "radroots_storage"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "radroots_domain",
  "radroots_event",
@@ -2091,7 +2091,7 @@ dependencies = [
 [[package]]
 name = "radroots_trade"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "radroots_core",
  "radroots_event",
@@ -2101,7 +2101,7 @@ dependencies = [
 [[package]]
 name = "radroots_transport"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "radroots_event",
  "radroots_identity",
@@ -2112,7 +2112,7 @@ dependencies = [
 [[package]]
 name = "radroots_transport_nostr"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "async-utility",
  "async-wsocket",
@@ -2134,7 +2134,7 @@ dependencies = [
 [[package]]
 name = "radroots_transport_nostr_native"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=a903133cdcd78b6a25687bd23c793d17d17b90c8#a903133cdcd78b6a25687bd23c793d17d17b90c8"
+source = "git+https://github.com/radrootslabs/lib?rev=4b4aa8a7feaab08492c3f596df9182070ee8d814#4b4aa8a7feaab08492c3f596df9182070ee8d814"
 dependencies = [
  "futures",
  "radroots_transport",
