@@ -469,7 +469,7 @@ fn catalog_errors_are_stable_source_free_and_redacted() {
 #[test]
 fn catalog_source_is_pure_pinned_and_uses_only_the_shared_authority() {
     assert!(MANIFEST.contains(
-        "radroots_service_sqlite = { git = \"https://github.com/radrootslabs/lib\", rev = \"4b4aa8a7feaab08492c3f596df9182070ee8d814\", version = \"=0.1.0-alpha\" }"
+        "radroots_service_sqlite = { git = \"https://github.com/radrootslabs/lib\", rev = \"05ad0ff0f521535f7649027d4f3391e6464f7fa1\", version = \"=0.1.0-alpha\" }"
     ));
     assert!(LIB_SOURCE.contains("mod state_catalog;"));
     assert!(!LIB_SOURCE.contains("pub mod state_catalog;"));

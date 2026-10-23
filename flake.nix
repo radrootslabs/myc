@@ -8,7 +8,7 @@
     # that upstream fetch defect while preserving the same locked sources.
     crane.url = "github:ipetkov/crane/01bc1d404a51a0a07e9d8759cd50a7903e218c82";
     lib = {
-      url = "github:radrootslabs/lib/4b4aa8a7feaab08492c3f596df9182070ee8d814";
+      url = "github:radrootslabs/lib/05ad0ff0f521535f7649027d4f3391e6464f7fa1";
       inputs.crane.follows = "crane";
     };
     nixpkgs.follows = "lib/nixpkgs";
@@ -70,6 +70,9 @@
               version = "0.1.0";
               CARGO_PROFILE = "release";
               cargoExtraArgs = "--locked --package myc --bin myc";
+              postInstall = ''
+                install -Dm444 ${lib.outPath}/crates/domain/NOTICE "$out/share/doc/myc/NOTICE"
+              '';
             }
           );
           mkCargoCheck =
@@ -128,7 +131,7 @@
             buildInfo = {
               serviceVersion = "0.1.0";
               serviceCommit = self.rev or "0000000000000000000000000000000000000000";
-              libRevision = "4b4aa8a7feaab08492c3f596df9182070ee8d814";
+              libRevision = "05ad0ff0f521535f7649027d4f3391e6464f7fa1";
               rustVersion = "1.99.0";
               target = "x86_64-unknown-linux-gnu";
               featureProfile = "service-host";

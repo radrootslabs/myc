@@ -589,8 +589,9 @@ version = "0.8.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.mio]]
-version = "1.2.0"
+version = "1.2.4"
 criteria = "safe-to-deploy"
+notes = "Existing version-specific review debt advanced for the patched Tokio graph. Independent full-crate audit remains outstanding; current policy and runtime checks do not claim that audit. No advisory exception is added."
 
 [[exemptions.negentropy]]
 version = "0.5.1"
@@ -983,12 +984,14 @@ version = "0.1.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio]]
-version = "1.51.0"
+version = "1.53.3"
 criteria = "safe-to-deploy"
+notes = "Existing version-specific review debt advanced for the patched Tokio graph. Independent full-crate audit remains outstanding; current policy and runtime checks do not claim that audit. No advisory exception is added."
 
 [[exemptions.tokio-macros]]
-version = "2.7.0"
+version = "2.7.2"
 criteria = "safe-to-deploy"
+notes = "Existing version-specific review debt advanced for the patched Tokio graph. Independent full-crate audit remains outstanding; current policy and runtime checks do not claim that audit. No advisory exception is added."
 
 [[exemptions.tokio-rustls]]
 version = "0.26.4"

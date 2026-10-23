@@ -154,6 +154,7 @@ pub myc::MycCliPrimaryAuthorityV1::Daemon
 pub myc::MycCliPrimaryAuthorityV1::LiveUnixAdmin
 pub myc::MycCliPrimaryAuthorityV1::Offline
 pub enum myc::MycCliV1ErrorKind
+pub myc::MycCliV1ErrorKind::HelpRequested
 pub myc::MycCliV1ErrorKind::InvalidArguments
 pub myc::MycCliV1ErrorKind::InvalidCommandInput
 pub myc::MycCliV1ErrorKind::InvalidConfigPath
@@ -1018,7 +1019,8 @@ impl core::fmt::Debug for myc::MycCliInvocationV1
 pub fn myc::MycCliInvocationV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct myc::MycCliV1Error
 impl myc::MycCliV1Error
-pub const fn myc::MycCliV1Error::kind(self) -> myc::MycCliV1ErrorKind
+pub fn myc::MycCliV1Error::help_text(&self) -> core::option::Option<&str>
+pub const fn myc::MycCliV1Error::kind(&self) -> myc::MycCliV1ErrorKind
 impl core::error::Error for myc::MycCliV1Error
 impl core::fmt::Debug for myc::MycCliV1Error
 pub fn myc::MycCliV1Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result

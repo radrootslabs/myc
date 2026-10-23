@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::process::ExitCode;
+use std::{io::Write as _, process::ExitCode};
 
 use myc::{MycLogRecord, MycProcessResult};
 
@@ -62,7 +62,15 @@ fn main() -> ExitCode {
             eprintln!("{}", MycLogRecord::process_result(result));
             result.exit_code()
         }
-        Err(_) => {
+        Err(error) => {
+            if let Some(help) = error.help_text() {
+                if std::io::stdout().lock().write_all(help.as_bytes()).is_ok() {
+                    return ExitCode::SUCCESS;
+                }
+                let result = MycProcessResult::InputOrConfiguration;
+                eprintln!("{}", MycLogRecord::process_result(result));
+                return result.exit_code();
+            }
             let result = MycProcessResult::InputOrConfiguration;
             eprintln!("{}", MycLogRecord::process_result(result));
             result.exit_code()

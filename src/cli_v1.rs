@@ -300,6 +300,7 @@ impl fmt::Debug for MycCliExecutionPlanV1 {
 /// Stable source-free classification for command-line admission failures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MycCliV1ErrorKind {
+    HelpRequested,
     InvalidArguments,
     InvalidInstance,
     InvalidRepoLocalRoot,
@@ -311,6 +312,7 @@ pub enum MycCliV1ErrorKind {
 impl MycCliV1ErrorKind {
     const fn message(self) -> &'static str {
         match self {
+            Self::HelpRequested => "command-line help requested",
             Self::InvalidArguments => "command-line arguments are invalid",
             Self::InvalidInstance => "instance identifier is invalid",
             Self::InvalidRepoLocalRoot => "repo-local profile requires a valid absolute root",
@@ -323,21 +325,33 @@ impl MycCliV1ErrorKind {
     }
 }
 
-/// One safe command-line admission failure.
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// One safe command-line admission outcome requiring process-level handling.
+#[derive(Clone, PartialEq, Eq)]
 pub struct MycCliV1Error {
     kind: MycCliV1ErrorKind,
+    help_text: Option<Box<str>>,
 }
 
 impl MycCliV1Error {
     const fn new(kind: MycCliV1ErrorKind) -> Self {
-        Self { kind }
+        Self {
+            kind,
+            help_text: None,
+        }
     }
 
     /// Returns the stable failure classification.
     #[must_use]
-    pub const fn kind(self) -> MycCliV1ErrorKind {
+    pub const fn kind(&self) -> MycCliV1ErrorKind {
         self.kind
+    }
+
+    /// Returns bounded static command help, without caller argument text.
+    /// The process owner may print this on stdout and return success without
+    /// executing a command. Display and Debug remain source-free diagnostics.
+    #[must_use]
+    pub fn help_text(&self) -> Option<&str> {
+        self.help_text.as_deref()
     }
 }
 
@@ -428,16 +442,26 @@ impl fmt::Debug for MycCliInvocationV1 {
 
 /// Parses the exact hardened Myc bootstrap and command tree once.
 ///
-/// The iterator must include the program name as its first element. Clap's
-/// dependency-owned diagnostic is deliberately discarded so caller-controlled
-/// argument text cannot escape through this crate's stable error boundary.
+/// The iterator must include the program name as its first element. Only bounded
+/// static help is retained separately; all other dependency-owned diagnostics are
+/// discarded so caller-controlled argument text cannot escape the error boundary.
 pub fn parse_myc_cli_v1_from<I, T>(arguments: I) -> Result<MycCliInvocationV1, MycCliV1Error>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let parsed = RawMycCliV1::try_parse_from(arguments)
-        .map_err(|_| MycCliV1Error::new(MycCliV1ErrorKind::InvalidArguments))?;
+    let parsed = RawMycCliV1::try_parse_from(arguments).map_err(|error| {
+        if error.kind() == clap::error::ErrorKind::DisplayHelp {
+            let help = error.to_string();
+            if help.len() <= 16 * 1024 {
+                return MycCliV1Error {
+                    kind: MycCliV1ErrorKind::HelpRequested,
+                    help_text: Some(help.into_boxed_str()),
+                };
+            }
+        }
+        MycCliV1Error::new(MycCliV1ErrorKind::InvalidArguments)
+    })?;
     let profile = parsed
         .profile
         .ok_or_else(|| MycCliV1Error::new(MycCliV1ErrorKind::InvalidArguments))?
@@ -572,7 +596,7 @@ fn valid_absolute_path(path: &Path, require_non_root: bool) -> bool {
 }
 
 #[derive(Parser)]
-#[command(name = "myc", disable_help_subcommand = true)]
+#[command(name = "myc", bin_name = "myc", disable_help_subcommand = true)]
 struct RawMycCliV1 {
     #[arg(long, global = true, value_enum)]
     profile: Option<RawProfile>,
