@@ -2,12 +2,12 @@ schema = "radroots.service.source_lock.v4"
 contract_version = 4
 service = "myc"
 repository = "https://github.com/radrootslabs/lib"
-revision = "05ad0ff0f521535f7649027d4f3391e6464f7fa1"
+revision = "e55c1749902811732167a2ce5c099e22e964624f"
 architecture = "radroots.crates.release.v2"
 workspace_catalog_sha256 = "424909855b2af1ffc8fa6bbfd5aa0e6d17642662c18212fef4660e71700fbfc8"
 version = "0.1.0-alpha"
-source_archive_sha256 = "c8c148f2e6007ac5ff13d2edb070bf8aff643661b9a03ff7ab1f75806ce15548"
-cargo_lock_sha256 = "4bc22845772c1b9290f9e172f4f7c9529fb61b5b754644eb2479ddc49a14b4b4"
+source_archive_sha256 = "5e6005a01402ed60225ec5207cb0db465a0d1cd4c8107e0505d2af0762dc57c0"
+cargo_lock_sha256 = "072144b26b34e139668fcde9f4a4c02dd134710361a59b30147290f7823dbfa6"
 rust_version = "1.99.0"
 host_feature_profile = "service-host"
 
@@ -33,12 +33,12 @@ trailer = "two_zero_blocks"
 
 [nix]
 material = "bound"
-lib_revision = "05ad0ff0f521535f7649027d4f3391e6464f7fa1"
+lib_revision = "e55c1749902811732167a2ce5c099e22e964624f"
 supported_systems = ["aarch64-darwin", "x86_64-linux"]
 
 [nix.public_input_lock]
 path = "flake.lock"
-sha256 = "874c4c76b897463ead34390c54ae82d85633e1bfe0ad058a282ca48ac7874166"
+sha256 = "3bc70d8c304dd7e26a9dfec3faa948b341f2fb8c4210d08d090c86b407ff5fca"
 binding = "exact_regular_file_bytes"
 mutable_reference = "forbidden"
 lib_input = "lib"

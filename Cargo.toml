@@ -58,18 +58,18 @@ futures-executor = "0.3"
 hex = "0.4"
 jsonschema = { version = "0.48.1", default-features = false }
 nostr = { version = "0.44.2", features = ["nip04", "nip44", "nip46", "nip49"] }
-radroots_identity = { git = "https://github.com/radrootslabs/lib", rev = "05ad0ff0f521535f7649027d4f3391e6464f7fa1", version = "=0.1.0-alpha" }
-radroots_nostr = { git = "https://github.com/radrootslabs/lib", rev = "05ad0ff0f521535f7649027d4f3391e6464f7fa1", version = "=0.1.0-alpha", features = ["events"] }
-radroots_nostr_connect = { git = "https://github.com/radrootslabs/lib", rev = "05ad0ff0f521535f7649027d4f3391e6464f7fa1", version = "=0.1.0-alpha" }
-radroots_event_codec = { git = "https://github.com/radrootslabs/lib", rev = "05ad0ff0f521535f7649027d4f3391e6464f7fa1", version = "=0.1.0-alpha", features = ["json"] }
-radroots_runtime_paths = { git = "https://github.com/radrootslabs/lib", rev = "05ad0ff0f521535f7649027d4f3391e6464f7fa1", version = "=0.1.0-alpha" }
-radroots_service_host = { git = "https://github.com/radrootslabs/lib", rev = "05ad0ff0f521535f7649027d4f3391e6464f7fa1", version = "=0.1.0-alpha" }
-radroots_service_sqlite = { git = "https://github.com/radrootslabs/lib", rev = "05ad0ff0f521535f7649027d4f3391e6464f7fa1", version = "=0.1.0-alpha" }
-radroots_secrets = { git = "https://github.com/radrootslabs/lib", rev = "05ad0ff0f521535f7649027d4f3391e6464f7fa1", version = "=0.1.0-alpha", features = ["std"] }
-radroots_storage = { git = "https://github.com/radrootslabs/lib", rev = "05ad0ff0f521535f7649027d4f3391e6464f7fa1", version = "=0.1.0-alpha", default-features = false }
-radroots_transport = { git = "https://github.com/radrootslabs/lib", rev = "05ad0ff0f521535f7649027d4f3391e6464f7fa1", version = "=0.1.0-alpha", default-features = false }
-radroots_transport_nostr = { git = "https://github.com/radrootslabs/lib", rev = "05ad0ff0f521535f7649027d4f3391e6464f7fa1", version = "=0.1.0-alpha" }
-radroots_transport_nostr_native = { git = "https://github.com/radrootslabs/lib", rev = "05ad0ff0f521535f7649027d4f3391e6464f7fa1", version = "=0.1.0-alpha" }
+radroots_identity = { git = "https://github.com/radrootslabs/lib", rev = "e55c1749902811732167a2ce5c099e22e964624f", version = "=0.1.0-alpha" }
+radroots_nostr = { git = "https://github.com/radrootslabs/lib", rev = "e55c1749902811732167a2ce5c099e22e964624f", version = "=0.1.0-alpha", features = ["events"] }
+radroots_nostr_connect = { git = "https://github.com/radrootslabs/lib", rev = "e55c1749902811732167a2ce5c099e22e964624f", version = "=0.1.0-alpha" }
+radroots_event_codec = { git = "https://github.com/radrootslabs/lib", rev = "e55c1749902811732167a2ce5c099e22e964624f", version = "=0.1.0-alpha", features = ["json"] }
+radroots_runtime_paths = { git = "https://github.com/radrootslabs/lib", rev = "e55c1749902811732167a2ce5c099e22e964624f", version = "=0.1.0-alpha" }
+radroots_service_host = { git = "https://github.com/radrootslabs/lib", rev = "e55c1749902811732167a2ce5c099e22e964624f", version = "=0.1.0-alpha" }
+radroots_service_sqlite = { git = "https://github.com/radrootslabs/lib", rev = "e55c1749902811732167a2ce5c099e22e964624f", version = "=0.1.0-alpha" }
+radroots_secrets = { git = "https://github.com/radrootslabs/lib", rev = "e55c1749902811732167a2ce5c099e22e964624f", version = "=0.1.0-alpha", features = ["std"] }
+radroots_storage = { git = "https://github.com/radrootslabs/lib", rev = "e55c1749902811732167a2ce5c099e22e964624f", version = "=0.1.0-alpha", default-features = false }
+radroots_transport = { git = "https://github.com/radrootslabs/lib", rev = "e55c1749902811732167a2ce5c099e22e964624f", version = "=0.1.0-alpha", default-features = false }
+radroots_transport_nostr = { git = "https://github.com/radrootslabs/lib", rev = "e55c1749902811732167a2ce5c099e22e964624f", version = "=0.1.0-alpha" }
+radroots_transport_nostr_native = { git = "https://github.com/radrootslabs/lib", rev = "e55c1749902811732167a2ce5c099e22e964624f", version = "=0.1.0-alpha" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value"] }
 sha2 = "0.10"
